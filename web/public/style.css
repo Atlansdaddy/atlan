@@ -103,6 +103,18 @@ header{display:flex;align-items:center;gap:10px;padding:12px 14px 10px;border-bo
 .iconbtn{width:38px;height:38px;border-radius:9px;display:grid;place-items:center;font-size:15px;flex-shrink:0}
 .viewport{flex:1;min-height:250px;border:1px solid var(--line);border-radius:14px;background:#fff;width:100%}
 
+.console{border:1px solid var(--line);border-radius:12px;background:var(--surface);
+  font-family:var(--mono);font-size:10.5px;line-height:1.65;padding:8px 11px;
+  max-height:120px;min-height:54px;overflow-y:auto;flex-shrink:0}
+.console .cl{color:var(--muted);word-break:break-all}
+.console .cl.warn{color:var(--warn)}
+.console .cl.error{color:var(--err)}
+.console .cl .ct{opacity:.55;margin-right:6px}
+.snapbar{display:flex;gap:8px;flex-shrink:0}
+.snapbar .btn:first-child{flex:1}
+.seen{font-family:var(--mono);font-size:10px;color:var(--muted);flex-shrink:0}
+.seen b{color:var(--accent)}
+
 /* terminal */
 #term{flex:1;min-height:0;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#000;padding:4px}
 .xterm{height:100%}

@@ -83,6 +83,11 @@
       }
       case 'perm.req': addPerm(m); break;
       case 'atlan.mood': setMood(m.mood); break;
+      case 'preview.snapped':
+        $('snapBtn').textContent = '📸 Snapshot → Claude';
+        updateSeen(m.count);
+        addMsg('claude', `Snapshot taken — I'll see it with your next message.`);
+        break;
       case 'pty.data': term?.write(m.data); break;
       case 'pty.exit': term?.writeln('\r\n[tmux session ended — reopen the tab to restart]'); break;
     }
@@ -135,6 +140,7 @@
     send({ t: 'chat.send', text, cwd: $('projSel').value, model: $('modelSel').value });
     input.value = '';
     $('sendBtn').disabled = true;
+    errCount = 0; updateSeen(); // queued preview context flushes into this turn
   }
   $('sendBtn').addEventListener('click', sendChat);
   $('chatInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') sendChat(); });
@@ -176,7 +182,62 @@
   }
 
   // ── preview ──
-  $('previewGo').addEventListener('click', () => { $('previewFrame').src = $('previewUrl').value; });
+  const PROXY = `http://${location.hostname}:4590/`;
+  let errCount = 0;
+  function loadPreview() {
+    fetch('/api/preview/target', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ url: $('previewUrl').value.trim() }),
+    }).then((r) => r.json()).then((j) => {
+      if (j.error) return addConsoleLine('error', j.error);
+      $('previewFrame').src = PROXY + '?t=' + Date.now();
+    }).catch(() => addConsoleLine('error', 'cockpit server unreachable'));
+  }
+  $('previewGo').addEventListener('click', loadPreview);
+  $('previewUrl').addEventListener('keydown', (e) => { if (e.key === 'Enter') loadPreview(); });
+
+  function addConsoleLine(level, text) {
+    const box = $('previewConsole');
+    if (box.firstChild?.classList?.contains('hint')) box.innerHTML = '';
+    const div = document.createElement('div');
+    div.className = 'cl ' + level;
+    const t = document.createElement('span');
+    t.className = 'ct';
+    t.textContent = new Date().toLocaleTimeString([], { hour12: false });
+    div.append(t, document.createTextNode(text));
+    box.append(div);
+    while (box.children.length > 80) box.firstChild.remove();
+    box.scrollTop = box.scrollHeight;
+  }
+  $('consoleClear').addEventListener('click', () => { $('previewConsole').innerHTML = ''; errCount = 0; updateSeen(); });
+
+  window.addEventListener('message', (e) => {
+    const m = e.data;
+    if (!m || m.__atlan !== true) return;
+    if (m.kind === 'ready') addConsoleLine('log', '⚓ atlan hooked into ' + m.url);
+    if (m.kind === 'console') {
+      addConsoleLine(m.level, m.text);
+      send({ t: 'preview.log', level: m.level, text: m.text });
+      if (m.level === 'error') { errCount++; updateSeen(); }
+    }
+    if (m.kind === 'snapshot') send({ t: 'preview.snap', data: m.data });
+  });
+
+  $('snapBtn').addEventListener('click', () => {
+    const w = $('previewFrame').contentWindow;
+    if (!w) return addConsoleLine('error', 'nothing loaded');
+    w.postMessage({ __atlan: 'snapshot' }, '*');
+    $('snapBtn').textContent = '📸 …';
+  });
+
+  function updateSeen(snapCount) {
+    $('seenLine').innerHTML = '';
+    const bits = [];
+    if (errCount) bits.push(`${errCount} error${errCount > 1 ? 's' : ''} queued for Claude's next turn`);
+    if (snapCount) bits.push(`<b>${snapCount} snapshot${snapCount > 1 ? 's' : ''}</b> attached to next turn`);
+    $('seenLine').innerHTML = bits.join(' · ');
+  }
 
   // ── doctor ──
   function loadDoctor() {

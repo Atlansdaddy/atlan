@@ -45,11 +45,16 @@
 
     <section class="screen" id="s-preview">
       <div class="ptools">
-        <input class="url" id="previewUrl" value="http://127.0.0.1:5173" spellcheck="false">
+        <input class="url" id="previewUrl" value="http://127.0.0.1:5173" spellcheck="false" enterkeyhint="go">
         <button class="btn iconbtn" id="previewGo" title="Load">↻</button>
       </div>
       <iframe id="previewFrame" class="viewport" sandbox="allow-scripts allow-same-origin allow-forms" title="Preview"></iframe>
-      <div class="hint">M2 adds console capture + snapshot-to-Claude. For now: live iframe of any local dev server.</div>
+      <div class="console" id="previewConsole"><div class="hint">console output from the previewed app lands here — errors auto-attach to Claude's next turn</div></div>
+      <div class="snapbar">
+        <button class="btn hot" id="snapBtn">📸 Snapshot → Claude</button>
+        <button class="btn ghost" id="consoleClear">clear</button>
+      </div>
+      <div class="seen" id="seenLine"></div>
     </section>
 
     <section class="screen" id="s-term">
