@@ -1,0 +1,10 @@
+{
+  "name": "Atlan",
+  "short_name": "Atlan",
+  "description": "Mid-Atlantic AI cockpit — Claude Code and friends, on the phone.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#020c18",
+  "theme_color": "#020c18",
+  "icons": [{ "src": "img/atlan-bot.svg", "sizes": "any", "type": "image/svg+xml" }]
+}

@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#020c18">
+<title>Atlan</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="img/atlan-bot.svg">
+<link rel="stylesheet" href="vendor/xterm.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="phone">
+  <div class="bubbles"><i></i><i></i><i></i><i></i><i></i></div>
+
+  <header>
+    <div class="atlan" id="atlanWrap"><img src="img/atlan-bot.svg" alt="Atlan" id="atlanImg"></div>
+    <div class="head-mid">
+      <div class="wordmark">At<em>la</em>n</div>
+      <div class="atlan-line" id="atlanLine">The water's calm, boss. What are we building today?</div>
+    </div>
+    <div class="sess" id="sessInfo"><span class="dot" id="connDot"></span><b id="projName">no project</b><br><span id="sessMeta">connecting…</span></div>
+  </header>
+
+  <div class="screens">
+
+    <section class="screen active" id="s-chat">
+      <div class="chatlog" id="chatlog">
+        <div class="msg claude"><div class="who">Atlan</div>Pick a project below, then talk to Claude Code. Every session here can be picked up in the terminal with <code>claude --resume</code> — tap the session id to copy the command.</div>
+      </div>
+      <div class="projbar">
+        <select id="projSel"><option value="/root">/root</option></select>
+        <select id="modelSel">
+          <option value="claude-fable-5">fable-5</option>
+          <option value="claude-sonnet-5">sonnet-5</option>
+          <option value="claude-haiku-4-5-20251001">haiku-4.5</option>
+        </select>
+      </div>
+      <div class="composer">
+        <input id="chatInput" placeholder="Message Claude Code…" autocomplete="off">
+        <button class="btn hot send" id="sendBtn">➤</button>
+      </div>
+    </section>
+
+    <section class="screen" id="s-preview">
+      <div class="ptools">
+        <input class="url" id="previewUrl" value="http://127.0.0.1:5173" spellcheck="false">
+        <button class="btn iconbtn" id="previewGo" title="Load">↻</button>
+      </div>
+      <iframe id="previewFrame" class="viewport" sandbox="allow-scripts allow-same-origin allow-forms" title="Preview"></iframe>
+      <div class="hint">M2 adds console capture + snapshot-to-Claude. For now: live iframe of any local dev server.</div>
+    </section>
+
+    <section class="screen" id="s-term">
+      <div id="term"></div>
+      <div class="hint">This is tmux session <code>atlan-main</code> — run <code>tmux attach -t atlan-main</code> in Termux to take over on the CLI, any time. What you do there shows here, and vice versa.</div>
+    </section>
+
+    <section class="screen" id="s-build">
+      <div class="eyebrow">Build</div>
+      <div class="hint">M3 wires the one-button APK pipeline here (qemu-aapt2 recipe, build stamp, install link). Until then: use the Terminal tab.</div>
+    </section>
+
+    <section class="screen" id="s-doctor">
+      <div class="eyebrow">Doctor — the proot boundary, checked</div>
+      <div id="doctorList" class="doctor-list"><div class="hint">running checks…</div></div>
+      <button class="btn" id="doctorBtn">Run doctor again</button>
+      <div class="lore">ATLAN OS v0.1 · first ignited April 2025<br><span>“From the dark, it learned the light.”</span></div>
+    </section>
+  </div>
+
+  <nav>
+    <button class="active" data-s="s-chat"><span class="ic">◆</span><span class="lb">Chat</span></button>
+    <button data-s="s-preview"><span class="ic">▣</span><span class="lb">Preview</span></button>
+    <button data-s="s-term"><span class="ic">❯_</span><span class="lb">Term</span></button>
+    <button data-s="s-build"><span class="ic">⚒</span><span class="lb">Build</span></button>
+    <button data-s="s-doctor"><span class="ic">✚</span><span class="lb">Doctor</span></button>
+  </nav>
+</div>
+<script src="vendor/xterm.js"></script>
+<script src="vendor/addon-fit.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

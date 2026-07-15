@@ -1,0 +1,10 @@
+{
+  "name": "atlan",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": ["server", "web"],
+  "scripts": {
+    "dev": "npm run dev -w server",
+    "web": "npm run dev -w web"
+  }
+}
