@@ -61,7 +61,7 @@
   let sessionId = null;
   function handle(m) {
     switch (m.t) {
-      case 'chat.msg': addMsg(m.role, m.text); break;
+      case 'chat.msg': addMsg(m.role, m.text, m.engine); break;
       case 'chat.err': addMsg('err', m.msg); break;
       case 'tool.use': addTool(m.name, m.input); break;
       case 'chat.session':
@@ -69,6 +69,14 @@
         $('sessMeta').textContent = `session ${m.id.slice(0, 8)}`;
         break;
       case 'chat.result': {
+        if (m.brain) {
+          const bl = document.createElement('div');
+          bl.className = 'sessline';
+          bl.textContent = `— ${m.brain}${m.tokens ? ` · ${m.tokens} tok` : ''} —`;
+          chatlog.append(bl); scroll();
+          $('sendBtn').disabled = false;
+          break;
+        }
         sessionId = m.session ?? sessionId;
         const line = document.createElement('div');
         line.className = 'sessline';
@@ -93,17 +101,33 @@
     }
   }
 
-  function addMsg(role, text) {
+  function addMsg(role, text, engineLabel) {
     const div = document.createElement('div');
     div.className = 'msg ' + (role === 'user' ? 'user' : role === 'err' ? 'err' : 'claude');
-    if (role === 'claude') {
+    if (role === 'claude' || role === 'brain') {
       const who = document.createElement('div');
-      who.className = 'who'; who.textContent = 'Claude';
+      who.className = 'who'; who.textContent = role === 'brain' ? (engineLabel || 'brain') + ' · chat only' : 'Claude';
       div.append(who);
     }
     div.append(document.createTextNode(text));
     chatlog.append(div); scroll();
   }
+
+  // engine roster → fill the switcher's local/cloud groups
+  function loadEngines() {
+    fetch('/api/engines').then((r) => r.json()).then((roster) => {
+      const ogLocal = $('ogLocal'), ogCloud = $('ogCloud');
+      ogLocal.innerHTML = ''; ogCloud.innerHTML = '';
+      for (const e of roster) {
+        const o = document.createElement('option');
+        o.value = `${e.id}|${e.model}`;
+        o.textContent = e.label + (e.ready ? '' : ` — needs ${e.needs}`);
+        o.disabled = !e.ready;
+        (e.id === 'local' ? ogLocal : ogCloud).append(o);
+      }
+    }).catch(() => {});
+  }
+  loadEngines();
   function addTool(name, input) {
     const div = document.createElement('div');
     div.className = 'toolchip';
@@ -137,7 +161,8 @@
     const text = input.value.trim();
     if (!text) return;
     addMsg('user', text);
-    send({ t: 'chat.send', text, cwd: $('projSel').value, model: $('modelSel').value });
+    const [engine, model] = $('modelSel').value.split('|');
+    send({ t: 'chat.send', text, cwd: $('projSel').value, engine, model });
     input.value = '';
     $('sendBtn').disabled = true;
     errCount = 0; updateSeen(); // queued preview context flushes into this turn

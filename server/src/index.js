@@ -9,6 +9,7 @@ import { ClaudeSession } from './claudeEngine.js';
 import { openPty, writePty, resizePty } from './pty.js';
 import { runDoctor } from './doctor.js';
 import { startPreviewProxy, setPreviewTarget, getPreviewTarget } from './preview.js';
+import { engineRoster, brainChat } from './brains.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const WEB = join(__dirname, '../../web/public');
@@ -22,6 +23,8 @@ app.use(express.static(WEB));
 app.use(express.json({ limit: '1mb' }));
 
 app.get('/api/doctor', async (_req, res) => res.json(await runDoctor()));
+
+app.get('/api/engines', async (_req, res) => res.json(await engineRoster()));
 
 app.get('/api/preview/target', (_req, res) => res.json({ url: getPreviewTarget() }));
 app.post('/api/preview/target', (req, res) => {
@@ -56,6 +59,7 @@ const wss = new WebSocketServer({ server, path: '/ws' });
 wss.on('connection', (ws) => {
   const send = (obj) => { if (ws.readyState === 1) ws.send(JSON.stringify(obj)); };
   let claude = null;
+  const brainHistory = new Map();
   // Preview context that auto-attaches to the next turn: errors since last
   // turn + any snapshots taken. Logs/warns stay in the UI only.
   const pending = { errors: [], snaps: [] };
@@ -65,20 +69,38 @@ wss.on('connection', (ws) => {
     try { m = JSON.parse(raw); } catch { return; }
     switch (m.t) {
       case 'chat.send': {
-        if (!claude || (m.cwd && claude.cwd !== m.cwd)) {
-          claude = new ClaudeSession({ cwd: m.cwd || '/root', model: m.model || 'claude-fable-5', send });
-        }
-        if (m.model) claude.model = m.model;
         let text = m.text;
         if (pending.errors.length) {
           text += `\n\n[Atlan preview console — errors since last turn, from ${getPreviewTarget()}]\n`
             + pending.errors.slice(-12).map((e) => `• ${e}`).join('\n');
         }
-        for (const p of pending.snaps) {
-          text += `\n\n[Atlan preview snapshot saved at ${p} — Read that file to SEE the current preview.]`;
+        const isClaude = !m.engine || m.engine === 'claude';
+        if (isClaude) {
+          for (const p of pending.snaps) {
+            text += `\n\n[Atlan preview snapshot saved at ${p} — Read that file to SEE the current preview.]`;
+          }
         }
-        pending.errors = []; pending.snaps = [];
-        claude.prompt(text);
+        pending.errors = []; pending.snaps = isClaude ? [] : pending.snaps;
+
+        if (isClaude) {
+          if (!claude || (m.cwd && claude.cwd !== m.cwd)) {
+            claude = new ClaudeSession({ cwd: m.cwd || '/root', model: m.model || 'claude-fable-5', send });
+          }
+          if (m.model) claude.model = m.model;
+          claude.prompt(text);
+        } else {
+          // Brains keep their own short history per connection+provider so a
+          // conversation holds together; snapshots stay queued for Claude.
+          const h = brainHistory.get(m.engine) ?? [
+            { role: 'system', content: 'You are a helpful engineering brain inside Atlan, a phone cockpit. Be concise. You have no tools or file access — say so if asked to act.' },
+          ];
+          h.push({ role: 'user', content: text });
+          brainChat({ provider: m.engine, model: m.model, history: h, send }).then((reply) => {
+            if (reply) h.push({ role: 'assistant', content: reply });
+            while (h.length > 21) h.splice(1, 2); // keep system + last 10 exchanges
+            brainHistory.set(m.engine, h);
+          });
+        }
         break;
       }
       case 'preview.log':
