@@ -1,8 +1,4 @@
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
+import { getStoredKey } from './keys.js';
 
 // "Brains" = chat-only engines (no tools, no files) behind ONE OpenAI-compat
 // adapter — base-URL swap per provider. Claude Code stays the only agent
@@ -34,14 +30,10 @@ const PROVIDERS = {
   },
 };
 
-// Keys: env wins, /root/atlan/keys.json (gitignored) as fallback.
+// Keys: env wins, encrypted store (Settings screen) as fallback.
 function getKey(keyEnv) {
   if (!keyEnv) return null;
-  if (process.env[keyEnv]) return process.env[keyEnv];
-  try {
-    const keys = JSON.parse(readFileSync(join(__dirname, '../../keys.json'), 'utf8'));
-    return keys[keyEnv] ?? null;
-  } catch { return null; }
+  return process.env[keyEnv] || getStoredKey(keyEnv);
 }
 
 export async function engineRoster() {
@@ -66,7 +58,7 @@ export async function brainChat({ provider, model, history, send }) {
   if (!p) return send({ t: 'chat.err', msg: `unknown engine: ${provider}` });
   const key = getKey(p.keyEnv);
   if (p.keyEnv && !key) {
-    return send({ t: 'chat.err', msg: `${p.label} needs ${p.keyEnv} — add it to /root/atlan/keys.json or the environment.` });
+    return send({ t: 'chat.err', msg: `${p.label} needs a key — drop it in Doctor → Engine keys.` });
   }
   try {
     const res = await fetch(`${p.base}/chat/completions`, {

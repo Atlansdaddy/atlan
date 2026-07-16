@@ -68,14 +68,22 @@
     </section>
 
     <section class="screen" id="s-build">
-      <div class="eyebrow">Build</div>
-      <div class="hint">M3 wires the one-button APK pipeline here (qemu-aapt2 recipe, build stamp, install link). Until then: use the Terminal tab.</div>
+      <div class="eyebrow">Project — uses the Chat tab's selection</div>
+      <div class="hint" id="buildProj">/root</div>
+      <button class="btn hot bigbuild" id="buildBtn">◉ Build APK — surface it</button>
+      <div class="buildlog" id="buildLog"><div class="hint">the full recipe streams here: web build (CAP_BUILD=1) → cap sync → gradle with the qemu-aapt2 shim</div></div>
+      <div id="apkCard"></div>
     </section>
 
     <section class="screen" id="s-doctor">
-      <div class="eyebrow">Doctor — the proot boundary, checked</div>
+      <div class="eyebrow">Engine keys — encrypted at rest, never shown back</div>
+      <div id="keysList" class="doctor-list"></div>
+      <div class="eyebrow" style="margin-top:6px">Doctor — the proot boundary, checked</div>
       <div id="doctorList" class="doctor-list"><div class="hint">running checks…</div></div>
       <button class="btn" id="doctorBtn">Run doctor again</button>
+      <div class="eyebrow" style="margin-top:6px">Preflight — must be green before any deploy or tunnel</div>
+      <div id="preflightList" class="doctor-list"></div>
+      <div class="hint" id="preflightVerdict"></div>
       <div class="lore">ATLAN OS v0.1 · first ignited April 2025<br><span>“From the dark, it learned the light.”</span></div>
     </section>
   </div>

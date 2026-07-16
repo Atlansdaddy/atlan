@@ -11,7 +11,7 @@
     document.querySelectorAll('.screen').forEach((s) => s.classList.remove('active'));
     $(b.dataset.s).classList.add('active');
     if (b.dataset.s === 's-term') initTerm();
-    if (b.dataset.s === 's-doctor') loadDoctor();
+    if (b.dataset.s === 's-doctor') { loadDoctor(); loadKeys(); loadPreflight(); }
   }));
 
   // ── Atlan mood ──
@@ -96,6 +96,30 @@
         updateSeen(m.count);
         addMsg('claude', `Snapshot taken — I'll see it with your next message.`);
         break;
+      case 'build.start':
+        $('buildBtn').disabled = true;
+        $('buildLog').innerHTML = '';
+        addBuildLine(`⚓ ${m.proj} ${m.stamp} — diving…`, 'bl-hi');
+        break;
+      case 'build.log': {
+        const cls = /BUILD SUCCESSFUL|✓|──/.test(m.line) ? 'bl-ok' : /error|FAILURE|Exception/i.test(m.line) ? 'bl-hi' : '';
+        addBuildLine(m.line, cls);
+        break;
+      }
+      case 'build.done': {
+        $('buildBtn').disabled = false;
+        addBuildLine(`surfaced in ${m.secs}s`, 'bl-ok');
+        $('apkCard').innerHTML = `<div class="apkcard">
+          <div class="top"><span class="fn"></span><span class="stamp">${m.stamp}</span></div>
+          <div class="meta">${m.mb} MB · ${m.secs}s · unique filename (stale-cache dodge)</div>
+          <a class="btn hot" href="${m.url}" download>Install — download & open</a></div>`;
+        $('apkCard').querySelector('.fn').textContent = m.name;
+        break;
+      }
+      case 'build.err':
+        $('buildBtn').disabled = false;
+        addBuildLine(m.msg, 'bl-hi');
+        break;
       case 'pty.data': term?.write(m.data); break;
       case 'pty.exit': term?.writeln('\r\n[tmux session ended — reopen the tab to restart]'); break;
     }
@@ -170,6 +194,22 @@
   $('sendBtn').addEventListener('click', sendChat);
   $('chatInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') sendChat(); });
 
+  // ── build ──
+  function addBuildLine(text, cls) {
+    const log = $('buildLog');
+    if (log.firstChild?.classList?.contains('hint')) log.innerHTML = '';
+    const div = document.createElement('div');
+    if (cls) div.className = cls;
+    div.textContent = text;
+    log.append(div);
+    while (log.children.length > 400) log.firstChild.remove();
+    log.scrollTop = log.scrollHeight;
+  }
+  $('buildBtn').addEventListener('click', () => {
+    send({ t: 'build.start', path: $('projSel').value });
+    setMood('building');
+  });
+
   // ── projects ──
   fetch('/api/projects').then((r) => r.json()).then((list) => {
     for (const p of list) {
@@ -180,6 +220,7 @@
   }).catch(() => {});
   $('projSel').addEventListener('change', () => {
     $('projName').textContent = $('projSel').value.split('/').pop() || '/root';
+    $('buildProj').textContent = $('projSel').value;
     sessionId = null; // new cwd = new session store
   });
 
@@ -264,6 +305,38 @@
     $('seenLine').innerHTML = bits.join(' · ');
   }
 
+  // ── engine keys ──
+  const KEY_LABELS = {
+    GEMINI_API_KEY: 'Gemini', OPENAI_API_KEY: 'OpenAI', DEEPSEEK_API_KEY: 'DeepSeek',
+    XAI_API_KEY: 'xAI Grok', MISTRAL_API_KEY: 'Mistral', MOONSHOT_API_KEY: 'Kimi', ANTHROPIC_API_KEY: 'Anthropic (optional — OAuth already works)',
+  };
+  function loadKeys() {
+    fetch('/api/keys').then((r) => r.json()).then((list) => {
+      const box = $('keysList');
+      box.innerHTML = '';
+      for (const k of list) {
+        const row = document.createElement('div');
+        row.className = 'keyrow';
+        row.innerHTML = `<span class="kname"></span><input type="password" placeholder="${k.set ? 'saved ' + k.hint + ' — paste to replace' : 'paste key'}" autocomplete="off">
+          <span class="kset">${k.set ? '● ' + (k.source === 'env' ? 'env' : 'set') : ''}</span><button class="btn">Save</button>`;
+        row.querySelector('.kname').textContent = KEY_LABELS[k.env] ?? k.env;
+        const input = row.querySelector('input');
+        row.querySelector('button').addEventListener('click', () => {
+          fetch('/api/keys', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ env: k.env, value: input.value.trim() }),
+          }).then((r) => r.json()).then((j) => {
+            if (j.error) return addMsg('err', j.error);
+            input.value = '';
+            loadKeys(); loadEngines(); // refresh switcher availability
+          });
+        });
+        box.append(row);
+      }
+    }).catch(() => {});
+  }
+
   // ── doctor ──
   function loadDoctor() {
     const list = $('doctorList');
@@ -283,7 +356,26 @@
       if (bad) setMood('alarmed');
     }).catch(() => { list.innerHTML = '<div class="hint">doctor endpoint unreachable</div>'; });
   }
-  $('doctorBtn').addEventListener('click', loadDoctor);
+  $('doctorBtn').addEventListener('click', () => { loadDoctor(); loadPreflight(); });
+
+  // ── preflight (security gate) ──
+  function loadPreflight() {
+    fetch('/api/preflight').then((r) => r.json()).then((p) => {
+      const list = $('preflightList');
+      list.innerHTML = '';
+      for (const c of p.checks) {
+        const div = document.createElement('div');
+        div.className = 'check ' + (c.ok ? 'pass' : '');
+        div.innerHTML = `<span class="sig"></span><div><div class="what"></div><div class="how"></div></div>`;
+        div.querySelector('.what').textContent = c.label;
+        div.querySelector('.how').textContent = c.detail;
+        list.append(div);
+      }
+      $('preflightVerdict').textContent = p.ready
+        ? '✓ preflight green — safe to consider exposure (tunnel + Access, never a bare port)'
+        : `✗ ${p.blockers} blocker${p.blockers > 1 ? 's' : ''} — Atlan stays loopback-only until these are green`;
+    }).catch(() => {});
+  }
 
   connect();
   setMood('calm');

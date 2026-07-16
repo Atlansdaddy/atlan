@@ -4,3 +4,7 @@ dist/
 .env
 keys.json
 .snapshots/
+.keys.enc
+.keysecret
+.apk/
+.builds.json

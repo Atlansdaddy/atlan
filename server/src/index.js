@@ -10,6 +10,9 @@ import { openPty, writePty, resizePty } from './pty.js';
 import { runDoctor } from './doctor.js';
 import { startPreviewProxy, setPreviewTarget, getPreviewTarget } from './preview.js';
 import { engineRoster, brainChat } from './brains.js';
+import { runBuild, APK_DIR } from './build.js';
+import { keyStatus, setStoredKey } from './keys.js';
+import { runPreflight } from './preflight.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const WEB = join(__dirname, '../../web/public');
@@ -25,6 +28,19 @@ app.use(express.json({ limit: '1mb' }));
 app.get('/api/doctor', async (_req, res) => res.json(await runDoctor()));
 
 app.get('/api/engines', async (_req, res) => res.json(await engineRoster()));
+app.use('/apk', express.static(APK_DIR));
+
+app.get('/api/preflight', async (_req, res) => res.json(await runPreflight()));
+
+app.get('/api/keys', (_req, res) => res.json(keyStatus()));
+app.post('/api/keys', (req, res) => {
+  try {
+    setStoredKey(String(req.body?.env), req.body?.value ?? '');
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
 
 app.get('/api/preview/target', (_req, res) => res.json({ url: getPreviewTarget() }));
 app.post('/api/preview/target', (req, res) => {
@@ -124,6 +140,9 @@ wss.on('connection', (ws) => {
       }
       case 'perm.reply':
         claude?.resolvePermission(m.id, !!m.approved);
+        break;
+      case 'build.start':
+        runBuild(m.path || '/root/d2d', send);
         break;
       case 'pty.open':
         openPty(m.name || 'main', ws, { cols: m.cols, rows: m.rows, cwd: m.cwd || '/root' });
