@@ -23,13 +23,17 @@ export function agentStatus() {
       label: 'Gemini CLI — agent, full-auto',
       model: 'gemini-cli',
       group: 'agent',
-      ready: !!(process.env.GEMINI_API_KEY || getStoredKey('GEMINI_API_KEY')),
-      needs: 'GEMINI_API_KEY (Doctor → Engine keys)',
+      ready: geminiOauth() || !!(process.env.GEMINI_API_KEY || getStoredKey('GEMINI_API_KEY')),
+      needs: 'Google login (gemini in Term tab) or GEMINI_API_KEY',
     },
   ];
 }
 
-export function agentTurn({ engine, cwd, text, send, state }) {
+function geminiOauth() {
+  return existsSync(`${process.env.HOME ?? '/root'}/.gemini/oauth_creds.json`);
+}
+
+export function agentTurn({ engine, cwd, text, send, state, forceKey = false }) {
   if (state.running) {
     send({ t: 'chat.err', msg: 'agent is mid-turn — wait for it to finish' });
     return;
@@ -46,8 +50,13 @@ export function agentTurn({ engine, cwd, text, send, state }) {
   } else if (engine === 'gemini-cli') {
     cmd = 'gemini';
     args = ['-p', text, '-o', 'stream-json', '--approval-mode', 'yolo'];
-    const key = process.env.GEMINI_API_KEY || getStoredKey('GEMINI_API_KEY');
-    if (key) env.GEMINI_API_KEY = key;
+    env.GEMINI_CLI_TRUST_WORKSPACE = 'true';
+    // Auth reality (empirical 2026-07-16): John's Google OAuth authenticates but
+    // the free individual CLI backend is gone (owIneligibleOrProjectIdError), so
+    // ~/.gemini/settings.json is pinned to gemini-api-key and the stored key is
+    // always provided. If Google restores individual OAuth: flip settings back.
+    const gkey = process.env.GEMINI_API_KEY || getStoredKey('GEMINI_API_KEY');
+    if (gkey) env.GEMINI_API_KEY = gkey;
   } else {
     state.running = false;
     return send({ t: 'chat.err', msg: `unknown agent: ${engine}` });
@@ -58,6 +67,7 @@ export function agentTurn({ engine, cwd, text, send, state }) {
   let stderrTail = '';
   let sawText = false;
   let buf = '';
+  let geminiText = '';
   let killedFor = null;
   const turnTimeout = setTimeout(() => { killedFor = 'turn timeout (8min)'; child.kill(); }, 480000);
 
@@ -77,11 +87,17 @@ export function agentTurn({ engine, cwd, text, send, state }) {
       const u = e.usage ?? {};
       send({ t: 'chat.result', subtype: 'success', brain: engine, tokens: (u.input_tokens ?? 0) + (u.output_tokens ?? 0) || null });
     }
-    // Gemini events (parsed defensively — schema shifts across 0.x)
-    if (e.type === 'message' && (e.content || e.text)) { sawText = true; send({ t: 'chat.msg', role: 'claude', engine: engineLabel(engine), text: e.content ?? e.text }); }
+    // Gemini events (parsed defensively — schema shifts across 0.x).
+    // message events are deltas and include a user-prompt echo: skip user
+    // role, accumulate assistant text, flush as ONE bubble at result time.
+    if (e.type === 'message' && e.role !== 'user' && (e.content || e.text)) {
+      geminiText += e.content ?? e.text;
+    }
     if (e.type === 'tool_use') send({ t: 'tool.use', name: e.name ?? 'tool', input: JSON.stringify(e.args ?? e.input ?? {}).slice(0, 200) });
     if (e.type === 'result') {
-      if (!sawText && e.response) { sawText = true; send({ t: 'chat.msg', role: 'claude', engine: engineLabel(engine), text: e.response }); }
+      const finalText = geminiText || e.response || '';
+      if (finalText) { sawText = true; send({ t: 'chat.msg', role: 'claude', engine: engineLabel(engine), text: finalText }); }
+      geminiText = '';
       send({ t: 'chat.result', subtype: 'success', brain: engine, tokens: e.stats?.total_tokens ?? null });
     }
     if (e.type === 'error') send({ t: 'chat.err', msg: `${engineLabel(engine)}: ${e.message ?? JSON.stringify(e).slice(0, 200)}` });
@@ -118,6 +134,13 @@ export function agentTurn({ engine, cwd, text, send, state }) {
       return;
     }
     if (code !== 0) {
+      const ineligible = engine === 'gemini-cli' && /Ineligible|ProjectId/i.test(stderrTail);
+      const backupKey = process.env.GEMINI_API_KEY || getStoredKey('GEMINI_API_KEY');
+      if (ineligible && !forceKey && backupKey) {
+        send({ t: 'tool.use', name: 'auth', input: 'Google login ineligible for free CLI backend — retrying with your stored API key' });
+        agentTurn({ engine, cwd, text, send, state, forceKey: true });
+        return;
+      }
       send({ t: 'chat.err', msg: `${engineLabel(engine)} exited ${code}: ${stderrTail.trim().slice(-300) || 'no error output'}` });
       send({ t: 'atlan.mood', mood: 'alarmed' });
       return;
