@@ -13,6 +13,7 @@ import { engineRoster, brainChat } from './brains.js';
 import { runBuild, APK_DIR } from './build.js';
 import { keyStatus, setStoredKey } from './keys.js';
 import { runPreflight } from './preflight.js';
+import { agentStatus, agentTurn } from './agents.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const WEB = join(__dirname, '../../web/public');
@@ -27,7 +28,10 @@ app.use(express.json({ limit: '1mb' }));
 
 app.get('/api/doctor', async (_req, res) => res.json(await runDoctor()));
 
-app.get('/api/engines', async (_req, res) => res.json(await engineRoster()));
+app.get('/api/engines', async (_req, res) => {
+  const brains = (await engineRoster()).map((e) => ({ ...e, group: e.id === 'local' ? 'local' : 'cloud' }));
+  res.json([...agentStatus(), ...brains]);
+});
 app.use('/apk', express.static(APK_DIR));
 
 app.get('/api/preflight', async (_req, res) => res.json(await runPreflight()));
@@ -76,6 +80,7 @@ wss.on('connection', (ws) => {
   const send = (obj) => { if (ws.readyState === 1) ws.send(JSON.stringify(obj)); };
   let claude = null;
   const brainHistory = new Map();
+  const agentState = new Map();
   // Preview context that auto-attaches to the next turn: errors since last
   // turn + any snapshots taken. Logs/warns stay in the UI only.
   const pending = { errors: [], snaps: [] };
@@ -91,14 +96,19 @@ wss.on('connection', (ws) => {
             + pending.errors.slice(-12).map((e) => `• ${e}`).join('\n');
         }
         const isClaude = !m.engine || m.engine === 'claude';
-        if (isClaude) {
+        const isAgentCli = m.engine === 'codex' || m.engine === 'gemini-cli';
+        if (isClaude || isAgentCli) {
           for (const p of pending.snaps) {
-            text += `\n\n[Atlan preview snapshot saved at ${p} — Read that file to SEE the current preview.]`;
+            text += `\n\n[Atlan preview snapshot saved at ${p} — Read/view that image file to SEE the current preview.]`;
           }
         }
-        pending.errors = []; pending.snaps = isClaude ? [] : pending.snaps;
+        pending.errors = []; pending.snaps = (isClaude || isAgentCli) ? [] : pending.snaps;
 
-        if (isClaude) {
+        if (isAgentCli) {
+          const state = agentState.get(m.engine) ?? {};
+          agentState.set(m.engine, state);
+          agentTurn({ engine: m.engine, cwd: m.cwd || '/root', text, send, state });
+        } else if (isClaude) {
           if (!claude || (m.cwd && claude.cwd !== m.cwd)) {
             claude = new ClaudeSession({ cwd: m.cwd || '/root', model: m.model || 'claude-fable-5', send });
           }

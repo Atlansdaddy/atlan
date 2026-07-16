@@ -130,7 +130,8 @@
     div.className = 'msg ' + (role === 'user' ? 'user' : role === 'err' ? 'err' : 'claude');
     if (role === 'claude' || role === 'brain') {
       const who = document.createElement('div');
-      who.className = 'who'; who.textContent = role === 'brain' ? (engineLabel || 'brain') + ' · chat only' : 'Claude';
+      who.className = 'who';
+      who.textContent = role === 'brain' ? (engineLabel || 'brain') + ' · chat only' : (engineLabel || 'Claude');
       div.append(who);
     }
     div.append(document.createTextNode(text));
@@ -140,14 +141,14 @@
   // engine roster → fill the switcher's local/cloud groups
   function loadEngines() {
     fetch('/api/engines').then((r) => r.json()).then((roster) => {
-      const ogLocal = $('ogLocal'), ogCloud = $('ogCloud');
-      ogLocal.innerHTML = ''; ogCloud.innerHTML = '';
+      const groups = { agent: $('ogAgents'), local: $('ogLocal'), cloud: $('ogCloud') };
+      for (const g of Object.values(groups)) g.innerHTML = '';
       for (const e of roster) {
         const o = document.createElement('option');
         o.value = `${e.id}|${e.model}`;
-        o.textContent = e.label + (e.ready ? '' : ` — needs ${e.needs}`);
+        o.textContent = e.label + (e.ready ? '' : ` — needs: ${e.needs}`);
         o.disabled = !e.ready;
-        (e.id === 'local' ? ogLocal : ogCloud).append(o);
+        (groups[e.group] ?? groups.cloud).append(o);
       }
     }).catch(() => {});
   }
