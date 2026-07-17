@@ -47,13 +47,17 @@ app.post('/api/keys', (req, res) => {
 });
 
 app.get('/api/preview/target', (_req, res) => res.json({ url: getPreviewTarget() }));
+const LOCAL_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]', '::1']);
 app.post('/api/preview/target', (req, res) => {
-  const url = String(req.body?.url ?? '');
-  if (!/^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?/.test(url)) {
+  const raw = String(req.body?.url ?? '');
+  let u;
+  try { u = new URL(raw); } catch { return res.status(400).json({ error: 'not a url' }); }
+  // Parse the host — hostname compares exactly, so 127.0.0.1.evil.com is rejected.
+  if ((u.protocol !== 'http:' && u.protocol !== 'https:') || !LOCAL_HOSTS.has(u.hostname)) {
     return res.status(400).json({ error: 'local urls only (127.0.0.1 / localhost)' });
   }
-  setPreviewTarget(url);
-  res.json({ url });
+  setPreviewTarget(u.origin);
+  res.json({ url: u.origin });
 });
 
 // Candidate project dirs: anything in /root with a .git or package.json.

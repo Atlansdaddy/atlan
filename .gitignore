@@ -8,3 +8,5 @@ keys.json
 .keysecret
 .apk/
 .builds.json
+
+test-results/

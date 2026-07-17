@@ -5,6 +5,7 @@
   "workspaces": ["server", "web"],
   "scripts": {
     "dev": "npm run dev -w server",
-    "web": "npm run dev -w web"
+    "web": "npm run dev -w web",
+    "test": "bash test/run.sh"
   }
 }
