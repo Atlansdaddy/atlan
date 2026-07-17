@@ -8,5 +8,6 @@ keys.json
 .keysecret
 .apk/
 .builds.json
+.fleet/
 
 test-results/

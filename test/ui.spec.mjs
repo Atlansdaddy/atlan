@@ -27,8 +27,8 @@ await test('loads with Atlan wordmark + bot', async () => {
   assert.ok(await page.locator('#atlanImg').isVisible(), 'bot logo missing');
 });
 
-await test('all five tabs switch', async () => {
-  for (const [tab, screen] of [['Preview', 's-preview'], ['Term', 's-term'], ['Build', 's-build'], ['Doctor', 's-doctor'], ['Chat', 's-chat']]) {
+await test('all six tabs switch', async () => {
+  for (const [tab, screen] of [['Preview', 's-preview'], ['Term', 's-term'], ['Fleet', 's-fleet'], ['Build', 's-build'], ['Doctor', 's-doctor'], ['Chat', 's-chat']]) {
     await page.locator(`nav button:has-text("${tab}")`).click();
     await page.waitForTimeout(150);
     assert.ok(await page.locator('#' + screen).evaluate((el) => el.classList.contains('active')), `${tab} did not activate`);
@@ -37,6 +37,14 @@ await test('all five tabs switch', async () => {
 
 await test('WS connects (dot goes green)', async () => {
   await page.waitForFunction(() => document.getElementById('connDot')?.classList.contains('on'), { timeout: 5000 });
+});
+
+await test('Fleet tab: profiles load, spawn form + KILL ALL present', async () => {
+  await page.locator('nav button:has-text("Fleet")').click();
+  await page.waitForFunction(() => document.querySelectorAll('#fleetProfile option').length >= 3, { timeout: 5000 });
+  assert.ok(await page.locator('#fleetPrompt').isVisible(), 'no prompt box');
+  assert.ok(await page.locator('#fleetKillAll').isVisible(), 'no KILL ALL');
+  await page.locator('nav button:has-text("Chat")').click();
 });
 
 await test('engine switcher has all four groups populated', async () => {

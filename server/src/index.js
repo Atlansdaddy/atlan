@@ -14,6 +14,7 @@ import { runBuild, APK_DIR } from './build.js';
 import { keyStatus, setStoredKey } from './keys.js';
 import { runPreflight } from './preflight.js';
 import { agentStatus, agentTurn } from './agents.js';
+import { initFleet, spawnRun, listRuns, killRun, killAll, todayBurn, profileList } from './fleet.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const WEB = join(__dirname, '../../web/public');
@@ -35,6 +36,20 @@ app.get('/api/engines', async (_req, res) => {
 app.use('/apk', express.static(APK_DIR));
 
 app.get('/api/preflight', async (_req, res) => res.json(await runPreflight()));
+
+app.get('/api/fleet', (_req, res) => res.json({ runs: listRuns(), today: todayBurn(), profiles: profileList }));
+app.post('/api/fleet/run', (req, res) => {
+  try {
+    res.json(spawnRun(req.body ?? {}));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+app.post('/api/fleet/kill', (req, res) => {
+  const id = req.body?.id;
+  if (id === 'all') return res.json({ killed: killAll() });
+  res.json({ killed: killRun(String(id)) ? 1 : 0 });
+});
 
 app.get('/api/keys', (_req, res) => res.json(keyStatus()));
 app.post('/api/keys', (req, res) => {
@@ -79,6 +94,12 @@ function existsQuiet(p) { try { statSync(p); return true; } catch { return false
 
 const server = createServer(app);
 const wss = new WebSocketServer({ server, path: '/ws' });
+
+// Fleet events are server-global — every open cockpit sees the same runs.
+initFleet((obj) => {
+  const s = JSON.stringify(obj);
+  for (const c of wss.clients) if (c.readyState === 1) c.send(s);
+});
 
 wss.on('connection', (ws) => {
   const send = (obj) => { if (ws.readyState === 1) ws.send(JSON.stringify(obj)); };

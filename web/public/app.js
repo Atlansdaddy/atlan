@@ -11,6 +11,7 @@
     document.querySelectorAll('.screen').forEach((s) => s.classList.remove('active'));
     $(b.dataset.s).classList.add('active');
     if (b.dataset.s === 's-term') initTerm();
+    if (b.dataset.s === 's-fleet') loadFleet();
     if (b.dataset.s === 's-doctor') { loadDoctor(); loadKeys(); loadPreflight(); }
   }));
 
@@ -122,6 +123,22 @@
         break;
       case 'pty.data': term?.write(m.data); break;
       case 'pty.exit': term?.writeln('\r\n[tmux session ended — reopen the tab to restart]'); break;
+      case 'fleet.run': upsertRun(m.run); break;
+      case 'fleet.event': {
+        const r = fleetRuns.get(m.id);
+        if (r) { r.lastLine = m.line; paintRun(r); }
+        break;
+      }
+      case 'fleet.burn': {
+        const r = fleetRuns.get(m.id);
+        if (r) { r.tokens = m.tokens; r.cost = m.cost; paintRun(r); }
+        break;
+      }
+      case 'fleet.done':
+        upsertRun(m.run);
+        if (m.today) paintBurnToday(m.today);
+        break;
+      case 'fleet.killall': loadFleet(); break;
     }
   }
 
@@ -305,6 +322,107 @@
     if (snapCount) bits.push(`<b>${snapCount} snapshot${snapCount > 1 ? 's' : ''}</b> attached to next turn`);
     $('seenLine').innerHTML = bits.join(' · ');
   }
+
+  // ── fleet ──
+  const fleetRuns = new Map(); // id → run (server state mirrored here)
+  let profilesLoaded = false;
+  const fmtTok = (n) => n >= 1000 ? (n / 1000).toFixed(n >= 100000 ? 0 : 1) + 'k' : String(n ?? 0);
+  const STATUS_LABEL = {
+    running: 'running', done: 'done', 'halted-budget': 'BUDGET HALT',
+    killed: 'killed', error: 'error',
+  };
+
+  function loadFleet() {
+    fetch('/api/fleet').then((r) => r.json()).then((f) => {
+      if (!profilesLoaded) {
+        profilesLoaded = true;
+        for (const p of f.profiles) {
+          const o = document.createElement('option');
+          o.value = p.id; o.textContent = p.label;
+          $('fleetProfile').append(o);
+        }
+      }
+      fleetRuns.clear();
+      for (const r of f.runs) fleetRuns.set(r.id, r);
+      renderRuns();
+      paintBurnToday(f.today);
+    }).catch(() => {});
+  }
+
+  function paintBurnToday(t) {
+    const s = `burn today: ${fmtTok(t.tokens)} tok · $${(t.cost ?? 0).toFixed(2)}`;
+    $('burnMeta').textContent = t.tokens ? s : '';
+  }
+
+  function upsertRun(run) {
+    fleetRuns.set(run.id, run);
+    renderRuns();
+  }
+
+  function renderRuns() {
+    const box = $('fleetRuns');
+    box.innerHTML = '';
+    if (!fleetRuns.size) {
+      box.innerHTML = '<div class="hint">no runs yet — an idle fleet burns zero tokens, by construction</div>';
+      return;
+    }
+    for (const r of fleetRuns.values()) {
+      const card = document.createElement('div');
+      card.className = 'runcard';
+      card.dataset.id = r.id;
+      card.innerHTML = `<div class="rtop"><span class="rwho"></span><span class="rstatus"></span><button class="rkill" title="kill">✖</button></div>
+        <div class="rprompt"></div>
+        <div class="burn"><i></i></div>
+        <div class="rmeta"></div>
+        <div class="rlast"></div>
+        <pre class="rresult"></pre>`;
+      card.querySelector('.rwho').textContent = `${r.profile} · ${r.model.replace('claude-', '').replace(/-\d{8}$/, '')}`;
+      card.querySelector('.rprompt').textContent = r.prompt;
+      card.querySelector('.rkill').addEventListener('click', (e) => {
+        e.stopPropagation();
+        fetch('/api/fleet/kill', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: r.id }) });
+      });
+      card.addEventListener('click', () => card.classList.toggle('open'));
+      box.append(card);
+      paintRun(fleetRuns.get(r.id));
+    }
+  }
+
+  function paintRun(r) {
+    const card = document.querySelector(`.runcard[data-id="${r.id}"]`);
+    if (!card) return;
+    card.className = 'runcard st-' + r.status + (card.classList.contains('open') ? ' open' : '');
+    card.querySelector('.rstatus').textContent = STATUS_LABEL[r.status] ?? r.status;
+    card.querySelector('.rkill').style.display = r.status === 'running' ? '' : 'none';
+    card.querySelector('.burn i').style.width = Math.min(100, (r.tokens / r.budget) * 100) + '%';
+    card.querySelector('.rmeta').textContent =
+      `${fmtTok(r.tokens)} / ${fmtTok(r.budget)} tok${r.cost ? ` · $${r.cost.toFixed(4)}` : ''}${r.denials ? ` · ${r.denials} denied` : ''}`;
+    card.querySelector('.rlast').textContent = r.lastLine ?? '';
+    card.querySelector('.rresult').textContent = r.resultText ?? '';
+  }
+
+  $('fleetSpawn').addEventListener('click', () => {
+    const prompt = $('fleetPrompt').value.trim();
+    if (!prompt) return;
+    fetch('/api/fleet/run', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        prompt,
+        profile: $('fleetProfile').value,
+        model: $('fleetModel').value,
+        budget: Number($('fleetBudget').value),
+        cwd: $('projSel').value,
+      }),
+    }).then((r) => r.json()).then((j) => {
+      if (j.error) return addMsg('err', j.error);
+      $('fleetPrompt').value = '';
+    }).catch(() => addMsg('err', 'cockpit server unreachable'));
+  });
+
+  $('fleetKillAll').addEventListener('click', () => {
+    fetch('/api/fleet/kill', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: 'all' }) });
+  });
 
   // ── engine keys ──
   const KEY_LABELS = {

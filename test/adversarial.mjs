@@ -78,6 +78,36 @@ await test('/apk blocks path traversal', async () => {
   assert.ok(!body.includes('root:x:0:0'), 'served /etc/passwd via /apk traversal');
 });
 
+// ── fleet API rejects bad spawns without burning tokens ──
+await test('fleet: unknown profile is a 400', async () => {
+  const r = await fetch(BASE + '/api/fleet/run', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ prompt: 'x', profile: 'god-mode' }),
+  });
+  assert.equal(r.status, 400);
+});
+await test('fleet: empty prompt is a 400', async () => {
+  const r = await fetch(BASE + '/api/fleet/run', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ prompt: '   ', profile: 'scout' }),
+  });
+  assert.equal(r.status, 400);
+});
+await test('fleet: kill of unknown id kills nothing', async () => {
+  const r = await (await fetch(BASE + '/api/fleet/kill', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ id: 'nope1234' }),
+  })).json();
+  assert.equal(r.killed, 0);
+});
+await test('fleet: scout profile hard-blocks Bash via disallowedTools', async () => {
+  // static contract check, no tokens: the profile table itself must carry it
+  const { PROFILES_FOR_TEST } = await import('../server/src/fleet.js');
+  assert.ok(PROFILES_FOR_TEST.scout.disallowed.includes('Bash'));
+  assert.ok(PROFILES_FOR_TEST.scout.disallowed.includes('WebFetch'));
+  assert.ok(PROFILES_FOR_TEST.verifier.disallowed.includes('Edit'));
+});
+
 // ── malformed / oversized input doesn't take the server down ──
 await test('garbage JSON body is handled', async () => {
   const r = await fetch(BASE + '/api/keys', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{not json' });

@@ -20,7 +20,7 @@
       <div class="wordmark">At<em>la</em>n</div>
       <div class="atlan-line" id="atlanLine">The water's calm, boss. What are we building today?</div>
     </div>
-    <div class="sess" id="sessInfo"><span class="dot" id="connDot"></span><b id="projName">no project</b><br><span id="sessMeta">connecting…</span></div>
+    <div class="sess" id="sessInfo"><span class="dot" id="connDot"></span><b id="projName">no project</b><br><span id="sessMeta">connecting…</span><br><span id="burnMeta" class="burnmeta"></span></div>
   </header>
 
   <div class="screens">
@@ -68,6 +68,33 @@
       <div class="hint">This is tmux session <code>atlan-main</code> — run <code>tmux attach -t atlan-main</code> in Termux to take over on the CLI, any time. What you do there shows here, and vice versa.</div>
     </section>
 
+    <section class="screen" id="s-fleet">
+      <div class="eyebrow">Spawn a run — profiled, hard-budgeted, killable</div>
+      <textarea id="fleetPrompt" class="fleettask" placeholder="What should this agent do? It works alone in the selected project and reports back." rows="3"></textarea>
+      <div class="projbar">
+        <select id="fleetProfile"></select>
+        <select id="fleetModel">
+          <option value="claude-haiku-4-5-20251001" selected>haiku-4.5 — cheap worker</option>
+          <option value="claude-sonnet-5">sonnet-5</option>
+          <option value="claude-fable-5">fable-5</option>
+          <option value="claude-opus-4-8">opus-4.8</option>
+        </select>
+      </div>
+      <div class="projbar">
+        <select id="fleetBudget">
+          <option value="50000">50k tok — one small task</option>
+          <option value="150000" selected>150k tok — normal run</option>
+          <option value="500000">500k tok — big job</option>
+          <option value="1000000">1M tok — trust it</option>
+        </select>
+        <button class="btn hot" id="fleetSpawn">⚓ Spawn</button>
+      </div>
+      <div class="hint">Runs in the Chat tab's project. Budget is a <b>halt</b>, not a warning — and turn 1 alone costs ~35k fresh tokens (system-prompt cache write), so 50k is the practical floor. Scout is provably read-only; builder/verifier get bash (unscoped — honest caveat until sandboxing).</div>
+      <div class="eyebrow" style="margin-top:4px">Runs</div>
+      <div id="fleetRuns" class="doctor-list"><div class="hint">no runs yet — an idle fleet burns zero tokens, by construction</div></div>
+      <button class="btn killall" id="fleetKillAll">✖ KILL ALL RUNS</button>
+    </section>
+
     <section class="screen" id="s-build">
       <div class="eyebrow">Project — uses the Chat tab's selection</div>
       <div class="hint" id="buildProj">/root</div>
@@ -93,6 +120,7 @@
     <button class="active" data-s="s-chat"><span class="ic">◆</span><span class="lb">Chat</span></button>
     <button data-s="s-preview"><span class="ic">▣</span><span class="lb">Preview</span></button>
     <button data-s="s-term"><span class="ic">❯_</span><span class="lb">Term</span></button>
+    <button data-s="s-fleet"><span class="ic">❖</span><span class="lb">Fleet</span></button>
     <button data-s="s-build"><span class="ic">⚒</span><span class="lb">Build</span></button>
     <button data-s="s-doctor"><span class="ic">✚</span><span class="lb">Doctor</span></button>
   </nav>
