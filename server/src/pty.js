@@ -1,4 +1,16 @@
 import pty from 'node-pty';
+import { getStoredKey } from './keys.js';
+
+// Interactive CLIs launched in the Term tab should inherit the same creds the
+// cockpit uses — otherwise `gemini` falls back to the dead individual OAuth
+// loop. Inject stored keys (env still wins) so the raw CLI just works.
+function ptyEnv() {
+  const env = { ...process.env, GEMINI_CLI_TRUST_WORKSPACE: 'true' };
+  for (const k of ['GEMINI_API_KEY', 'OPENAI_API_KEY', 'DEEPSEEK_API_KEY']) {
+    if (!env[k]) { const v = getStoredKey(k); if (v) env[k] = v; }
+  }
+  return env;
+}
 
 // tmux-backed PTYs: `new-session -A` attaches if it exists, creates if not.
 // The same session is reachable from Termux with: tmux attach -t atlan-<name>
@@ -11,7 +23,7 @@ export function openPty(name, ws, { cols = 80, rows = 24, cwd = '/root' } = {}) 
     const proc = pty.spawn('tmux', ['new-session', '-A', '-s', `atlan-${name}`], {
       name: 'xterm-256color',
       cols, rows, cwd,
-      env: process.env,
+      env: ptyEnv(),
     });
     s = { proc, subs: new Set() };
     proc.onData((data) => {
