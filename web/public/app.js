@@ -140,6 +140,9 @@
         fleetPing(m.run);
         break;
       case 'fleet.killall': loadFleet(); break;
+      case 'routines.changed':
+        if ($('fp-routines').classList.contains('active')) loadRoutines();
+        break;
     }
   }
 
@@ -560,6 +563,371 @@
         ? '✓ preflight green — safe to consider exposure (tunnel + Access, never a bare port)'
         : `✗ ${p.blockers} blocker${p.blockers > 1 ? 's' : ''} — Atlan stays loopback-only until these are green`;
     }).catch(() => {});
+  }
+
+  // ── fleet sub-nav: Runs | Routines | Builder ──
+  document.querySelectorAll('#fleetSubnav button').forEach((b) => b.addEventListener('click', () => {
+    document.querySelectorAll('#fleetSubnav button').forEach((x) => x.classList.remove('active'));
+    b.classList.add('active');
+    document.querySelectorAll('.fpane').forEach((p) => p.classList.remove('active'));
+    $(b.dataset.p).classList.add('active');
+    if (b.dataset.p === 'fp-routines') loadRoutines();
+    if (b.dataset.p === 'fp-builder') loadBuilder();
+  }));
+
+  // ── routines ──
+  let routEditing = null, routPaused = false;
+  const cadenceText = (c) => c.kind === 'daily' ? `daily at ${c.at}` : c.minutes % 60 === 0 ? `every ${c.minutes / 60}h` : `every ${c.minutes}m`;
+  const inMins = (t) => { const d = Math.round((t - Date.now()) / 60000); return d < 60 ? `${Math.max(0, d)}m` : d < 1440 ? `${Math.round(d / 60)}h` : `${Math.round(d / 1440)}d`; };
+
+  function loadRoutines() {
+    fetch('/api/routines').then((r) => r.json()).then(({ routines, paused }) => {
+      routPaused = paused;
+      $('routPauseBtn').textContent = paused ? '▶ resume all' : '⏸ pause all';
+      $('routPauseBtn').classList.toggle('hot', paused);
+      const box = $('routList');
+      box.innerHTML = routines.length ? '' : '<div class="hint">no routines yet — idle costs nothing, scheduled runs are still hard-budgeted</div>';
+      for (const r of routines) {
+        const card = document.createElement('div');
+        card.className = 'runcard' + (r.missed ? ' st-halted-budget' : r.enabled && !paused ? '' : ' st-killed');
+        card.innerHTML = `<div class="rtop"><span class="rwho"></span><span class="rstatus"></span></div>
+          <div class="rprompt"></div><div class="rmeta"></div>
+          <div class="projbar">
+            <button class="btn hot rfire"></button>
+            <button class="btn ghost redit">edit</button>
+            <button class="btn ghost rtoggle"></button>
+            <button class="btn ghost rdel">✖</button>
+          </div>`;
+        card.querySelector('.rwho').textContent = r.name;
+        card.querySelector('.rstatus').textContent = r.missed ? 'MISSED — waiting for you' : !r.enabled ? 'off' : paused ? 'paused' : cadenceText(r.cadence);
+        card.querySelector('.rprompt').textContent = r.prompt;
+        card.querySelector('.rmeta').textContent =
+          `${r.profile} · ${fmtTok(r.budget)} tok/fire${r.nextDueAt ? ` · next in ${inMins(r.nextDueAt)}` : ''}${r.lastRunId ? ` · last run ${r.lastRunId}` : ''}`;
+        card.querySelector('.rfire').textContent = r.missed ? '▶ run late' : '▶ run now';
+        card.querySelector('.rfire').addEventListener('click', () => {
+          fetch('/api/routines/fire', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: r.id, late: r.missed }) })
+            .then((x) => x.json()).then((j) => { if (j.error) addMsg('err', j.error); else loadRoutines(); });
+        });
+        card.querySelector('.redit').addEventListener('click', () => editRoutine(r));
+        card.querySelector('.rtoggle').textContent = r.enabled ? 'disable' : 'enable';
+        card.querySelector('.rtoggle').addEventListener('click', () => {
+          fetch('/api/routines', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...r, enabled: !r.enabled }) }).then(loadRoutines);
+        });
+        card.querySelector('.rdel').addEventListener('click', () => {
+          fetch('/api/routines/delete', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: r.id }) }).then(loadRoutines);
+        });
+        box.append(card);
+      }
+      fillPersonaSelects();
+    }).catch(() => {});
+  }
+
+  function editRoutine(r) {
+    routEditing = r?.id ?? null;
+    $('routForm').style.display = '';
+    $('routName').value = r?.name ?? '';
+    $('routKind').value = r?.cadence?.kind ?? 'every';
+    $('routEvery').value = r?.cadence?.minutes ?? 360;
+    $('routAt').value = r?.cadence?.at ?? '07:00';
+    $('routPrompt').value = r?.prompt ?? '';
+    $('routPersona').value = r?.personaId ?? '';
+    $('routProfile').value = r?.profile ?? 'scout';
+    $('routModel').value = r?.model ?? 'claude-haiku-4-5-20251001';
+    $('routBudget').value = String(r?.budget ?? 50000);
+    $('routKind').dispatchEvent(new Event('change'));
+  }
+  $('routNewBtn').addEventListener('click', () => editRoutine(null));
+  $('routCancel').addEventListener('click', () => { $('routForm').style.display = 'none'; routEditing = null; });
+  $('routKind').addEventListener('change', () => {
+    const daily = $('routKind').value === 'daily';
+    $('routEvery').style.display = daily ? 'none' : '';
+    $('routAt').style.display = daily ? '' : 'none';
+  });
+  $('routPauseBtn').addEventListener('click', () => {
+    fetch('/api/routines/pause', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ paused: !routPaused }) }).then(loadRoutines);
+  });
+  $('routSave').addEventListener('click', () => {
+    const cadence = $('routKind').value === 'daily'
+      ? { kind: 'daily', at: $('routAt').value }
+      : { kind: 'every', minutes: Number($('routEvery').value) };
+    fetch('/api/routines', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        id: routEditing ?? undefined, name: $('routName').value, cadence,
+        prompt: $('routPrompt').value, personaId: $('routPersona').value || null,
+        profile: $('routProfile').value, model: $('routModel').value,
+        budget: Number($('routBudget').value), cwd: $('projSel').value,
+      }),
+    }).then((r) => r.json()).then((j) => {
+      if (j.error) return addMsg('err', j.error);
+      $('routForm').style.display = 'none'; routEditing = null;
+      loadRoutines();
+    });
+  });
+
+  // ── Persona+ builder ──
+  let personas = [], commands = [], perEditing = null, cmdEditing = null;
+
+  function loadBuilder() {
+    fetch('/api/personas').then((r) => r.json()).then((d) => {
+      personas = d.personas; commands = d.commands;
+      renderPersonas(); renderCommands(); fillPersonaSelects(); fillHarness();
+    }).catch(() => {});
+  }
+
+  function fillPersonaSelects() {
+    for (const selId of ['routPersona', 'cPersona']) {
+      const sel = $(selId);
+      const cur = sel.value;
+      sel.innerHTML = '<option value="">no persona</option>';
+      for (const p of personas) {
+        const o = document.createElement('option');
+        o.value = p.id; o.textContent = p.name;
+        sel.append(o);
+      }
+      sel.value = cur;
+    }
+    // profile selects share the fleet roster
+    for (const selId of ['routProfile', 'pProfile']) {
+      const sel = $(selId);
+      if (sel.options.length) continue;
+      for (const o of $('fleetProfile').options) sel.append(o.cloneNode(true));
+    }
+  }
+
+  function renderPersonas() {
+    $('perCount').textContent = personas.length ? `(${personas.length})` : '';
+    const box = $('perList');
+    box.innerHTML = personas.length ? '' : '<div class="hint">none yet — a persona is a scoped identity: short, focused, with hard NO_NOS</div>';
+    for (const p of personas) {
+      const card = document.createElement('div');
+      card.className = 'runcard';
+      card.innerHTML = `<div class="rtop"><span class="rwho"></span><span class="rstatus"></span></div><div class="rprompt"></div>
+        <div class="projbar"><button class="btn ghost pedit">edit</button><button class="btn ghost pdel">✖</button></div>`;
+      card.querySelector('.rwho').textContent = p.name;
+      card.querySelector('.rstatus').textContent = p.profile;
+      card.querySelector('.rprompt').textContent = p.focus;
+      card.querySelector('.pedit').addEventListener('click', () => {
+        perEditing = p.id;
+        $('pName').value = p.name; $('pFocus').value = p.focus; $('pBio').value = p.bio;
+        $('pSkills').value = (p.skills ?? []).join('\n'); $('pNoNos').value = (p.no_nos ?? []).join('\n');
+        $('pInstr').value = p.instructions; $('pProfile').value = p.profile;
+        $('dPersona').open = true;
+      });
+      card.querySelector('.pdel').addEventListener('click', () => {
+        fetch('/api/personas/delete', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: p.id }) }).then(loadBuilder);
+      });
+      box.append(card);
+    }
+  }
+  $('pSave').addEventListener('click', () => {
+    fetch('/api/personas', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        id: perEditing ?? undefined, name: $('pName').value, focus: $('pFocus').value,
+        bio: $('pBio').value, skills: $('pSkills').value, no_nos: $('pNoNos').value,
+        instructions: $('pInstr').value, profile: $('pProfile').value,
+      }),
+    }).then((r) => r.json()).then((j) => {
+      if (j.error) return addMsg('err', j.error);
+      perEditing = null;
+      for (const id of ['pName', 'pFocus', 'pBio', 'pSkills', 'pNoNos', 'pInstr']) $(id).value = '';
+      loadBuilder();
+    });
+  });
+
+  // dynamic rows: variables / fields / checkers
+  function addRow(boxId, html, data = {}) {
+    const row = document.createElement('div');
+    row.className = 'rowedit';
+    row.innerHTML = html + '<button class="btn ghost rowdel">✖</button>';
+    row.querySelector('.rowdel').addEventListener('click', () => row.remove());
+    for (const [k, v] of Object.entries(data)) {
+      const el = row.querySelector(`[data-k="${k}"]`);
+      if (el) el.type === 'checkbox' ? (el.checked = !!v) : (el.value = Array.isArray(v) ? v.join(', ') : v ?? '');
+    }
+    $(boxId).append(row);
+    return row;
+  }
+  const VAR_ROW = `<input data-k="name" placeholder="name"><select data-k="type"><option>string</option><option>number</option><option>boolean</option><option>enum</option></select><input data-k="description" placeholder="description"><input data-k="values" placeholder="enum values, comma-sep" class="enumonly"><label class="ck"><input type="checkbox" data-k="required" checked>req</label>`;
+  const FIELD_ROW = `<input data-k="name" placeholder="field name"><select data-k="type"><option>string</option><option>number</option><option>boolean</option><option>array</option></select><input data-k="description" placeholder="description">`;
+  const CHK_ROW = `<select data-k="kind"><option value="not-empty">not empty</option><option value="enum">enum ∈</option><option value="range">range</option><option value="regex">regex</option><option value="subset-of-var">⊆ input var</option><option value="max-length">max length</option><option value="arith">= formula</option></select><input data-k="field" placeholder="field"><input data-k="arg" placeholder="args">`;
+  const CHK_HINT = {
+    'not-empty': 'no args', enum: 'washer, dryer, other', range: '0..100',
+    regex: '^[A-Z0-9]{17}$', 'subset-of-var': 'variable name', 'max-length': '200', arith: 'qty*unit_price',
+  };
+  $('varAdd').addEventListener('click', () => addRow('varRows', VAR_ROW));
+  $('fieldAdd').addEventListener('click', () => addRow('fieldRows', FIELD_ROW));
+  $('chkAdd').addEventListener('click', () => {
+    const row = addRow('chkRows', CHK_ROW);
+    const kind = row.querySelector('[data-k="kind"]');
+    const arg = row.querySelector('[data-k="arg"]');
+    kind.addEventListener('change', () => { arg.placeholder = CHK_HINT[kind.value]; });
+  });
+  const rowsOf = (boxId) => [...$(boxId).querySelectorAll('.rowedit')].map((row) => {
+    const o = {};
+    for (const el of row.querySelectorAll('[data-k]')) o[el.dataset.k] = el.type === 'checkbox' ? el.checked : el.value.trim();
+    return o;
+  });
+
+  function chkFromRow(o) {
+    const c = { kind: o.kind, field: o.field };
+    if (o.kind === 'enum') c.values = o.arg.split(',').map((s) => s.trim()).filter(Boolean);
+    if (o.kind === 'range') { const [mn, mx] = o.arg.split('..'); c.min = Number(mn); c.max = Number(mx); }
+    if (o.kind === 'regex') c.pattern = o.arg;
+    if (o.kind === 'subset-of-var') c.ofVar = o.arg;
+    if (o.kind === 'max-length') c.max = Number(o.arg);
+    if (o.kind === 'arith') { c.formula = o.arg; c.tolerance = 0.01; }
+    return c;
+  }
+  function chkToRow(c) {
+    const arg = c.kind === 'enum' ? (c.values ?? []).join(', ')
+      : c.kind === 'range' ? `${c.min}..${c.max}`
+      : c.kind === 'regex' ? c.pattern
+      : c.kind === 'subset-of-var' ? c.ofVar
+      : c.kind === 'max-length' ? String(c.max)
+      : c.kind === 'arith' ? c.formula : '';
+    return { kind: c.kind, field: c.field, arg };
+  }
+
+  function renderCommands() {
+    $('cmdCount').textContent = commands.length ? `(${commands.length})` : '';
+    const box = $('cmdList');
+    box.innerHTML = commands.length ? '' : '<div class="hint">none yet — a command is a typed ask: variables in, JSON template out, checkers grade it</div>';
+    for (const c of commands) {
+      const card = document.createElement('div');
+      card.className = 'runcard';
+      card.innerHTML = `<div class="rtop"><span class="rwho"></span><span class="rstatus"></span></div><div class="rprompt"></div>
+        <div class="projbar"><button class="btn ghost cedit">edit</button><button class="btn ghost cdel">✖</button></div>`;
+      card.querySelector('.rwho').textContent = c.name;
+      card.querySelector('.rstatus').textContent = `${c.variables.length} vars · ${c.fields.length} fields · ${(c.checkers ?? []).length} checks`;
+      card.querySelector('.rprompt').textContent = c.focus;
+      card.querySelector('.cedit').addEventListener('click', () => {
+        cmdEditing = c.id;
+        $('cName').value = c.name; $('cPersona').value = c.personaId ?? ''; $('cFocus').value = c.focus; $('cInstr').value = c.instructions;
+        $('varRows').innerHTML = ''; $('fieldRows').innerHTML = ''; $('chkRows').innerHTML = '';
+        for (const v of c.variables) addRow('varRows', VAR_ROW, v);
+        for (const f of c.fields) addRow('fieldRows', FIELD_ROW, f);
+        for (const k of c.checkers ?? []) addRow('chkRows', CHK_ROW, chkToRow(k));
+        $('dCommand').open = true;
+      });
+      card.querySelector('.cdel').addEventListener('click', () => {
+        fetch('/api/commands/delete', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: c.id }) }).then(loadBuilder);
+      });
+      box.append(card);
+    }
+  }
+  $('cSave').addEventListener('click', () => {
+    fetch('/api/commands', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        id: cmdEditing ?? undefined, name: $('cName').value, personaId: $('cPersona').value || null,
+        focus: $('cFocus').value, instructions: $('cInstr').value,
+        variables: rowsOf('varRows').map((v) => ({ ...v, values: v.values ? v.values.split(',').map((s) => s.trim()) : undefined })),
+        fields: rowsOf('fieldRows'),
+        checkers: rowsOf('chkRows').map(chkFromRow),
+      }),
+    }).then((r) => r.json()).then((j) => {
+      if (j.error) return addMsg('err', j.error);
+      cmdEditing = null;
+      $('varRows').innerHTML = ''; $('fieldRows').innerHTML = ''; $('chkRows').innerHTML = '';
+      for (const id of ['cName', 'cFocus', 'cInstr']) $(id).value = '';
+      loadBuilder();
+    });
+  });
+  $('cCompiled').addEventListener('click', () => {
+    const id = cmdEditing ?? commands[0]?.id;
+    if (!id) return addMsg('err', 'save a command first');
+    fetch(`/api/commands/${id}/compiled`).then((r) => r.json()).then((c) => {
+      const out = $('compiledOut');
+      out.style.display = '';
+      out.textContent = `── SYSTEM PROMPT (persona) ──\n${c.system ?? '(no persona linked)'}\n\n── REQUEST (sent as the user turn) ──\n${c.request}\n\n── RESPONSE JSON-SCHEMA (constrains decoding) ──\n${JSON.stringify(c.responseSchema, null, 1)}\n\n── AS A TOOL (VARIABLES → parameters) ──\n${JSON.stringify(c.toolSchema, null, 1)}`;
+    });
+  });
+
+  // ── test harness ──
+  function fillHarness() {
+    const sel = $('hCmd');
+    const cur = sel.value;
+    sel.innerHTML = '';
+    for (const c of commands) {
+      const o = document.createElement('option');
+      o.value = c.id; o.textContent = c.name + (c.personaId ? ` · ${personas.find((p) => p.id === c.personaId)?.name ?? ''}` : '');
+      sel.append(o);
+    }
+    sel.value = cur || (commands[0]?.id ?? '');
+    paintHarnessVars();
+  }
+  function paintHarnessVars() {
+    const c = commands.find((x) => x.id === $('hCmd').value);
+    const box = $('hVars');
+    box.innerHTML = '';
+    if (!c) { box.innerHTML = '<div class="hint">build a command above first</div>'; return; }
+    for (const v of c.variables) {
+      const row = document.createElement('div');
+      row.className = 'rowedit';
+      row.innerHTML = `<label class="vlabel"></label>` + (v.type === 'enum'
+        ? `<select data-v="${v.name}">${(v.values ?? []).map((x) => `<option>${x}</option>`).join('')}</select>`
+        : `<input data-v="${v.name}" placeholder="${v.type}${v.required ? ' · required' : ''}">`);
+      row.querySelector('.vlabel').textContent = v.name;
+      box.append(row);
+    }
+  }
+  $('hCmd').addEventListener('change', paintHarnessVars);
+  $('hRun').addEventListener('click', () => {
+    const c = commands.find((x) => x.id === $('hCmd').value);
+    if (!c) return;
+    const vars = {};
+    for (const el of $('hVars').querySelectorAll('[data-v]')) {
+      const def = c.variables.find((v) => v.name === el.dataset.v);
+      vars[el.dataset.v] = def?.type === 'number' ? Number(el.value) : def?.type === 'boolean' ? el.value === 'true' : el.value;
+    }
+    $('hRun').disabled = true;
+    $('hOut').innerHTML = '<div class="hint">running…</div>';
+    fetch('/api/harness/run', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ commandId: c.id, engine: $('hEngine').value, vars }),
+    }).then((r) => r.json()).then(paintHarnessResult)
+      .catch((e) => { $('hOut').innerHTML = ''; addMsg('err', 'harness: ' + e.message); })
+      .finally(() => { $('hRun').disabled = false; });
+  });
+  function paintHarnessResult(r) {
+    const box = $('hOut');
+    box.innerHTML = '';
+    if (r.error) { box.innerHTML = `<div class="hint">✗ ${escapeHtml(r.error)}</div>`; return; }
+    const head = document.createElement('div');
+    head.className = 'check ' + (r.passed ? 'pass' : '');
+    head.innerHTML = `<span class="sig"></span><div><div class="what"></div><div class="how"></div></div>`;
+    head.querySelector('.what').textContent = r.passed ? 'ALL CHECKS PASS' : (r.parseError ?? 'checks failed');
+    head.querySelector('.how').textContent = `${r.engine} · ${r.ms}ms${r.tokens ? ` · ${r.tokens} tok` : ''}${r.tier3 ? ' · ' + r.tier3 : ''}`;
+    box.append(head);
+    for (const c of r.results ?? []) {
+      const div = document.createElement('div');
+      div.className = 'check ' + (c.ok ? 'pass' : '');
+      div.innerHTML = `<span class="sig"></span><div><div class="what"></div><div class="how"></div></div>`;
+      div.querySelector('.what').textContent = `tier-${c.tier} · ${c.check}`;
+      div.querySelector('.how').textContent = c.ok ? 'pass' : `got: ${c.got}`;
+      box.append(div);
+    }
+    if (r.parsed) {
+      const pre = document.createElement('pre');
+      pre.className = 'rresult'; pre.style.display = 'block';
+      pre.textContent = JSON.stringify(r.parsed, null, 1);
+      box.append(pre);
+    }
+    if (r.escalatePrompt) {
+      const btn = document.createElement('button');
+      btn.className = 'btn hot';
+      btn.textContent = '⇧ Escalate to Claude fleet run';
+      btn.addEventListener('click', () => {
+        fetch('/api/harness/escalate', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prompt: r.escalatePrompt }) })
+          .then((x) => x.json()).then((j) => {
+            if (j.error) return addMsg('err', j.error);
+            addMsg('claude', `Escalated to the fleet as run ${j.id} — the inbox will ping when it surfaces.`);
+          });
+      });
+      box.append(btn);
+    }
   }
 
   connect();

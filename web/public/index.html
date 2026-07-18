@@ -69,6 +69,13 @@
     </section>
 
     <section class="screen" id="s-fleet">
+      <div class="subnav" id="fleetSubnav">
+        <button class="active" data-p="fp-runs">Runs</button>
+        <button data-p="fp-routines">Routines</button>
+        <button data-p="fp-builder">Builder</button>
+      </div>
+
+      <div class="fpane active" id="fp-runs">
       <div class="eyebrow">Spawn a run — profiled, hard-budgeted, killable</div>
       <textarea id="fleetPrompt" class="fleettask" placeholder="What should this agent do? It works alone in the selected project and reports back." rows="3"></textarea>
       <div class="projbar">
@@ -96,6 +103,106 @@
         <button class="btn ghost" id="pushBtn">🔔 enable push alerts</button>
         <button class="btn killall" id="fleetKillAll">✖ KILL ALL RUNS</button>
       </div>
+      </div><!-- /fp-runs -->
+
+      <div class="fpane" id="fp-routines">
+        <div class="eyebrow">Routines — scheduled, budgeted, reported. Missed slots wait for you.</div>
+        <div class="projbar">
+          <button class="btn ghost" id="routPauseBtn">⏸ pause all</button>
+          <button class="btn hot" id="routNewBtn">＋ new routine</button>
+        </div>
+        <div id="routList" class="doctor-list"><div class="hint">no routines yet — idle costs nothing, scheduled runs are still hard-budgeted</div></div>
+        <div id="routForm" class="bform" style="display:none">
+          <input id="routName" placeholder="routine name — e.g. nightly repo scan">
+          <div class="projbar">
+            <select id="routKind"><option value="every">every N minutes</option><option value="daily">daily at HH:MM</option></select>
+            <input id="routEvery" type="number" min="5" value="360" placeholder="minutes">
+            <input id="routAt" type="time" value="07:00" style="display:none">
+          </div>
+          <textarea id="routPrompt" rows="3" placeholder="What should it do each time? It reports to the inbox like any run."></textarea>
+          <div class="projbar">
+            <select id="routPersona"><option value="">no persona</option></select>
+            <select id="routProfile"></select>
+          </div>
+          <div class="projbar">
+            <select id="routModel">
+              <option value="claude-haiku-4-5-20251001" selected>haiku-4.5 — cheap worker</option>
+              <option value="claude-sonnet-5">sonnet-5</option>
+              <option value="claude-fable-5">fable-5</option>
+            </select>
+            <select id="routBudget">
+              <option value="50000" selected>50k tok / fire</option>
+              <option value="150000">150k tok / fire</option>
+              <option value="500000">500k tok / fire</option>
+            </select>
+          </div>
+          <div class="projbar">
+            <button class="btn hot" id="routSave">Save routine</button>
+            <button class="btn ghost" id="routCancel">cancel</button>
+          </div>
+        </div>
+        <div class="hint">A routine fires as a normal fleet run — same profiles, same hard budget, same inbox report + push. If Atlan was off during a slot, it's flagged <b>missed</b> and waits for your "run late" — it never spends by surprise.</div>
+      </div><!-- /fp-routines -->
+
+      <div class="fpane" id="fp-builder">
+        <div class="eyebrow">Persona+ builder — your framework, compiled to real agent parts</div>
+        <div class="hint">A <b>persona</b> becomes the system prompt (identity + scope + NO_NOS). A <b>structured command</b> becomes a typed tool: VARIABLES → parameters, TEMPLATE → a JSON answer a checker can grade. Deterministic checkers grade it — a model never grades a model.</div>
+
+        <details id="dPersona"><summary>Personas <span id="perCount"></span></summary>
+          <div id="perList" class="doctor-list"></div>
+          <div class="bform">
+            <input id="pName" placeholder="NAME — e.g. Max the Appliance Pro">
+            <input id="pFocus" placeholder="FOCUS — the scope. Scope is the moat.">
+            <textarea id="pBio" rows="2" placeholder="BIO — who this persona is"></textarea>
+            <textarea id="pSkills" rows="3" placeholder="SKILLS — one per line"></textarea>
+            <textarea id="pNoNos" rows="3" placeholder="NO_NOS — hard limits, one per line (keep them short; heavy guardrails belong in checkers)"></textarea>
+            <textarea id="pInstr" rows="2" placeholder="INSTRUCTIONS — how it should work"></textarea>
+            <div class="projbar">
+              <select id="pProfile"></select>
+              <button class="btn hot" id="pSave">Save persona</button>
+            </div>
+          </div>
+        </details>
+
+        <details id="dCommand"><summary>Structured commands <span id="cmdCount"></span></summary>
+          <div id="cmdList" class="doctor-list"></div>
+          <div class="bform">
+            <input id="cName" placeholder="COMMAND NAME — e.g. REQUEST_ESTIMATE">
+            <select id="cPersona"><option value="">no persona</option></select>
+            <input id="cFocus" placeholder="FOCUS — what this command produces">
+            <textarea id="cInstr" rows="2" placeholder="INSTRUCTIONS"></textarea>
+            <div class="eyebrow">VARIABLES — the inputs (become the tool's typed parameters)</div>
+            <div id="varRows"></div>
+            <button class="btn ghost" id="varAdd">＋ variable</button>
+            <div class="eyebrow">TEMPLATE — the answer's typed fields</div>
+            <div id="fieldRows"></div>
+            <button class="btn ghost" id="fieldAdd">＋ field</button>
+            <div class="eyebrow">CHECKERS — deterministic assertions on the answer</div>
+            <div id="chkRows"></div>
+            <button class="btn ghost" id="chkAdd">＋ checker</button>
+            <div class="projbar">
+              <button class="btn hot" id="cSave">Save command</button>
+              <button class="btn ghost" id="cCompiled">view compiled</button>
+            </div>
+            <pre id="compiledOut" class="rresult" style="display:none"></pre>
+          </div>
+        </details>
+
+        <details id="dHarness" open><summary>Test harness — run it, grade it, escalate if it fails</summary>
+          <div class="projbar">
+            <select id="hCmd"></select>
+            <select id="hEngine">
+              <option value="local" selected>local llama-server (free)</option>
+              <option value="gemini">Gemini</option>
+              <option value="openai">OpenAI</option>
+              <option value="deepseek">DeepSeek</option>
+            </select>
+          </div>
+          <div id="hVars"></div>
+          <button class="btn hot" id="hRun">▶ Run through harness</button>
+          <div id="hOut"></div>
+        </details>
+      </div><!-- /fp-builder -->
     </section>
 
     <section class="screen" id="s-build">
