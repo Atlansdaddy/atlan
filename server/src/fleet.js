@@ -100,6 +100,7 @@ function publicRun(r) {
     resultText: r.resultText ? r.resultText.slice(0, 4000) : null,
     resumable: r.status === 'halted-budget' && !!r.sessionId,
     resumedFrom: r.resumedFrom ?? null,
+    source: r.source ?? null,
   };
 }
 
@@ -116,7 +117,7 @@ export function activeCount() { return active.size; }
 // Budget counts FRESH tokens (input + output + cache writes; cache reads are
 // ~free and excluded). Turn 1 alone costs ~35k (system-prompt cache write),
 // so ~50k is the practical floor for a run that does anything.
-export function spawnRun({ prompt, profile = 'scout', cwd = '/root', model = 'claude-haiku-4-5-20251001', budget = 150000, resume = null, resumedFrom = null }) {
+export function spawnRun({ prompt, profile = 'scout', cwd = '/root', model = 'claude-haiku-4-5-20251001', budget = 150000, resume = null, resumedFrom = null, source = null }) {
   const prof = PROFILES[profile];
   if (!prof) throw new Error(`unknown profile: ${profile}`);
   if (!prompt?.trim()) throw new Error('empty prompt');
@@ -125,7 +126,7 @@ export function spawnRun({ prompt, profile = 'scout', cwd = '/root', model = 'cl
     id: randomUUID().slice(0, 8), prompt: prompt.trim(), profile, cwd, model, budget,
     tokens: 0, cost: 0, status: 'running', startedAt: Date.now(), endedAt: null,
     lastLine: 'diving…', denials: [], resultText: null,
-    sessionId: null, resume, resumedFrom,
+    sessionId: null, resume, resumedFrom, source: source ? String(source).slice(0, 80) : null,
   };
   runs.unshift(run);
   if (runs.length > 200) runs.pop();

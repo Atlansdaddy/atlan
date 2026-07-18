@@ -16,6 +16,11 @@ import { runPreflight } from './preflight.js';
 import { agentStatus, agentTurn } from './agents.js';
 import { initFleet, spawnRun, listRuns, killRun, killAll, todayBurn, profileList, historyTail, topUpRun } from './fleet.js';
 import { pushPublicKey, addSub, subCount, notifyAll } from './push.js';
+import { listRoutines, upsertRoutine, deleteRoutine, setPaused, fireRoutine, startScheduler } from './routines.js';
+import {
+  listPersonas, listCommands, upsertPersona, deletePersona, upsertCommand, deleteCommand,
+  compilePersona, compileCommand, templateSchema, toolSchema, harnessRun,
+} from './personas.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const WEB = join(__dirname, '../../web/public');
@@ -67,6 +72,53 @@ app.post('/api/fleet/kill', (req, res) => {
   res.json({ killed: killRun(String(id)) ? 1 : 0 });
 });
 
+// ── routines: scheduled budgeted runs ──
+app.get('/api/routines', (_req, res) => res.json(listRoutines()));
+app.post('/api/routines', (req, res) => {
+  try { res.json(upsertRoutine(req.body ?? {})); } catch (err) { res.status(400).json({ error: err.message }); }
+});
+app.post('/api/routines/delete', (req, res) => res.json({ deleted: deleteRoutine(String(req.body?.id)) }));
+app.post('/api/routines/pause', (req, res) => res.json({ paused: setPaused(req.body?.paused) }));
+app.post('/api/routines/fire', (req, res) => {
+  try { res.json(fireRoutine(String(req.body?.id), { late: !!req.body?.late })); } catch (err) { res.status(400).json({ error: err.message }); }
+});
+
+// ── Persona+ builder: personas, structured commands, test harness ──
+app.get('/api/personas', (_req, res) => res.json({ personas: listPersonas(), commands: listCommands() }));
+app.post('/api/personas', (req, res) => {
+  try { res.json(upsertPersona(req.body ?? {})); } catch (err) { res.status(400).json({ error: err.message }); }
+});
+app.post('/api/personas/delete', (req, res) => res.json({ deleted: deletePersona(String(req.body?.id)) }));
+app.post('/api/commands', (req, res) => {
+  try { res.json(upsertCommand(req.body ?? {})); } catch (err) { res.status(400).json({ error: err.message }); }
+});
+app.post('/api/commands/delete', (req, res) => res.json({ deleted: deleteCommand(String(req.body?.id)) }));
+// Compile preview: what the persona/command actually become (system prompt,
+// REQUEST block, response json-schema, tool schema) — receipts for the method.
+app.get('/api/commands/:id/compiled', (req, res) => {
+  const cmd = listCommands().find((c) => c.id === req.params.id);
+  if (!cmd) return res.status(404).json({ error: 'no such command' });
+  const persona = listPersonas().find((p) => p.id === cmd.personaId);
+  res.json({
+    system: persona ? compilePersona(persona) : null,
+    request: compileCommand(cmd, {}),
+    responseSchema: templateSchema(cmd),
+    toolSchema: toolSchema(cmd),
+  });
+});
+app.post('/api/harness/run', async (req, res) => {
+  try { res.json(await harnessRun(req.body ?? {})); } catch (err) { res.status(400).json({ error: err.message }); }
+});
+app.post('/api/harness/escalate', (req, res) => {
+  // Failed local execution climbs the ladder: same compiled persona+command,
+  // now as a Claude fleet run (budgeted, profiled, reported like any run).
+  try {
+    const prompt = String(req.body?.prompt ?? '').trim();
+    if (!prompt) throw new Error('nothing to escalate');
+    res.json(spawnRun({ prompt, profile: 'scout', cwd: '/root', budget: Number(req.body?.budget) || 100000, source: 'harness-escalation' }));
+  } catch (err) { res.status(400).json({ error: err.message }); }
+});
+
 app.get('/api/keys', (_req, res) => res.json(keyStatus()));
 app.post('/api/keys', (req, res) => {
   try {
@@ -113,10 +165,14 @@ const wss = new WebSocketServer({ server, path: '/ws' });
 
 // Fleet events are server-global — every open cockpit sees the same runs.
 // Finished/halted runs also go out as real push notifications (app closed OK).
-initFleet((obj) => {
+const wsBroadcast = (obj) => {
   const s = JSON.stringify(obj);
   for (const c of wss.clients) if (c.readyState === 1) c.send(s);
-}, notifyAll);
+};
+initFleet(wsBroadcast, notifyAll);
+// Routines wake with the server; missed slots get flagged + pushed, never
+// auto-fired (a rebooted server must not spend tokens by surprise).
+startScheduler(wsBroadcast, notifyAll);
 
 wss.on('connection', (ws) => {
   const send = (obj) => { if (ws.readyState === 1) ws.send(JSON.stringify(obj)); };
