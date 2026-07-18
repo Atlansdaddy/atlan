@@ -137,6 +137,7 @@
       case 'fleet.done':
         upsertRun(m.run);
         if (m.today) paintBurnToday(m.today);
+        fleetPing(m.run);
         break;
       case 'fleet.killall': loadFleet(); break;
     }
@@ -333,6 +334,7 @@
   };
 
   function loadFleet() {
+    setFleetBadge(0);
     fetch('/api/fleet').then((r) => r.json()).then((f) => {
       if (!profilesLoaded) {
         profilesLoaded = true;
@@ -343,10 +345,32 @@
         }
       }
       fleetRuns.clear();
+      // Live runs + durable history = the inbox; history survives restarts.
       for (const r of f.runs) fleetRuns.set(r.id, r);
+      for (const r of f.history) if (!fleetRuns.has(r.id)) fleetRuns.set(r.id, r);
       renderRuns();
       paintBurnToday(f.today);
+      if (f.pushSubs > 0) $('pushBtn').style.display = 'none';
     }).catch(() => {});
+  }
+
+  // ── chat ping + nav badge (reports land in BOTH places) ──
+  let fleetUnseen = 0;
+  function setFleetBadge(n) {
+    fleetUnseen = n;
+    const b = document.querySelector('nav button[data-s="s-fleet"] .lb');
+    b.textContent = n ? `Fleet (${n})` : 'Fleet';
+    b.classList.toggle('hotlb', n > 0);
+  }
+  function fleetPing(run) {
+    const active = document.querySelector('nav button.active')?.dataset.s;
+    if (active !== 's-fleet') setFleetBadge(fleetUnseen + 1);
+    const label = run.status === 'done' ? 'surfaced' : run.status === 'halted-budget' ? 'NEEDS YOU — budget hit' : run.status;
+    const line = document.createElement('div');
+    line.className = 'sessline' + (run.status === 'halted-budget' ? ' needsyou' : '');
+    line.textContent = `— ❖ fleet ${run.profile} ${label} · tap for report —`;
+    line.addEventListener('click', () => document.querySelector('nav button[data-s="s-fleet"]').click());
+    chatlog.append(line); scroll();
   }
 
   function paintBurnToday(t) {
@@ -375,7 +399,9 @@
         <div class="burn"><i></i></div>
         <div class="rmeta"></div>
         <div class="rlast"></div>
+        <button class="btn hot rtopup">▲ top up +100k tok & resume</button>
         <pre class="rresult"></pre>`;
+      card.querySelector('.rtopup').addEventListener('click', (e) => { e.stopPropagation(); topUp(r.id); });
       card.querySelector('.rwho').textContent = `${r.profile} · ${r.model.replace('claude-', '').replace(/-\d{8}$/, '')}`;
       card.querySelector('.rprompt').textContent = r.prompt;
       card.querySelector('.rkill').addEventListener('click', (e) => {
@@ -388,6 +414,14 @@
     }
   }
 
+  function topUp(id) {
+    fetch('/api/fleet/topup', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id, extra: 100000 }),
+    }).then((r) => r.json()).then((j) => { if (j.error) addMsg('err', j.error); })
+      .catch(() => addMsg('err', 'cockpit server unreachable'));
+  }
+
   function paintRun(r) {
     const card = document.querySelector(`.runcard[data-id="${r.id}"]`);
     if (!card) return;
@@ -398,8 +432,40 @@
     card.querySelector('.rmeta').textContent =
       `${fmtTok(r.tokens)} / ${fmtTok(r.budget)} tok${r.cost ? ` · $${r.cost.toFixed(4)}` : ''}${r.denials ? ` · ${r.denials} denied` : ''}`;
     card.querySelector('.rlast').textContent = r.lastLine ?? '';
+    card.querySelector('.rtopup').style.display = r.resumable ? '' : 'none';
     card.querySelector('.rresult').textContent = r.resultText ?? '';
   }
+
+  // ── push alerts (real Web Push — works with the app closed) ──
+  async function enablePush() {
+    try {
+      if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+        return addMsg('err', 'push not supported in this browser');
+      }
+      const perm = await Notification.requestPermission();
+      if (perm !== 'granted') return;
+      const reg = await navigator.serviceWorker.register('/sw.js');
+      const { key } = await (await fetch('/api/push/pubkey')).json();
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlB64ToU8(key),
+      });
+      await fetch('/api/push/subscribe', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(sub),
+      });
+      $('pushBtn').style.display = 'none';
+      addMsg('claude', 'Push alerts on — fleet runs will reach you even with Atlan closed.');
+    } catch (err) {
+      addMsg('err', 'push setup failed: ' + err.message);
+    }
+  }
+  function urlB64ToU8(s) {
+    const pad = '='.repeat((4 - (s.length % 4)) % 4);
+    const raw = atob((s + pad).replace(/-/g, '+').replace(/_/g, '/'));
+    return Uint8Array.from(raw, (c) => c.charCodeAt(0));
+  }
+  $('pushBtn').addEventListener('click', enablePush);
 
   $('fleetSpawn').addEventListener('click', () => {
     const prompt = $('fleetPrompt').value.trim();

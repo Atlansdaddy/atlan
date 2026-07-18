@@ -108,6 +108,35 @@ await test('fleet: scout profile hard-blocks Bash via disallowedTools', async ()
   assert.ok(PROFILES_FOR_TEST.verifier.disallowed.includes('Edit'));
 });
 
+// ── M5b: push + inbox surface ──
+await test('push pubkey is a VAPID key', async () => {
+  const { key } = await j(await fetch(BASE + '/api/push/pubkey'));
+  assert.ok(typeof key === 'string' && key.length > 60);
+});
+await test('push subscribe rejects garbage', async () => {
+  const r = await fetch(BASE + '/api/push/subscribe', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ not: 'a subscription' }),
+  });
+  assert.equal(r.status, 400);
+});
+await test('topup of unknown run is a 400', async () => {
+  const r = await fetch(BASE + '/api/fleet/topup', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ id: 'nope1234' }),
+  });
+  assert.equal(r.status, 400);
+});
+await test('served sw.js has NO fetch handler (stale-SW landmine stays dead)', async () => {
+  const src = await (await fetch(BASE + '/sw.js')).text();
+  assert.ok(!/addEventListener\(\s*['"]fetch['"]/.test(src), 'sw.js grew a fetch handler');
+  assert.ok(/addEventListener\(\s*['"]push['"]/.test(src), 'sw.js lost its push handler');
+});
+await test('fleet payload carries durable history for the inbox', async () => {
+  const f = await j(await fetch(BASE + '/api/fleet'));
+  assert.ok(Array.isArray(f.history));
+});
+
 // ── malformed / oversized input doesn't take the server down ──
 await test('garbage JSON body is handled', async () => {
   const r = await fetch(BASE + '/api/keys', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{not json' });

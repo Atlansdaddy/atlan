@@ -17,7 +17,11 @@ const HISTORY = join(FLEET_DIR, 'history.jsonl');
 const BURN = join(FLEET_DIR, 'burn.json');
 
 let broadcast = () => {};
-export function initFleet(fn) { broadcast = fn; }
+let notify = async () => {};
+export function initFleet(broadcastFn, notifyFn) {
+  broadcast = broadcastFn;
+  if (notifyFn) notify = notifyFn;
+}
 
 const READONLY = new Set(['Read', 'Grep', 'Glob', 'LS']);
 // Defense in depth, learned live on 2026-07-17: canUseTool alone is NOT a
@@ -94,7 +98,17 @@ function publicRun(r) {
     status: r.status, startedAt: r.startedAt, endedAt: r.endedAt,
     lastLine: r.lastLine, denials: r.denials.length,
     resultText: r.resultText ? r.resultText.slice(0, 4000) : null,
+    resumable: r.status === 'halted-budget' && !!r.sessionId,
+    resumedFrom: r.resumedFrom ?? null,
   };
+}
+
+// Inbox survives restarts: last N finished runs from the durable log.
+export function historyTail(n = 30) {
+  try {
+    const lines = readFileSync(HISTORY, 'utf8').trim().split('\n');
+    return lines.slice(-n).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean).reverse();
+  } catch { return []; }
 }
 export function listRuns() { return runs.slice(0, 50).map(publicRun); }
 export function activeCount() { return active.size; }
@@ -102,7 +116,7 @@ export function activeCount() { return active.size; }
 // Budget counts FRESH tokens (input + output + cache writes; cache reads are
 // ~free and excluded). Turn 1 alone costs ~35k (system-prompt cache write),
 // so ~50k is the practical floor for a run that does anything.
-export function spawnRun({ prompt, profile = 'scout', cwd = '/root', model = 'claude-haiku-4-5-20251001', budget = 150000 }) {
+export function spawnRun({ prompt, profile = 'scout', cwd = '/root', model = 'claude-haiku-4-5-20251001', budget = 150000, resume = null, resumedFrom = null }) {
   const prof = PROFILES[profile];
   if (!prof) throw new Error(`unknown profile: ${profile}`);
   if (!prompt?.trim()) throw new Error('empty prompt');
@@ -111,6 +125,7 @@ export function spawnRun({ prompt, profile = 'scout', cwd = '/root', model = 'cl
     id: randomUUID().slice(0, 8), prompt: prompt.trim(), profile, cwd, model, budget,
     tokens: 0, cost: 0, status: 'running', startedAt: Date.now(), endedAt: null,
     lastLine: 'diving…', denials: [], resultText: null,
+    sessionId: null, resume, resumedFrom,
   };
   runs.unshift(run);
   if (runs.length > 200) runs.pop();
@@ -137,6 +152,7 @@ async function exec(run, prof) {
         // something if this stays empty.
         settingSources: [],
         disallowedTools: prof.disallowed,
+        ...(run.resume ? { resume: run.resume } : {}),
         canUseTool: async (tool, input) => {
           if (run.status !== 'running') return { behavior: 'deny', message: 'run is stopping' };
           if (run.tokens >= run.budget) {
@@ -156,7 +172,9 @@ async function exec(run, prof) {
     });
     active.set(run.id, q);
     for await (const m of q) {
-      if (m.type === 'assistant') {
+      if (m.type === 'system' && m.subtype === 'init') {
+        run.sessionId = m.session_id;
+      } else if (m.type === 'assistant') {
         const u = m.message?.usage;
         if (u) {
           run.tokens += (u.input_tokens ?? 0) + (u.output_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0);
@@ -171,6 +189,7 @@ async function exec(run, prof) {
         }
       } else if (m.type === 'result') {
         if (m.total_cost_usd != null) run.cost = m.total_cost_usd;
+        if (m.session_id) run.sessionId = m.session_id;
       }
     }
     if (run.status === 'running') { run.status = 'done'; run.lastLine = 'surfaced'; }
@@ -206,6 +225,22 @@ function finish(run) {
     mood: active.size ? 'building'
       : run.status === 'done' ? 'proud'
       : run.status === 'killed' ? 'calm' : 'alarmed',
+  });
+  const snippet = run.prompt.slice(0, 60);
+  if (run.status === 'done') notify('❖ Fleet run surfaced', `${run.profile}: ${snippet}`).catch(() => {});
+  else if (run.status === 'halted-budget') notify('⚠ NEEDS YOU — budget hit', `${run.profile} halted at ${run.tokens} tok: ${snippet}. Top up to resume.`).catch(() => {});
+  else if (run.status === 'error') notify('✗ Fleet run error', `${run.profile}: ${run.lastLine}`).catch(() => {});
+}
+
+// Budget halts aren't dead ends: same session, fresh budget, keeps going.
+export function topUpRun(id, extra = 100000) {
+  const prev = runs.find((r) => r.id === id);
+  if (!prev) throw new Error('no such run');
+  if (prev.status !== 'halted-budget' || !prev.sessionId) throw new Error('run is not resumable');
+  return spawnRun({
+    prompt: `[Atlan top-up: John added ${extra} tokens — continue the task where you left off and finish with the compact report.]`,
+    profile: prev.profile, cwd: prev.cwd, model: prev.model,
+    budget: extra, resume: prev.sessionId, resumedFrom: prev.id,
   });
 }
 

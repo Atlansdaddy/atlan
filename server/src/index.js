@@ -14,7 +14,8 @@ import { runBuild, APK_DIR } from './build.js';
 import { keyStatus, setStoredKey } from './keys.js';
 import { runPreflight } from './preflight.js';
 import { agentStatus, agentTurn } from './agents.js';
-import { initFleet, spawnRun, listRuns, killRun, killAll, todayBurn, profileList } from './fleet.js';
+import { initFleet, spawnRun, listRuns, killRun, killAll, todayBurn, profileList, historyTail, topUpRun } from './fleet.js';
+import { pushPublicKey, addSub, subCount, notifyAll } from './push.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const WEB = join(__dirname, '../../web/public');
@@ -37,7 +38,22 @@ app.use('/apk', express.static(APK_DIR));
 
 app.get('/api/preflight', async (_req, res) => res.json(await runPreflight()));
 
-app.get('/api/fleet', (_req, res) => res.json({ runs: listRuns(), today: todayBurn(), profiles: profileList }));
+app.get('/api/fleet', (_req, res) => res.json({ runs: listRuns(), history: historyTail(30), today: todayBurn(), profiles: profileList, pushSubs: subCount() }));
+app.post('/api/fleet/topup', (req, res) => {
+  try {
+    res.json(topUpRun(String(req.body?.id), Number(req.body?.extra) || 100000));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+app.get('/api/push/pubkey', (_req, res) => res.json({ key: pushPublicKey() }));
+app.post('/api/push/subscribe', (req, res) => {
+  try {
+    res.json({ subs: addSub(req.body) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
 app.post('/api/fleet/run', (req, res) => {
   try {
     res.json(spawnRun(req.body ?? {}));
@@ -96,10 +112,11 @@ const server = createServer(app);
 const wss = new WebSocketServer({ server, path: '/ws' });
 
 // Fleet events are server-global — every open cockpit sees the same runs.
+// Finished/halted runs also go out as real push notifications (app closed OK).
 initFleet((obj) => {
   const s = JSON.stringify(obj);
   for (const c of wss.clients) if (c.readyState === 1) c.send(s);
-});
+}, notifyAll);
 
 wss.on('connection', (ws) => {
   const send = (obj) => { if (ws.readyState === 1) ws.send(JSON.stringify(obj)); };

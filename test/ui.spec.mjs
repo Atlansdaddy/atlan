@@ -44,6 +44,7 @@ await test('Fleet tab: profiles load, spawn form + KILL ALL present', async () =
   await page.waitForFunction(() => document.querySelectorAll('#fleetProfile option').length >= 3, { timeout: 5000 });
   assert.ok(await page.locator('#fleetPrompt').isVisible(), 'no prompt box');
   assert.ok(await page.locator('#fleetKillAll').isVisible(), 'no KILL ALL');
+  assert.ok(await page.locator('#pushBtn').isVisible(), 'no push enable button');
   await page.locator('nav button:has-text("Chat")').click();
 });
 

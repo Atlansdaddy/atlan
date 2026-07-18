@@ -41,6 +41,13 @@ export async function runDoctor() {
       const gb = parseFloat(free);
       return { ok: !(free.endsWith('G') && gb < 5), warn: free.endsWith('G') && gb < 10, detail: `${free} free` };
     }),
+    check('sw-no-fetch', 'push SW has no fetch handler', async () => {
+      // The stale-SW landmine stays dead only while sw.js never intercepts
+      // requests. If this goes red, someone added caching — rip it out.
+      const src = await import('node:fs/promises').then((fs) => fs.readFile(new URL('../../web/public/sw.js', import.meta.url), 'utf8'));
+      const hasFetch = /addEventListener\(\s*['"]fetch['"]/.test(src);
+      return { ok: !hasFetch, detail: hasFetch ? 'FETCH HANDLER FOUND — stale-cache risk, remove it' : 'push-only, cannot cache' };
+    }),
     check('llama', 'llama-server :8080', async () => {
       try {
         const res = await fetch('http://127.0.0.1:8080/health', { signal: AbortSignal.timeout(1500) });
