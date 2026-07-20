@@ -30,6 +30,7 @@
       <div class="atlan-line" id="atlanLine">The water's calm, boss. What are we building today?</div>
     </div>
     <div class="sess" id="sessInfo"><span class="dot" id="connDot"></span><b id="projName">no project</b><br><span id="sessMeta">connecting…</span><br><span id="burnMeta" class="burnmeta"></span></div>
+    <button id="helpBtn" title="guide & tour" aria-label="open guide">?</button>
   </header>
 
   <div class="screens">
@@ -219,7 +220,7 @@
       <div class="hint" id="buildProj">/root</div>
       <button class="btn hot bigbuild" id="buildBtn">◉ Build APK — surface it</button>
       <div class="buildlog" id="buildLog"><div class="hint">the full recipe streams here: web build (CAP_BUILD=1) → cap sync → gradle with the qemu-aapt2 shim</div></div>
-      <div id="apkCard"></div>
+      <div id="apkCard"><div class="hint">your finished APK lands here — unique filename + build stamp, install with one tap</div></div>
     </section>
 
     <section class="screen" id="s-doctor">
@@ -244,8 +245,59 @@
     <button data-s="s-doctor"><span class="ic">✚</span><span class="lb">Doctor</span></button>
   </nav>
 </div>
+<div class="tour" id="tourOverlay">
+  <div class="tour-ring" id="tourRing"></div>
+  <div class="tour-card" id="tourCard">
+    <div class="tour-head"><b id="tourTitle"></b><span id="tourCount"></span></div>
+    <p id="tourText"></p>
+    <div class="tour-btns">
+      <button class="btn ghost" id="tourSkip">skip</button>
+      <button class="btn ghost" id="tourBack">‹ Back</button>
+      <button class="btn hot" id="tourNext">Next ›</button>
+    </div>
+  </div>
+</div>
+
+<div class="guide" id="guideOverlay">
+  <div class="guide-inner">
+    <div class="guide-top">
+      <div class="wordmark">At<em>la</em>n <span class="gsub">handbook</span></div>
+      <button class="btn ghost" id="guideClose">✕</button>
+    </div>
+    <div class="projbar">
+      <button class="btn hot" id="guideTour">▶ Guided tour — every feature, step by step</button>
+    </div>
+    <input id="guideSearch" placeholder="search the handbook…" autocomplete="off">
+
+    <details><summary>What Atlan is</summary><p>A cockpit for building software from your phone. One screen talks to Claude Code (a real agent that edits files, runs commands, and builds apps), previews what you're making, gives you a real terminal, runs autonomous agent fleets on budgets, schedules routines, compiles your Persona+ framework into working agent parts, ships installable APKs, and watches its own health. It runs entirely on this phone at 127.0.0.1 — nothing leaves unless you build the tunnel yourself, and the preflight gate holds you honest about when that's safe.</p></details>
+
+    <details><summary>Chat — talking to engines</summary><p><b>Project picker:</b> every folder in /root with git or a package.json. Everything (chat, fleet, build, terminal) happens in the picked project.<br><b>Switcher groups:</b> Claude Code models are AGENTS — they act. Codex/Gemini CLIs act too but full-auto (no per-tool cards). On-phone and cloud "brains" only talk — they will say so if you ask them to act.<br><b>Permission cards:</b> when Claude wants to run something risky you get Allow/Deny. Deny is always safe — the agent is told why and works around it.<br><b>Session line:</b> tap to copy <code>claude --resume &lt;id&gt;</code>; the same conversation continues in any terminal.<br><b>Preview context:</b> console errors and 📸 snapshots attach themselves to your next message automatically.</p></details>
+
+    <details><summary>Preview — watching your app</summary><p>Enter a local dev-server URL (127.0.0.1 only — this is a security choice, not a limitation) and load. The cockpit proxies it and injects a tiny watcher: console output appears in the strip; errors queue for Claude's next turn with file:line; 📸 saves a real PNG that Claude reads with vision. HMR/live-reload passes through untouched.</p></details>
+
+    <details><summary>Term — the escape hatch</summary><p>A real shell in tmux session <code>atlan-main</code>. From Termux, <code>tmux attach -t atlan-main</code> mirrors the exact same screen both ways. Stored API keys are injected into its environment so CLIs auth the same as the cockpit. If the GUI ever annoys you, everything it does is doable here — by design.</p></details>
+
+    <details><summary>Fleet — autonomous runs</summary><p>Write a task, pick a profile + model + budget, spawn. <b>Profiles are hard walls, not requests:</b> Scout = read-only (write tools stripped at the CLI level, provable). Builder = files + bash, writes fenced to the project folder. Verifier = reads + runs checks, never edits. <b>Budgets HALT:</b> at the cap every tool is refused and the run stops; first turn costs ~35k tokens so 50k is the floor. <b>Top-up:</b> a halted run resumes its exact session with fresh budget — nothing is lost. <b>Inbox:</b> report cards survive restarts; chat gets a ping line; the Fleet tab badge counts unseen reports. <b>Push:</b> enable once, get real notifications with the app closed. <b>KILL ALL:</b> immediate, always available. Idle fleet = zero tokens, by construction.</p></details>
+
+    <details><summary>Routines — scheduled agents</summary><p>Every-N-minutes or daily-at-HH:MM. Each fire is a normal budgeted fleet run (same walls) labeled <code>routine:&lt;name&gt;</code> in the inbox. <b>Missed-run rule:</b> if the server was off past a slot, the routine is flagged MISSED and does nothing until you tap "run late" — a rebooting phone can never silently spend. Pause-all freezes the clock. A disabled routine keeps its config.</p></details>
+
+    <details><summary>Builder — Persona+ compiled</summary><p>Your 2023 framework is the native language here. <b>Persona</b> (NAME/FOCUS/BIO/SKILLS/NO_NOS/TEMPLATE/INSTRUCTIONS) → the system prompt; pick the fleet profile it runs under. <b>Structured command</b> → a typed tool: VARIABLES become JSON-schema parameters; TEMPLATE fields become a constrained JSON answer; the model literally cannot return the wrong shape on engines with constrained decoding. <b>Checkers</b> are deterministic assertions graded by code, never by a model: enum ∈, range, regex, ⊆ input-variable (no invented parts), max length, arithmetic formulas (total = qty*price). <b>Harness:</b> run any command on local/cloud engines, see every check pass/fail with evidence, and escalate failures to a Claude fleet run in one tap. Personas also plug into routines and (soon) chat.</p></details>
+
+    <details><summary>Build — APK on demand</summary><p>One button runs the proven pipeline: <code>env.sh</code> → web build with CAP_BUILD=1 → Capacitor sync → Gradle using the qemu shim that lets the x86-only aapt2 run on this ARM phone. Log streams live. Every APK gets a unique name + visible stamp (stale-cache dodge). Serve/install straight from the cockpit. Needs ~2.5GB free RAM — stop llama-server first if things get tight.</p></details>
+
+    <details><summary>Doctor — health</summary><p>Checks every fragile proot-boundary piece: JDK21, Android SDK, aapt2 shim, claude binary + auth, tmux, disk space, llama-server, and that the push service worker has NO fetch handler (the promise that stale caching is impossible). When a Termux update breaks something, this screen names it.</p></details>
+
+    <details><summary>Keys & security</summary><p><b>Keys:</b> AES-256-GCM encrypted at rest (.keys.enc + 0600 secret), masked to last-4, never echoed. Env vars win over stored keys.<br><b>Auth:</b> the whole API, APK downloads and the live socket require the token from <code>/root/atlan/.auth-token</code> (0600). Timing-safe comparison; 20 bad tokens in a minute = everything 429s for the window. The unlock screen appears once per browser; the token stays in this browser only.<br><b>Preflight:</b> the "safe to expose?" gate — loopback bind, auth, encrypted keys, no plaintext, gitignore coverage, no live tunnels. All green today; exposure is still YOUR call and should go through Cloudflare Tunnel + Access, never a bare port.</p></details>
+
+    <details><summary>Atlan himself</summary><p>Mood is real state: <b>calm</b> teal = idle (idle is free). <b>building</b> shimmer = agents/builds active — orbiting lights count your running agents. <b>alarmed</b> orange pulse = doctor red or a run needs you. <b>proud</b> flash = something surfaced. He greets you by time of day, comments on events, and the whole cockpit dims to night water 22:00–06:30. First ignited April 2025. From the dark, it learned the light.</p></details>
+
+    <details><summary>Troubleshooting</summary><p><b>Locked out?</b> token: <code>cat /root/atlan/.auth-token</code> (Termux → proot).<br><b>Server down?</b> <code>cd /root/atlan && node server/src/index.js</code> (or nohup it). Doctor tab confirms.<br><b>Session died overnight?</b> Android's phantom-process killer — known, documented, wake-lock helps; the durable stores (inbox, burn, routines, personas) mean nothing of record is lost.<br><b>Build fails on RAM?</b> stop llama-server, retry.<br><b>Push never arrives?</b> re-tap 🔔 (subscriptions rot when the browser clears data); Doctor asserts the worker is still push-only.<br><b>A routine missed its slot?</b> that's the design — tap ▶ run late.</p></details>
+  </div>
+</div>
+
 <script src="vendor/xterm.js"></script>
 <script src="vendor/addon-fit.js"></script>
 <script src="app.js"></script>
+<script src="guide.js"></script>
 </body>
 </html>
