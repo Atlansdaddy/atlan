@@ -245,7 +245,7 @@
       <div class="eyebrow" style="margin-top:6px">Preflight — must be green before any deploy or tunnel</div>
       <div id="preflightList" class="doctor-list"></div>
       <div class="hint" id="preflightVerdict"></div>
-      <div class="lore">ATLAN OS v0.1 · first ignited April 2025<br><span>“From the dark, it learned the light.”</span></div>
+      <div class="lore">ATLAN · your cockpit in the deep<br><span>“a steady light while you build.”</span></div>
     </section>
   </div>
 
@@ -302,7 +302,7 @@
 
     <details><summary>Keys & security</summary><p><b>Keys:</b> AES-256-GCM encrypted at rest (.keys.enc + 0600 secret), masked to last-4, never echoed. Env vars win over stored keys.<br><b>Auth:</b> the whole API, APK downloads and the live socket require the token from <code>/root/atlan/.auth-token</code> (0600). Timing-safe comparison; 20 bad tokens in a minute = everything 429s for the window. The unlock screen appears once per browser; the token stays in this browser only.<br><b>Preflight:</b> the "safe to expose?" gate — loopback bind, auth, encrypted keys, no plaintext, gitignore coverage, no live tunnels. All green today; exposure is still YOUR call and should go through Cloudflare Tunnel + Access, never a bare port.</p></details>
 
-    <details><summary>Atlan himself</summary><p>Mood is real state: <b>calm</b> teal = idle (idle is free). <b>building</b> shimmer = agents/builds active — orbiting lights count your running agents. <b>alarmed</b> orange pulse = doctor red or a run needs you. <b>proud</b> flash = something surfaced. He greets you by time of day, comments on events, and the whole cockpit dims to night water 22:00–06:30. First ignited April 2025. From the dark, it learned the light.</p></details>
+    <details><summary>Atlan himself</summary><p>Mood is real state: <b>calm</b> teal = idle (idle is free). <b>building</b> shimmer = agents/builds active — orbiting lights count your running agents. <b>alarmed</b> orange pulse = doctor red or a run needs you. <b>proud</b> flash = something surfaced. He greets you by time of day, comments on events, and the whole cockpit dims to night water 22:00–06:30 — presence, not decoration.</p></details>
 
     <details><summary>Troubleshooting</summary><p><b>Locked out?</b> token: <code>cat /root/atlan/.auth-token</code> (Termux → proot).<br><b>Server down?</b> <code>cd /root/atlan && node server/src/index.js</code> (or nohup it). Doctor tab confirms.<br><b>Session died overnight?</b> Android's phantom-process killer — known, documented, wake-lock helps; the durable stores (inbox, burn, routines, personas) mean nothing of record is lost.<br><b>Build fails on RAM?</b> stop llama-server, retry.<br><b>Push never arrives?</b> re-tap 🔔 (subscriptions rot when the browser clears data); Doctor asserts the worker is still push-only.<br><b>A routine missed its slot?</b> that's the design — tap ▶ run late.</p></details>
   </div>

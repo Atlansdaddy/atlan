@@ -50,8 +50,7 @@ One sentence: **Claude Code in a phone IDE with a live preview sandbox, Mid-Atla
 
 ## Identity
 - Brand: Mid-Atlantic AI palette (from midatlantic.ai): navies #03203D→#1B4F8A (depth ladder), teals #6BD4D8/#89EBEF (bioluminescence), coral #FF6723/#FF8A4F (hot actions), #D2D2DB neutrals.
-- Atlan = the logo bot (web/public/img/atlan-bot.svg), John's first AI reborn; mood engine driven by real state (idle/building/alarmed/proud); VTRFM = long-term brain.
-- Lore: "first ignited April 2025 — From the dark, it learned the light."
+- Atlan = the logo bot (web/public/img/atlan-bot.svg); mood engine driven by real state (idle/building/alarmed/proud). (Personal origin story lives in the author's notes, not in the shipped product.)
 
 ## Guardrails (from John's OpenClaw/Hermes teardown — non-negotiable)
 - Hard per-run token budget → PreToolUse hook halts, not warns

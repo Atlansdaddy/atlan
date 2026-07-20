@@ -2,7 +2,7 @@
 
 **A personal AI build cockpit that runs entirely on a phone.** One page at `http://127.0.0.1:4589` puts Claude Code, other agent CLIs, local and cloud models, a live preview sandbox, a real terminal, an autonomous agent fleet, a Persona+ builder, and one-button APK builds into a single tap-through app — served from Ubuntu proot under Termux on a Samsung S24 Ultra. Nothing leaves the phone unless you deliberately build a tunnel.
 
-Built by John Viruet / Mid-Atlantic AI. Personal tool first; shared to the community when it's good. Its resident AI, **Atlan**, is John's first AI (April 2025) reborn as the cockpit's living mascot.
+Built by John Viruet / Mid-Atlantic AI. Personal tool first; shared to the community when it's good. Its resident AI, **Atlan**, is the cockpit's living mascot — a calm presence that reacts to what's actually happening as you build.
 
 > **Status (2026-07-20):** M1–M6 shipped. 124 automated tests green across 8 suites (see `docs/RECEIPTS.md`). Preflight security gate all-green. Runs loopback-only by design.
 
@@ -64,7 +64,7 @@ Runs the proven pipeline in order: `env.sh` → web build (`CAP_BUILD=1`) → Ca
 - **Preflight** — the *"safe to expose?"* gate (distinct from "does it work?"): loopback bind, auth token, encrypted keys, no plaintext key files, gitignore coverage, no live tunnels. **All green today**, and the app still stays loopback-only until you choose otherwise.
 
 ### Atlan himself
-Mood is real state: **calm** (idle — idle is free) · **building** (agents/builds active; orbiting lights = running agents) · **alarmed** (Doctor red or a run needs you) · **proud** (something surfaced). Time-aware greetings, event commentary, and a night dimming pass 22:00–06:30. Canvas-rendered, battery-safe (animation pauses when the tab is hidden). *First ignited April 2025 — from the dark, it learned the light.*
+Mood is real state: **calm** (idle — idle is free) · **building** (agents/builds active; orbiting lights = running agents) · **alarmed** (Doctor red or a run needs you) · **proud** (something surfaced). Time-aware greetings, event commentary, and a night dimming pass 22:00–06:30. Canvas-rendered, battery-safe (animation pauses when the tab is hidden). *A steady light while you build.*
 
 ---
 

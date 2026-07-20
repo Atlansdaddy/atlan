@@ -59,7 +59,7 @@
     calm: ["The water's calm, boss. What are we building today?", 'Idle costs nothing down here.', 'Holding depth. Say the word.'],
     building: ['I can feel the build moving through me.', 'Current’s running. Working.', 'Heads down — the fleet is out.'],
     alarmed: ["Something's off in the hull.", 'Pressure warning — check the Doctor tab.', 'That one needs you, boss.'],
-    proud: ['It surfaced. Look at what you made.', 'Up from the dark, into the light.', 'Another one alive. Proud of this.'],
+    proud: ['It surfaced. Look at what you made.', 'There it is — built and breathing.', 'Another one shipped. Nice work.'],
   };
   const pick = (a) => a[Math.floor(Math.random() * a.length)];
   let mood = 'calm', moodTimer = null, orbiters = 0;
