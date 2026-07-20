@@ -50,17 +50,29 @@
     const el = q(st.el);
     if (!el) { next(); return; }
     el.scrollIntoView({ block: 'center', behavior: 'instant' });
-    const r = el.getBoundingClientRect();
-    ring.style.cssText = `left:${r.left - 6}px;top:${r.top - 6}px;width:${r.width + 12}px;height:${r.height + 12}px`;
-    // card above or below the ring, whichever half has room
-    const below = r.bottom < innerHeight * 0.55;
-    card.style.top = below ? `${Math.min(innerHeight - 190, r.bottom + 14)}px` : '';
-    card.style.bottom = below ? '' : `${Math.min(innerHeight - 120, innerHeight - r.top + 14)}px`;
+    // Set content FIRST so the card has its real height before we position it —
+    // the old code assumed a fixed ~190px card and clipped longer cards off the
+    // bottom in portrait (John, 2026-07-20).
     $('tourTitle').textContent = st.h;
     $('tourText').textContent = st.p;
     $('tourCount').textContent = `${idx + 1} / ${STEPS.length}`;
     $('tourBack').style.visibility = idx === 0 ? 'hidden' : 'visible';
     $('tourNext').textContent = idx === STEPS.length - 1 ? '✓ Finish' : 'Next ›';
+
+    const r = el.getBoundingClientRect();
+    ring.style.cssText = `left:${r.left - 6}px;top:${r.top - 6}px;width:${r.width + 12}px;height:${r.height + 12}px`;
+
+    // Measure the actual card, then clamp it fully on-screen. Prefer below the
+    // spotlight; fall back to above; then hard-clamp to the viewport so no card
+    // is ever partially cut off in any orientation.
+    const margin = 10, navH = 62; // keep clear of the bottom tab bar
+    card.style.bottom = '';
+    const ch = card.offsetHeight;
+    const maxTop = innerHeight - navH - ch - margin;
+    let top = r.bottom + 14;
+    if (top > maxTop) top = r.top - 14 - ch;       // not enough room below → go above
+    top = Math.max(margin, Math.min(top, Math.max(margin, maxTop)));
+    card.style.top = `${top}px`;
   }
   function show(i) {
     idx = Math.max(0, Math.min(STEPS.length - 1, i));

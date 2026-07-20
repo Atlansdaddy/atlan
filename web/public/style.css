@@ -174,7 +174,8 @@ nav button .lb.hotlb{color:var(--hot2)}
 .tour-ring{position:fixed;border:2px solid var(--teal);border-radius:14px;box-shadow:0 0 0 4000px rgba(2,8,15,.62),0 0 22px rgba(63,232,200,.5);
   transition:all .25s ease;pointer-events:none}
 .tour-card{position:fixed;left:12px;right:12px;z-index:91;background:var(--panel,#04121f);border:1px solid var(--teal);
-  border-radius:14px;padding:14px;box-shadow:0 8px 40px rgba(0,0,0,.6)}
+  border-radius:14px;padding:14px;box-shadow:0 8px 40px rgba(0,0,0,.6);
+  max-height:72vh;overflow-y:auto;overscroll-behavior:contain}
 .tour-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px}
 .tour-head b{color:var(--teal);font-size:14px}
 .tour-head span{color:var(--dim);font-size:11px}

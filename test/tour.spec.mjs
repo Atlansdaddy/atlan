@@ -39,7 +39,8 @@ await test(`tour has full coverage (${stepCount} steps ≥ 26)`, async () => {
   assert.ok(stepCount >= 26, `only ${stepCount} steps`);
 });
 
-await test('every tour step spotlights a real, visible element', async () => {
+await test('every tour step spotlights a real, visible element + card fits portrait', async () => {
+  const vw = page.viewportSize().width, vh = page.viewportSize().height;
   await page.evaluate(() => window._tour.show(0));
   for (let i = 0; i < stepCount; i++) {
     await page.waitForTimeout(260);
@@ -52,6 +53,11 @@ await test('every tour step spotlights a real, visible element', async () => {
     assert.ok(ring && ring.width > 8 && ring.height > 8, `step ${i + 1}: ring not placed`);
     // the spotlit element really is the declared one, visible on the right tab
     assert.ok(await page.locator(st.el).first().isVisible(), `step ${i + 1}: ${st.el} not visible`);
+    // the card must sit FULLY within the viewport in portrait — no clipped cards
+    const c = await page.locator('#tourCard').boundingBox();
+    assert.ok(c.y >= -1 && c.y + c.height <= vh + 1, `step ${i + 1}: card clipped vertically (y=${c.y.toFixed(0)}, bottom=${(c.y + c.height).toFixed(0)}, vh=${vh})`);
+    assert.ok(c.x >= -1 && c.x + c.width <= vw + 1, `step ${i + 1}: card clipped horizontally`);
+    assert.ok(await page.locator('#tourNext').isVisible(), `step ${i + 1}: Next button not reachable`);
     if (i < stepCount - 1) await page.locator('#tourNext').click();
   }
 });
