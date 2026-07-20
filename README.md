@@ -56,12 +56,12 @@ Building on a phone normally means a cramped terminal and no feedback loop. Atla
 - **Test harness** runs any command against a chosen engine (free local first), shows every checker's pass/fail with evidence, and on failure **escalates** the identical command to a Claude fleet run in one tap — the small-model-does-the-reps, frontier-catches-the-hard-5% ladder.
 
 ### ⚒ Build — one-button APK
-Runs the proven pipeline in order: `env.sh` → web build (`CAP_BUILD=1`) → Capacitor sync → Gradle using the qemu shim that lets the x86-only `aapt2` run on ARM. Log streams live. Every APK gets a unique filename + visible build stamp (defeats Android's stale-cache), served from the cockpit at `/apk/` (token-gated). Wants ~2.5 GB free RAM — stop `llama-server` if tight.
+Runs the proven pipeline in order: `env.sh` → web build (`CAP_BUILD=1`) → Capacitor sync → Gradle using the qemu shim that lets the x86-only `aapt2` run on ARM. Log streams live. Every APK gets a unique filename + visible build stamp (defeats Android's stale-cache), served from the cockpit at `/apk/` (auth-gated). Wants ~2.5 GB free RAM — stop `llama-server` if tight.
 
 ### ✚ Doctor — health & security
 - **Engine keys** — AES-256-GCM at rest (`.keys.enc` + 0600 secret), shown as last-4 only, never echoed; env vars win over stored keys.
 - **Doctor checks** — every fragile proot-boundary piece: JDK 21, Android SDK, aapt2 shim, `claude` binary + auth, tmux, disk, `llama-server`, and the push service worker's no-fetch promise. Green = go; red names exactly what a Termux update broke.
-- **Preflight** — the *"safe to expose?"* gate (distinct from "does it work?"): loopback bind, auth token, encrypted keys, no plaintext key files, gitignore coverage, no live tunnels. **All green today**, and the app still stays loopback-only until you choose otherwise.
+- **Preflight** — the *"safe to expose?"* gate (distinct from "does it work?"): loopback bind, password auth, encrypted keys, no plaintext key files, gitignore coverage, no live tunnels. **All green today**, and the app still stays loopback-only until you choose otherwise.
 
 ### Atlan himself
 Mood is real state: **calm** (idle — idle is free) · **building** (agents/builds active; orbiting lights = running agents) · **alarmed** (Doctor red or a run needs you) · **proud** (something surfaced). Time-aware greetings, event commentary, and a night dimming pass 22:00–06:30. Canvas-rendered, battery-safe (animation pauses when the tab is hidden). *A steady light while you build.*
@@ -71,11 +71,11 @@ Mood is real state: **calm** (idle — idle is free) · **building** (agents/bui
 ## Architecture
 
 ```
-Browser PWA (127.0.0.1:4589, token-gated)
+Browser PWA (127.0.0.1:4589, password + session cookie)
   Chat · Preview · Term · Fleet · Build · Doctor · Atlan canvas · xterm.js
         │  WebSocket (events, PTY)      │  HTTP (REST, static, /apk)
 atlan-server (Node 22, proot)
-  auth.js       token gate: /api, /apk, WS — timing-safe, brute-throttled
+  auth.js       password + httpOnly session cookie on /api, /apk, WS (bearer header for automation)
   claudeEngine  Claude Agent SDK: perms→cards, usage, resume-id handoff
   agents.js     Codex + Gemini CLI headless (JSONL → chat events)
   brains.js     one OpenAI-compat adapter (llama-server / Gemini / OpenAI / DeepSeek)
