@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { spawnRun } from './fleet.js';
+import { spawnRun, isActive } from './fleet.js';
 import { listPersonas, compilePersona } from './personas.js';
 
 // Routines = scheduled, budgeted, reported fleet runs. Same three fleet
@@ -95,6 +95,14 @@ function dueAt(r) {
 export function fireRoutine(id, { late = false } = {}) {
   const r = state.routines.find((x) => x.id === id);
   if (!r) throw new Error('no such routine');
+  // In-flight guard: one routine, one live run. Without this, rapid/duplicate
+  // fires (fat-finger, retry, or scheduler tick racing a manual fire) spawn N
+  // parallel runs each burning its own budget — caught live by an adversarial
+  // agent 2026-07-20. spawnRun registers the run synchronously, so checking the
+  // last run's active state here is race-free under Node's single thread.
+  if (r.lastRunId && isActive(r.lastRunId)) {
+    throw new Error(`routine "${r.name}" already has a run in flight (${r.lastRunId}) — let it finish or kill it first`);
+  }
   const persona = listPersonas().find((p) => p.id === r.personaId);
   const prompt = (persona ? compilePersona(persona) + '\n\n' : '')
     + `[Atlan routine "${r.name}"${late ? ' — LATE RUN, fired manually after a missed slot' : ''}. Scheduled, budgeted, reported: do the task, end with a compact report.]\n\n${r.prompt}`;

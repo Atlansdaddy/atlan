@@ -15,7 +15,7 @@
   <div class="authcard">
     <img src="img/atlan-bot.svg" alt="" style="width:54px">
     <div class="wordmark">At<em>la</em>n</div>
-    <p>This cockpit is locked. Paste your access token — it lives on the phone at<br><code>/root/atlan/.auth-token</code><br>(in Termux: <code>cat /root/atlan/.auth-token</code>)</p>
+    <p>This cockpit is locked. Easiest way in: open the <b>one-tap URL printed in the server's startup banner</b> (it carries your token). Or paste the token here — it's printed where you launched the server, and shown on the Doctor tab once you're in.</p>
     <input id="authInput" type="password" placeholder="paste token" autocomplete="off">
     <button class="btn hot" id="authSave">Unlock</button>
   </div>
@@ -106,7 +106,7 @@
         </select>
         <button class="btn hot" id="fleetSpawn">⚓ Spawn</button>
       </div>
-      <div class="hint">Runs in the Chat tab's project. Budget is a <b>halt</b>, not a warning — and turn 1 alone costs ~35k fresh tokens (system-prompt cache write), so 50k is the practical floor. Scout is provably read-only; builder/verifier get bash (unscoped — honest caveat until sandboxing).</div>
+      <div class="hint">Runs in the Chat tab's project. Budget is a <b>halt</b>, not a warning — and turn 1 alone costs ~35k fresh tokens (system-prompt cache write), so 50k is the practical floor. Scout is provably read-only; builder/verifier get bash (unscoped — honest caveat until sandboxing). <b>On a Claude subscription the $ figures are an estimate at API rates — a work gauge, not a charge; your plan meters tokens/usage.</b></div>
       <div class="eyebrow" style="margin-top:4px">Runs &amp; inbox — reports live here, ping in Chat</div>
       <div id="fleetRuns" class="doctor-list"><div class="hint">no runs yet — an idle fleet burns zero tokens, by construction</div></div>
       <div class="projbar">
@@ -224,7 +224,13 @@
     </section>
 
     <section class="screen" id="s-doctor">
-      <div class="eyebrow">Engine keys — encrypted at rest, never shown back</div>
+      <div class="eyebrow">Access token — for logging in on another browser</div>
+      <div class="projbar">
+        <button class="btn" id="revealToken">show my login token</button>
+        <button class="btn ghost" id="copyLoginUrl">copy one-tap login URL</button>
+      </div>
+      <div id="tokenBox" class="hint" style="display:none;word-break:break-all"></div>
+      <div class="eyebrow" style="margin-top:6px">Engine keys — encrypted at rest, never shown back</div>
       <div id="keysList" class="doctor-list"></div>
       <div class="eyebrow" style="margin-top:6px">Doctor — the proot boundary, checked</div>
       <div id="doctorList" class="doctor-list"><div class="hint">running checks…</div></div>

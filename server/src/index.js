@@ -16,7 +16,7 @@ import { runPreflight } from './preflight.js';
 import { agentStatus, agentTurn } from './agents.js';
 import { initFleet, spawnRun, listRuns, killRun, killAll, todayBurn, profileList, historyTail, topUpRun } from './fleet.js';
 import { pushPublicKey, addSub, subCount, notifyAll } from './push.js';
-import { authMiddleware, wsAuthed } from './auth.js';
+import { authMiddleware, wsAuthed, authToken } from './auth.js';
 import { listRoutines, upsertRoutine, deleteRoutine, setPaused, fireRoutine, startScheduler } from './routines.js';
 import {
   listPersonas, listCommands, upsertPersona, deletePersona, upsertCommand, deleteCommand,
@@ -274,5 +274,11 @@ wss.on('connection', (ws, req) => {
 
 startPreviewProxy();
 server.listen(PORT, '127.0.0.1', () => {
-  console.log(`ATLAN cockpit · http://127.0.0.1:${PORT}`);
+  const url = `http://127.0.0.1:${PORT}/?token=${authToken()}`;
+  console.log('\n╔════════════════════════════════════════════════════════════');
+  console.log('║  ATLAN cockpit is up.');
+  console.log('║  Open this URL to log in (one tap — it carries your token):');
+  console.log(`║  ${url}`);
+  console.log('║  (Bookmark it. The token is also on the Doctor tab once in.)');
+  console.log('╚════════════════════════════════════════════════════════════\n');
 });

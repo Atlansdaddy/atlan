@@ -106,6 +106,22 @@ await test('POST /api/routines/pause toggles global pause', async () => {
 await test('POST /api/routines/fire of unknown id → 400', async () => {
   assert.equal((await api('/api/routines/fire', { method: 'POST', body: JSON.stringify({ id: 'ghost' }) })).status, 400);
 });
+// REGRESSION (adversarial agent, 2026-07-20): concurrent fires of one routine
+// must NOT spawn parallel runs — one routine, one live run.
+await test('concurrent fires of a routine spawn only ONE run', async () => {
+  const rt = await j(await api('/api/routines', { method: 'POST', body: JSON.stringify({
+    name: 'race-guard', prompt: 'reply ok', cadence: { kind: 'daily', at: '03:30' }, profile: 'scout', budget: 2000, cwd: '/root/atlan',
+  }) }));
+  const results = await Promise.all(Array.from({ length: 6 }, () =>
+    api('/api/routines/fire', { method: 'POST', body: JSON.stringify({ id: rt.body.id }) }).then(j)));
+  const ok = results.filter((r) => r.status === 200);
+  const blocked = results.filter((r) => r.status === 400);
+  assert.equal(ok.length, 1, `expected 1 run, got ${ok.length}`);
+  assert.ok(blocked.length >= 1 && blocked.every((r) => /in flight/.test(r.body.error)), 'blockers did not cite in-flight guard');
+  // clean up: kill the one run + delete the routine
+  await api('/api/fleet/kill', { method: 'POST', body: JSON.stringify({ id: ok[0].body.id }) });
+  await api('/api/routines/delete', { method: 'POST', body: JSON.stringify({ id: rt.body.id }) });
+});
 
 // ── fleet run validation (no live spawn — that's e2e) ──
 await test('POST /api/fleet/run rejects empty prompt', async () => {

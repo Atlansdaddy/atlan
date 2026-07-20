@@ -122,14 +122,52 @@ test('upsertPersona requires NAME and FOCUS', () => {
 test('upsertCommand requires at least one TEMPLATE field', () => {
   assert.throws(() => upsertCommand({ name: 'R', fields: [] }));
 });
-test('upsertCommand drops a checker that points at a nonexistent field', () => {
-  const c = upsertCommand({ name: 'R', fields: [{ name: 'a', type: 'string' }], checkers: [{ kind: 'enum', field: 'ghost', values: ['x'] }] });
-  assert.equal(c.checkers.length, 0);
-  deletePersona(c.id); // no-op cleanup path
+// REGRESSION (adversarial agent, 2026-07-20): an invalid checker must be a
+// HARD ERROR, never silently dropped — a vanished guardrail green-lights the
+// harness with no tier-2 checks and nobody knows.
+test('upsertCommand REJECTS a checker pointing at a nonexistent field', () => {
+  assert.throws(() => upsertCommand({ name: 'R', fields: [{ name: 'a', type: 'string' }], checkers: [{ kind: 'enum', field: 'ghost', values: ['x'] }] }), /no TEMPLATE field named "ghost"/);
 });
-test('upsertCommand rejects an invalid regex checker', () => {
-  const c = upsertCommand({ name: 'R2', fields: [{ name: 'a', type: 'string' }], checkers: [{ kind: 'regex', field: 'a', pattern: '(' }] });
-  assert.equal(c.checkers.length, 0);
+test('upsertCommand REJECTS an invalid regex checker (not silent drop)', () => {
+  assert.throws(() => upsertCommand({ name: 'R2', fields: [{ name: 'a', type: 'string' }], checkers: [{ kind: 'regex', field: 'a', pattern: '(' }] }), /invalid regex/);
+});
+test('upsertCommand REJECTS an unknown checker kind', () => {
+  assert.throws(() => upsertCommand({ name: 'R3', fields: [{ name: 'a', type: 'string' }], checkers: [{ kind: 'vibes', field: 'a' }] }), /unknown kind/);
+});
+test('upsertCommand REJECTS subset-of-var pointing at a nonexistent variable', () => {
+  assert.throws(() => upsertCommand({ name: 'R4', fields: [{ name: 'a', type: 'array' }], variables: [], checkers: [{ kind: 'subset-of-var', field: 'a', ofVar: 'ghost' }] }), /no VARIABLE named/);
+});
+test('upsertCommand REJECTS an unparseable arith formula', () => {
+  assert.throws(() => upsertCommand({ name: 'R5', fields: [{ name: 't', type: 'number' }], checkers: [{ kind: 'arith', field: 't', formula: 'process.exit(1)' }] }));
+});
+test('a valid checker set still saves fine', () => {
+  const c = upsertCommand({ name: 'R6', fields: [{ name: 't', type: 'number' }], variables: [{ name: 'qty', type: 'number' }, { name: 'p', type: 'number' }], checkers: [{ kind: 'arith', field: 't', formula: 'qty*p' }] });
+  assert.equal(c.checkers.length, 1);
+});
+
+// REGRESSION: a divide-by-zero (Infinity) formula must FAIL the check, not pass
+// vacuously (adversarial agent, 2026-07-20).
+test('arith with an Infinity expected value FAILS, never passes vacuously', () => {
+  const cmd = { fields: [{ name: 'total', type: 'number' }], checkers: [{ kind: 'arith', field: 'total', formula: 'qty/zero', tolerance: 0.01 }] };
+  const v = runCheckers(cmd, { total: 5 }, { qty: 3, zero: 0 });
+  const r = v.results.find((x) => x.tier === 2);
+  assert.ok(!r.ok && /not a finite number/.test(r.got), JSON.stringify(r));
+  assert.ok(!v.passed);
+});
+
+// REGRESSION: checker constraints must appear in the compiled prompt so the
+// model can see the rules it's graded against (adversarial agent, 2026-07-20).
+test('compileCommand surfaces enum/arith constraints to the model', () => {
+  const cmd = {
+    name: 'REQ', focus: 'f',
+    variables: [{ name: 'qty', type: 'number' }, { name: 'p', type: 'number' }],
+    fields: [{ name: 'category', type: 'string' }, { name: 'total', type: 'number' }],
+    checkers: [{ kind: 'enum', field: 'category', values: ['washer', 'dryer'] }, { kind: 'arith', field: 'total', formula: 'qty*p', tolerance: 0.01 }],
+  };
+  const out = compileCommand(cmd, { qty: 2, p: 3 });
+  assert.match(out, /CONSTRAINTS/);
+  assert.match(out, /washer, dryer/);
+  assert.match(out, /qty\*p/);
 });
 
 // ── scheduler math ──

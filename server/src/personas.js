@@ -90,21 +90,49 @@ export function deleteCommand(id) {
 }
 
 // ── checkers: deterministic assertions, tier-2 of the blueprint ──
+// A checker is a guardrail. A guardrail that silently vanishes on a typo is
+// WORSE than none — the harness would green-light with no tier-2 checks and
+// nobody would know. So an invalid checker is a hard error (caught live by an
+// adversarial agent 2026-07-20), never a silent drop.
 const CHECKER_KINDS = new Set(['enum', 'range', 'regex', 'subset-of-var', 'not-empty', 'max-length', 'arith']);
 function sanitizeCheckers(list, fields, vars) {
   const fieldNames = new Set(fields.map((f) => f.name));
   const varNames = new Set(vars.map((v) => v.name));
-  return (Array.isArray(list) ? list : []).slice(0, 40).map((k) => {
-    if (!CHECKER_KINDS.has(k.kind) || !fieldNames.has(k.field)) return null;
+  const errs = [];
+  const out = [];
+  (Array.isArray(list) ? list : []).slice(0, 40).forEach((k, i) => {
+    const where = `checker #${i + 1} (${k?.kind ?? '?'} on "${k?.field ?? '?'}")`;
+    if (!CHECKER_KINDS.has(k.kind)) { errs.push(`${where}: unknown kind "${k.kind}"`); return; }
+    if (!fieldNames.has(k.field)) { errs.push(`${where}: no TEMPLATE field named "${k.field}"`); return; }
     const base = { kind: k.kind, field: k.field };
-    if (k.kind === 'enum') return { ...base, values: SLIST(k.values, 50) };
-    if (k.kind === 'range') return { ...base, min: Number(k.min ?? -Infinity), max: Number(k.max ?? Infinity) };
-    if (k.kind === 'regex') { try { new RegExp(k.pattern); } catch { return null; } return { ...base, pattern: S(k.pattern, 200) }; }
-    if (k.kind === 'subset-of-var') return varNames.has(k.ofVar) ? { ...base, ofVar: k.ofVar } : null;
-    if (k.kind === 'max-length') return { ...base, max: Number(k.max) || 500 };
-    if (k.kind === 'arith') return { ...base, formula: S(k.formula, 200), tolerance: Number(k.tolerance) || 0.01 };
-    return base; // not-empty
-  }).filter(Boolean);
+    if (k.kind === 'enum') {
+      const values = SLIST(k.values, 50);
+      if (!values.length) { errs.push(`${where}: enum needs at least one value`); return; }
+      out.push({ ...base, values });
+    } else if (k.kind === 'range') {
+      const min = Number(k.min ?? -Infinity), max = Number(k.max ?? Infinity);
+      if (Number.isNaN(min) || Number.isNaN(max) || min > max) { errs.push(`${where}: range needs min ≤ max numbers`); return; }
+      out.push({ ...base, min, max });
+    } else if (k.kind === 'regex') {
+      try { new RegExp(k.pattern); } catch { errs.push(`${where}: invalid regex /${k.pattern}/`); return; }
+      out.push({ ...base, pattern: S(k.pattern, 200) });
+    } else if (k.kind === 'subset-of-var') {
+      if (!varNames.has(k.ofVar)) { errs.push(`${where}: no VARIABLE named "${k.ofVar}" to be a subset of`); return; }
+      out.push({ ...base, ofVar: k.ofVar });
+    } else if (k.kind === 'max-length') {
+      out.push({ ...base, max: Number(k.max) || 500 });
+    } else if (k.kind === 'arith') {
+      const formula = S(k.formula, 200);
+      // fail fast on a formula that won't parse — a broken formula is a dead guardrail
+      try { safeArith(formula, Object.fromEntries([...fieldNames, ...varNames].map((n) => [n, 1]))); }
+      catch (e) { errs.push(`${where}: formula "${formula}" — ${e.message}`); return; }
+      out.push({ ...base, formula, tolerance: Number(k.tolerance) || 0.01 });
+    } else {
+      out.push(base); // not-empty
+    }
+  });
+  if (errs.length) throw new Error('invalid checker(s): ' + errs.join('; '));
+  return out;
 }
 
 // Tiny safe arithmetic evaluator for arith checkers: numbers, field/var names,
@@ -163,8 +191,14 @@ export function runCheckers(cmd, output, vars = {}) {
       } else if (k.kind === 'arith') {
         const scope = { ...vars, ...output };
         const expect = safeArith(k.formula, scope);
-        ok = typeof v === 'number' && Math.abs(v - expect) <= k.tolerance * Math.max(1, Math.abs(expect));
-        if (!ok) got = `${v} ≠ ${k.formula} = ${Number(expect.toFixed(4))}`;
+        // A non-finite expected value (e.g. divide-by-zero → Infinity) must FAIL
+        // the check, never pass vacuously — caught live by an adversarial agent
+        // 2026-07-20 (answer 5 vs Infinity was passing).
+        if (!Number.isFinite(expect)) { ok = false; got = `${k.formula} = ${expect} (not a finite number — check the inputs)`; }
+        else {
+          ok = typeof v === 'number' && Number.isFinite(v) && Math.abs(v - expect) <= k.tolerance * Math.max(1, Math.abs(expect));
+          if (!ok) got = `${v} ≠ ${k.formula} = ${Number(expect.toFixed(4))}`;
+        }
       }
       if (got === undefined && !ok) got = JSON.stringify(v)?.slice(0, 80);
     } catch (err) { ok = false; got = String(err.message).slice(0, 100); }
@@ -212,6 +246,13 @@ export function compileCommand(cmd, vars = {}) {
   }
   lines.push('RESPONSE TEMPLATE — reply with ONLY a JSON object of exactly these fields:');
   for (const f of cmd.fields) lines.push(`- "${f.name}" (${f.type})${f.description ? ` — ${f.description}` : ''}`);
+  // Surface the checker constraints so the model is graded against rules it can
+  // actually SEE — an adversarial agent flagged 2026-07-20 that enum/range
+  // checker values never reached the prompt, so the model was flying blind.
+  if (cmd.checkers?.length) {
+    lines.push('CONSTRAINTS — your answer must satisfy every one of these:');
+    for (const k of cmd.checkers) lines.push(`- ${describeChecker(k)}`);
+  }
   if (cmd.instructions) lines.push(`INSTRUCTIONS: ${cmd.instructions}`);
   return lines.join('\n');
 }

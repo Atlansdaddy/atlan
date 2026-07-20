@@ -113,6 +113,7 @@ export function historyTail(n = 30) {
 }
 export function listRuns() { return runs.slice(0, 50).map(publicRun); }
 export function activeCount() { return active.size; }
+export function isActive(id) { return active.has(id); }
 
 // Budget counts FRESH tokens (input + output + cache writes; cache reads are
 // ~free and excluded). Turn 1 alone costs ~35k (system-prompt cache write),

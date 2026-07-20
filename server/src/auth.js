@@ -29,33 +29,43 @@ function tokenOk(candidate) {
   return c.length === tokenBuf.length && timingSafeEqual(c, tokenBuf);
 }
 
-// Brute-force throttle: after 20 bad tokens in a minute, everything gets 429
-// until the window rolls. In-memory is enough — a restart also rotates nothing.
+// Brute-force throttle. The token is 256 bits — unbruteforceable at any rate —
+// so this is a log/CPU guard, NOT the security boundary. It must never lock out
+// the legitimate user: (1) the threshold is generous, and (2) any VALID token
+// clears the fail window (a caller who proves themselves isn't the attacker).
+// Learned live 2026-07-20: a low global threshold let the security test-suite —
+// and, worse, a user fat-fingering the token a few times — 429 everything,
+// including correct tokens.
+const THROTTLE_MAX = 100;
 let fails = [];
 function throttled() {
   const now = Date.now();
   fails = fails.filter((t) => now - t < 60_000);
-  return fails.length >= 20;
+  return fails.length >= THROTTLE_MAX;
 }
+function pass() { fails = []; return true; }      // valid token → clear suspicion
+function record() { fails.push(Date.now()); }
 
 export function authMiddleware(req, res, next) {
-  if (throttled()) return res.status(429).json({ error: 'too many bad tokens — wait a minute' });
   const candidate = req.get('x-atlan-token') ?? req.query.token;
-  if (tokenOk(candidate)) return next();
-  fails.push(Date.now());
-  res.status(401).json({ error: 'auth required — paste the token from /root/atlan/.auth-token' });
+  if (tokenOk(candidate)) { pass(); return next(); }
+  if (throttled()) return res.status(429).json({ error: 'too many bad tokens — wait a minute' });
+  record();
+  res.status(401).json({ error: 'auth required — open the URL printed in the server startup banner, or use the token from the Doctor tab' });
 }
 
 // Browsers can't set headers on a WebSocket, so the token rides the query
 // string. Loopback-only today; if this ever tunnels, the tunnel is TLS.
 export function wsAuthed(req) {
-  if (throttled()) return false;
   try {
     const u = new URL(req.url, 'http://x');
-    if (tokenOk(u.searchParams.get('token'))) return true;
+    if (tokenOk(u.searchParams.get('token'))) return pass();
   } catch { /* fall through */ }
-  fails.push(Date.now());
+  if (throttled()) return false;
+  record();
   return false;
 }
 
-export const _testInternals = { tokenOk, TOKEN_FILE };
+export function authToken() { return token; }
+
+export const _testInternals = { tokenOk, TOKEN_FILE, THROTTLE_MAX };

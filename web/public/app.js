@@ -4,6 +4,14 @@
   const chatlog = $('chatlog');
 
   // ── auth: one token, attached to every request; 401 → login overlay ──
+  // A ?token= in the URL (from the server's startup banner) is the one-tap
+  // login: capture it, persist it, then scrub it from the address bar so it
+  // doesn't linger in history/referer.
+  const urlToken = new URLSearchParams(location.search).get('token');
+  if (urlToken) {
+    localStorage.setItem('atlanToken', urlToken);
+    history.replaceState(null, '', location.pathname);
+  }
   let authToken = localStorage.getItem('atlanToken') ?? '';
   const rawFetch = window.fetch.bind(window);
   window.fetch = (url, opts = {}) => rawFetch(url, {
@@ -468,7 +476,11 @@
   }
 
   function paintBurnToday(t) {
-    const s = `burn today: ${fmtTok(t.tokens)} tok · $${(t.cost ?? 0).toFixed(2)}`;
+    // Tokens are the real currency on a Claude subscription (they meter your
+    // plan's usage limits). The dollar figure is the SDK's ESTIMATE at public
+    // API rates — a gauge of work done, NOT a charge on a Pro/Max plan. Label
+    // it honestly so it never reads as money leaving the account.
+    const s = `burn today: ${fmtTok(t.tokens)} tok · ≈$${(t.cost ?? 0).toFixed(2)} API-equiv`;
     $('burnMeta').textContent = t.tokens ? s : '';
   }
 
@@ -524,7 +536,7 @@
     card.querySelector('.rkill').style.display = r.status === 'running' ? '' : 'none';
     card.querySelector('.burn i').style.width = Math.min(100, (r.tokens / r.budget) * 100) + '%';
     card.querySelector('.rmeta').textContent =
-      `${fmtTok(r.tokens)} / ${fmtTok(r.budget)} tok${r.cost ? ` · $${r.cost.toFixed(4)}` : ''}${r.denials ? ` · ${r.denials} denied` : ''}`;
+      `${fmtTok(r.tokens)} / ${fmtTok(r.budget)} tok${r.cost ? ` · ≈$${r.cost.toFixed(4)}` : ''}${r.denials ? ` · ${r.denials} denied` : ''}`;
     card.querySelector('.rlast').textContent = r.lastLine ?? '';
     card.querySelector('.rtopup').style.display = r.resumable ? '' : 'none';
     card.querySelector('.rresult').textContent = r.resultText ?? '';
@@ -615,6 +627,19 @@
       }
     }).catch(() => {});
   }
+
+  // ── access token reveal (Doctor tab) — you're already authed to see it ──
+  $('revealToken').addEventListener('click', () => {
+    const box = $('tokenBox');
+    box.style.display = '';
+    box.textContent = authToken || '(no token stored in this browser)';
+  });
+  $('copyLoginUrl').addEventListener('click', () => {
+    const url = `${location.origin}/?token=${authToken}`;
+    navigator.clipboard?.writeText(url);
+    $('copyLoginUrl').textContent = 'copied — open it on any browser here';
+    setTimeout(() => { $('copyLoginUrl').textContent = 'copy one-tap login URL'; }, 2500);
+  });
 
   // ── doctor ──
   function loadDoctor() {
