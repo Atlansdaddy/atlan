@@ -36,23 +36,90 @@
     if (b.dataset.s === 's-doctor') { loadDoctor(); loadKeys(); loadPreflight(); }
   }));
 
-  // ── Atlan mood ──
+  // ── Atlan alive: mood engine + halo canvas ──
+  // Mood is real state, never decoration: calm=idle, building=agents/build
+  // running, alarmed=doctor red/budget hot, proud=something surfaced.
   const moodLines = {
-    calm: "The water's calm, boss. What are we building today?",
-    building: 'I can feel the build moving through me.',
-    alarmed: "Something's off in the hull.",
-    proud: 'It surfaced. Look at what you made.',
+    calm: ["The water's calm, boss. What are we building today?", 'Idle costs nothing down here.', 'Holding depth. Say the word.'],
+    building: ['I can feel the build moving through me.', 'Current’s running. Working.', 'Heads down — the fleet is out.'],
+    alarmed: ["Something's off in the hull.", 'Pressure warning — check the Doctor tab.', 'That one needs you, boss.'],
+    proud: ['It surfaced. Look at what you made.', 'Up from the dark, into the light.', 'Another one alive. Proud of this.'],
   };
-  let moodTimer = null;
-  function setMood(mood) {
-    const wrap = $('atlanWrap');
-    wrap.className = 'atlan ' + mood;
-    $('atlanLine').textContent = moodLines[mood] ?? moodLines.calm;
+  const pick = (a) => a[Math.floor(Math.random() * a.length)];
+  let mood = 'calm', moodTimer = null, orbiters = 0;
+  function setMood(next, agents) {
+    mood = moodLines[next] ? next : 'calm';
+    if (typeof agents === 'number') orbiters = agents;
+    $('atlanWrap').className = 'atlan ' + mood;
+    $('atlanWrap').title = `Atlan is ${mood}` + (orbiters ? ` · ${orbiters} agent${orbiters > 1 ? 's' : ''} out` : '');
+    say(pick(moodLines[mood]));
     clearTimeout(moodTimer);
     if (mood === 'proud' || mood === 'alarmed') {
-      moodTimer = setTimeout(() => setMood('calm'), 6000);
+      moodTimer = setTimeout(() => setMood(orbiters ? 'building' : 'calm'), 6000);
     }
   }
+  function say(line) { $('atlanLine').textContent = line; }
+  // time-aware greeting — Atlan speaks first
+  function greet() {
+    const h = new Date().getHours();
+    const g = h < 5 ? 'Deep-night dive? I’m with you, boss.'
+      : h < 12 ? 'Morning, boss. The water’s clear today.'
+      : h < 18 ? 'Afternoon current’s steady. What are we building?'
+      : h < 22 ? 'Evening, boss. Good depth for building.'
+      : 'Late water. I’ll keep the lights on.';
+    say(g);
+  }
+  // Habitat-style day/night: the whole cockpit dims to night water 22:00–06:30
+  function dayNight() {
+    const h = new Date().getHours() + new Date().getMinutes() / 60;
+    document.body.classList.toggle('night', h >= 22 || h < 6.5);
+  }
+  dayNight(); setInterval(dayNight, 60_000);
+
+  // halo canvas: breathing glow + orbiting agent lights + rising bubbles.
+  // RAF pauses when the tab is hidden — presence must not cost battery.
+  const MOOD_HUE = { calm: '63,232,200', building: '107,212,216', alarmed: '255,103,35', proud: '137,235,239' };
+  (() => {
+    const cv = $('atlanHalo'), cx = cv.getContext('2d');
+    const W = cv.width, C = W / 2;
+    const bubbles = Array.from({ length: 5 }, () => ({ y: Math.random() * W, x: C + (Math.random() - 0.5) * 30, r: 1 + Math.random() * 2, v: 0.15 + Math.random() * 0.3 }));
+    let t = 0;
+    function frame() {
+      t += 1;
+      cx.clearRect(0, 0, W, W);
+      const hue = MOOD_HUE[mood] ?? MOOD_HUE.calm;
+      const night = document.body.classList.contains('night') ? 0.65 : 1;
+      // breathing aura — faster + brighter when alarmed
+      const rate = mood === 'alarmed' ? 0.11 : mood === 'building' ? 0.055 : 0.03;
+      const breath = 0.55 + 0.45 * Math.sin(t * rate);
+      const R = W * 0.30 + breath * (mood === 'alarmed' ? 9 : 5);
+      const g = cx.createRadialGradient(C, C, 4, C, C, R + 14);
+      g.addColorStop(0, `rgba(${hue},${(0.34 + 0.20 * breath) * night})`);
+      g.addColorStop(1, `rgba(${hue},0)`);
+      cx.fillStyle = g;
+      cx.beginPath(); cx.arc(C, C, R + 14, 0, 7); cx.fill();
+      // fleet = small lights orbiting him (cap 6 so it stays readable)
+      const n = Math.min(6, orbiters);
+      for (let i = 0; i < n; i++) {
+        const a = t * 0.02 + (i / n) * Math.PI * 2;
+        const ox = C + Math.cos(a) * (W * 0.40), oy = C + Math.sin(a) * (W * 0.26);
+        cx.fillStyle = `rgba(${hue},${0.9 * night})`;
+        cx.beginPath(); cx.arc(ox, oy, 2.2, 0, 7); cx.fill();
+        cx.fillStyle = `rgba(${hue},${0.25 * night})`;
+        cx.beginPath(); cx.arc(ox, oy, 4.5, 0, 7); cx.fill();
+      }
+      // bubbles rise and respawn below
+      for (const b of bubbles) {
+        b.y -= b.v; if (b.y < -3) { b.y = W + 2; b.x = C + (Math.random() - 0.5) * 30; }
+        cx.strokeStyle = `rgba(${hue},${0.30 * night})`;
+        cx.lineWidth = 0.8;
+        cx.beginPath(); cx.arc(b.x, b.y, b.r, 0, 7); cx.stroke();
+      }
+      if (!document.hidden) requestAnimationFrame(frame);
+    }
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) requestAnimationFrame(frame); });
+    requestAnimationFrame(frame);
+  })();
 
   // ── WebSocket ──
   let ws, wsReady = false;
@@ -113,7 +180,7 @@
         break;
       }
       case 'perm.req': addPerm(m); break;
-      case 'atlan.mood': setMood(m.mood); break;
+      case 'atlan.mood': setMood(m.mood, m.agents); break;
       case 'preview.snapped':
         $('snapBtn').textContent = '📸 Snapshot → Claude';
         updateSeen(m.count);
@@ -131,6 +198,8 @@
       }
       case 'build.done': {
         $('buildBtn').disabled = false;
+        setMood('proud');
+        say(`${m.name} surfaced — ${m.mb} MB of us, ${m.secs}s under.`);
         addBuildLine(`surfaced in ${m.secs}s`, 'bl-ok');
         $('apkCard').innerHTML = `<div class="apkcard">
           <div class="top"><span class="fn"></span><span class="stamp">${m.stamp}</span></div>
@@ -953,5 +1022,5 @@
   }
 
   connect();
-  setMood('calm');
+  greet();
 })();

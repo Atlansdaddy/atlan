@@ -131,7 +131,7 @@ export function spawnRun({ prompt, profile = 'scout', cwd = '/root', model = 'cl
   runs.unshift(run);
   if (runs.length > 200) runs.pop();
   broadcast({ t: 'fleet.run', run: publicRun(run) });
-  broadcast({ t: 'atlan.mood', mood: 'building' });
+  broadcast({ t: 'atlan.mood', mood: 'building', agents: active.size + 1 });
   exec(run, prof);
   return publicRun(run);
 }
@@ -226,6 +226,7 @@ function finish(run) {
     mood: active.size ? 'building'
       : run.status === 'done' ? 'proud'
       : run.status === 'killed' ? 'calm' : 'alarmed',
+    agents: active.size,
   });
   const snippet = run.prompt.slice(0, 60);
   if (run.status === 'done') notify('❖ Fleet run surfaced', `${run.profile}: ${snippet}`).catch(() => {});

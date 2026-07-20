@@ -165,6 +165,13 @@ header{display:flex;align-items:center;gap:10px;padding:12px 14px 10px;border-bo
 .sessline.needsyou{color:var(--hot2);font-weight:700}
 nav button .lb.hotlb{color:var(--hot2)}
 
+/* atlan alive */
+.atlan{position:relative}
+#atlanHalo{position:absolute;left:50%;top:50%;width:112px;height:112px;transform:translate(-50%,-50%);pointer-events:none;z-index:0}
+.atlan img{position:relative;z-index:1}
+body.night .phone{filter:brightness(.82) saturate(.9)}
+body.night .bubbles{opacity:.5}
+
 /* auth overlay */
 .authoverlay{position:fixed;inset:0;z-index:99;display:none;align-items:center;justify-content:center;
   background:rgba(2,8,15,.96);backdrop-filter:blur(6px)}
