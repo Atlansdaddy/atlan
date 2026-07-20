@@ -155,7 +155,7 @@ await test('server still alive after garbage', async () => {
 
 // ── WS: malformed frames, unknown types, flooding ──
 await test('WS survives malformed + unknown messages', async () => {
-  const ws = new WebSocket(BASE.replace('http', 'ws') + '/ws?token=' + encodeURIComponent(TOKEN));
+  const ws = new WebSocket(BASE.replace('http', 'ws') + '/ws', { headers: { 'x-atlan-token': TOKEN } });
   await new Promise((res, rej) => { ws.on('open', res); ws.on('error', rej); });
   ws.send('not json at all');
   ws.send(JSON.stringify({ t: 'nonexistent.type', x: 1 }));
@@ -168,13 +168,14 @@ await test('WS survives malformed + unknown messages', async () => {
   assert.equal((await fetch(BASE + '/api/doctor')).status, 200);
 });
 
-// ── preflight must honestly report auth-missing as a blocker ──
-await test('preflight auth check is green now the layer exists', async () => {
+// ── preflight auth check must honestly track whether a password is set ──
+await test('preflight auth check reflects the password-set state', async () => {
+  const { configured } = await j(await fetch(BASE + '/api/auth/status'));
   const p = await j(await fetch(BASE + '/api/preflight'));
   const auth = p.checks.find((c) => c.id === 'auth');
   assert.ok(auth, 'no auth check');
-  assert.equal(auth.ok, true, 'auth layer exists (.auth-token 0600) — check must be green');
-  assert.ok(/token-gated/.test(auth.detail), 'detail should say what is gated');
+  assert.equal(auth.ok, configured, 'auth check should be green iff a password is set');
+  assert.ok(/session-cookie|password/.test(auth.detail), 'detail should describe the auth model');
 });
 await test('preflight flags a plaintext keys.json if present', async () => {
   const p = await j(await fetch(BASE + '/api/preflight'));

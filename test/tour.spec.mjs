@@ -18,7 +18,13 @@ async function test(name, fn) {
 const browser = await pw.chromium.launch();
 const page = await browser.newPage({ viewport: { width: 412, height: 915 } }); // S24 Ultra-ish
 page.on('pageerror', (e) => { throw new Error('page error: ' + e); });
-await page.addInitScript((t) => localStorage.setItem('atlanToken', t), TOKEN);
+// Log in the real way (password → session cookie) so fetch + WS are authed.
+await page.goto(BASE);
+await page.evaluate(async (pw) => {
+  const s = await fetch('/api/auth/status').then((r) => r.json());
+  const ep = s.configured ? '/api/auth/login' : '/api/auth/setup';
+  await fetch(ep, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ password: pw }) });
+}, 'atlan-test-pw-8x');
 
 console.log('TOUR + HANDBOOK SUITE');
 

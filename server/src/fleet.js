@@ -11,7 +11,7 @@ import { dirname } from 'node:path';
 //     off-profile tools are denied with a reason the agent can read.
 //  3. Idle = zero tokens — nothing runs unless spawned (or, M5c, scheduled).
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const FLEET_DIR = join(__dirname, '../../.fleet');
+import { FLEET_DIR } from './config.js';
 mkdirSync(FLEET_DIR, { recursive: true });
 const HISTORY = join(FLEET_DIR, 'history.jsonl');
 const BURN = join(FLEET_DIR, 'burn.json');

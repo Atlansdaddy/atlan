@@ -1,0 +1,11 @@
+{
+  "_comment": "Copy to atlan.config.json and edit. Env vars override these. Nothing here is required — every value has a neutral default.",
+  "projectsDir": "/root",
+  "defaultBuildProject": "/root/myapp",
+  "port": 4589,
+  "previewPort": 4590,
+  "brand": {
+    "name": "Atlan",
+    "contactEmail": "you@example.com"
+  }
+}

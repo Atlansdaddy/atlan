@@ -9,7 +9,7 @@ import { listPersonas, compilePersona } from './personas.js';
 // guarantees apply; a routine is just a spawnRun on a clock. Missed fires are
 // FLAGGED, never auto-run late — a dead server must not wake up and spend.
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const FLEET_DIR = join(__dirname, '../../.fleet');
+import { FLEET_DIR } from './config.js';
 mkdirSync(FLEET_DIR, { recursive: true });
 const FILE = join(FLEET_DIR, 'routines.json');
 

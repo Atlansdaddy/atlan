@@ -16,16 +16,21 @@ import { runPreflight } from './preflight.js';
 import { agentStatus, agentTurn } from './agents.js';
 import { initFleet, spawnRun, listRuns, killRun, killAll, todayBurn, profileList, historyTail, topUpRun } from './fleet.js';
 import { pushPublicKey, addSub, subCount, notifyAll } from './push.js';
-import { authMiddleware, wsAuthed, authToken } from './auth.js';
+import {
+  authMiddleware, wsAuthed, isConfigured, setPassword, checkPassword,
+  newSession, dropSession, cookieHeader, COOKIE,
+  loginThrottled, recordLoginFail, clearLoginFails,
+} from './auth.js';
 import { listRoutines, upsertRoutine, deleteRoutine, setPaused, fireRoutine, startScheduler } from './routines.js';
 import {
   listPersonas, listCommands, upsertPersona, deletePersona, upsertCommand, deleteCommand,
   compilePersona, compileCommand, templateSchema, toolSchema, harnessRun,
 } from './personas.js';
 
+import { PORT, PROJECTS_DIR, DEFAULT_BUILD_PROJECT } from './config.js';
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const WEB = join(__dirname, '../../web/public');
-const PORT = 4589;
 
 const SNAPDIR = join(__dirname, '../../.snapshots');
 mkdirSync(SNAPDIR, { recursive: true });
@@ -34,8 +39,42 @@ const app = express();
 app.use(express.static(WEB));
 app.use(express.json({ limit: '1mb' }));
 
-// Everything after this line needs the token; the static shell above doesn't
-// (the login screen has to come from somewhere).
+// Auth endpoints are OPEN (they're how you get in). Everything else needs a
+// session cookie or the automation bearer.
+app.get('/api/auth/status', (_req, res) => res.json({ configured: isConfigured() }));
+app.post('/api/auth/setup', (req, res) => {
+  if (isConfigured()) return res.status(400).json({ error: 'already set up — log in instead' });
+  try {
+    setPassword(String(req.body?.password ?? ''));
+    res.setHeader('Set-Cookie', cookieHeader(newSession()));
+    res.json({ ok: true });
+  } catch (err) { res.status(400).json({ error: err.message }); }
+});
+app.post('/api/auth/login', (req, res) => {
+  if (loginThrottled()) return res.status(429).json({ error: 'too many attempts — wait a minute' });
+  if (!isConfigured()) return res.status(400).json({ error: 'not set up yet' });
+  if (!checkPassword(String(req.body?.password ?? ''))) {
+    recordLoginFail();
+    return res.status(401).json({ error: 'wrong password' });
+  }
+  clearLoginFails();
+  res.setHeader('Set-Cookie', cookieHeader(newSession()));
+  res.json({ ok: true });
+});
+app.post('/api/auth/logout', (req, res) => {
+  const m = /(?:^|;\s*)atlan_session=([^;]+)/.exec(req.headers.cookie || '');
+  if (m) dropSession(m[1]);
+  res.setHeader('Set-Cookie', cookieHeader('', { clear: true }));
+  res.json({ ok: true });
+});
+app.post('/api/auth/password', authMiddleware, (req, res) => {
+  // change password: must know the current one
+  if (!checkPassword(String(req.body?.current ?? ''))) return res.status(401).json({ error: 'current password is wrong' });
+  try { setPassword(String(req.body?.next ?? '')); res.json({ ok: true }); }
+  catch (err) { res.status(400).json({ error: err.message }); }
+});
+
+// Everything after this line needs auth; the static shell + /api/auth above don't.
 app.use('/api', authMiddleware);
 app.use('/apk', authMiddleware);
 
@@ -121,7 +160,7 @@ app.post('/api/harness/escalate', (req, res) => {
   try {
     const prompt = String(req.body?.prompt ?? '').trim();
     if (!prompt) throw new Error('nothing to escalate');
-    res.json(spawnRun({ prompt, profile: 'scout', cwd: '/root', budget: Number(req.body?.budget) || 100000, source: 'harness-escalation' }));
+    res.json(spawnRun({ prompt, profile: 'scout', cwd: PROJECTS_DIR, budget: Number(req.body?.budget) || 100000, source: 'harness-escalation' }));
   } catch (err) { res.status(400).json({ error: err.message }); }
 });
 
@@ -152,9 +191,9 @@ app.post('/api/preview/target', (req, res) => {
 // Candidate project dirs: anything in /root with a .git or package.json.
 app.get('/api/projects', (_req, res) => {
   const out = [];
-  for (const name of readdirSync('/root')) {
+  for (const name of readdirSync(PROJECTS_DIR)) {
     if (name.startsWith('.')) continue;
-    const p = `/root/${name}`;
+    const p = `${PROJECTS_DIR}/${name}`;
     try {
       if (!statSync(p).isDirectory()) continue;
       const hasGit = existsQuiet(`${p}/.git`);
@@ -257,7 +296,7 @@ wss.on('connection', (ws, req) => {
         claude?.resolvePermission(m.id, !!m.approved);
         break;
       case 'build.start':
-        runBuild(m.path || '/root/d2d', send);
+        runBuild(m.path || DEFAULT_BUILD_PROJECT, send);
         break;
       case 'pty.open':
         openPty(m.name || 'main', ws, { cols: m.cols, rows: m.rows, cwd: m.cwd || '/root' });
@@ -274,11 +313,9 @@ wss.on('connection', (ws, req) => {
 
 startPreviewProxy();
 server.listen(PORT, '127.0.0.1', () => {
-  const url = `http://127.0.0.1:${PORT}/?token=${authToken()}`;
   console.log('\n╔════════════════════════════════════════════════════════════');
   console.log('║  ATLAN cockpit is up.');
-  console.log('║  Open this URL to log in (one tap — it carries your token):');
-  console.log(`║  ${url}`);
-  console.log('║  (Bookmark it. The token is also on the Doctor tab once in.)');
+  console.log(`║  Open  http://127.0.0.1:${PORT}  and log in.`);
+  console.log(`║  ${isConfigured() ? 'Enter your password.' : 'First run — set a password.'}`);
   console.log('╚════════════════════════════════════════════════════════════\n');
 });

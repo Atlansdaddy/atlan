@@ -12,3 +12,4 @@ keys.json
 
 test-results/
 .auth-token
+atlan.config.json

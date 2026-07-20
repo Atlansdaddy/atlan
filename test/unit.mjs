@@ -182,11 +182,15 @@ test('every-N grace is half an interval; daily grace is 2h', () => {
 });
 
 // ── auth token compare ──
-test('tokenOk rejects wrong length + wrong value, accepts exact', () => {
-  // We don't know the live token here; assert the shape of the guarantees.
-  assert.equal(AUTH.tokenOk(''), false);
-  assert.equal(AUTH.tokenOk(null), false);
-  assert.equal(AUTH.tokenOk('short'), false);
+test('bearerOk rejects wrong length + wrong value', () => {
+  // automation bearer (header only); we don't know the live value here.
+  assert.equal(AUTH.bearerOk(''), false);
+  assert.equal(AUTH.bearerOk(null), false);
+  assert.equal(AUTH.bearerOk('short'), false);
+});
+test('a forged session token is invalid', () => {
+  assert.equal(AUTH.sessionValid('f'.repeat(64)), false);
+  assert.equal(AUTH.sessionValid(null), false);
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);

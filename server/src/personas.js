@@ -14,7 +14,7 @@ import { getStoredKey } from './keys.js';
 // checkers below; tier-3 (semantic-but-valid) is surfaced to John, never
 // silently passed.
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const FLEET_DIR = join(__dirname, '../../.fleet');
+import { FLEET_DIR } from './config.js';
 mkdirSync(FLEET_DIR, { recursive: true });
 const PERSONAS = join(FLEET_DIR, 'personas.json');
 const COMMANDS = join(FLEET_DIR, 'commands.json');

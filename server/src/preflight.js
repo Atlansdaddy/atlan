@@ -18,16 +18,13 @@ export async function runPreflight() {
   add('bind', 'Server bound to 127.0.0.1 only', true,
     'cockpit :4589 and preview :4590 both listen on loopback — nothing reachable off-device');
 
-  let authOk = false, authDetail = 'no token — auth layer missing';
-  if (process.env.ATLAN_TOKEN) { authOk = true; authDetail = 'ATLAN_TOKEN from env; /api, /apk and WS all token-gated'; }
-  else if (existsSync(join(ROOT, '.auth-token'))) {
-    const mode = statSync(join(ROOT, '.auth-token')).mode & 0o777;
-    authOk = mode === 0o600;
-    authDetail = authOk
-      ? 'token at .auth-token (0600); /api, /apk and WS all token-gated, timing-safe compare, 429 throttle'
-      : `.auth-token mode ${mode.toString(8)} — expected 600`;
-  }
-  add('auth', 'Access auth layer', authOk, authDetail);
+  // Password must be set before exposure — an unconfigured instance lets the
+  // first caller claim it. Session cookies gate /api, /apk and WS; a header
+  // bearer (.auth-token, 0600) exists for automation only, never in a URL.
+  const pwSet = existsSync(join(ROOT, '.fleet/auth.json'));
+  add('auth', 'Access auth layer', pwSet,
+    pwSet ? 'password set; session-cookie gate on /api, /apk and WS; scrypt hash + 30-day sessions; header bearer for automation only'
+          : 'NO password set yet — set one on first load before exposing this beyond the phone');
 
   let keysOk = false, keysDetail = 'no keys stored yet (fine)';
   if (existsSync(join(ROOT, '.keys.enc'))) {

@@ -15,9 +15,11 @@
   <div class="authcard">
     <img src="img/atlan-bot.svg" alt="" style="width:54px">
     <div class="wordmark">At<em>la</em>n</div>
-    <p>This cockpit is locked. Easiest way in: open the <b>one-tap URL printed in the server's startup banner</b> (it carries your token). Or paste the token here — it's printed where you launched the server, and shown on the Doctor tab once you're in.</p>
-    <input id="authInput" type="password" placeholder="paste token" autocomplete="off">
-    <button class="btn hot" id="authSave">Unlock</button>
+    <div id="authTitle" class="authtitle">Welcome</div>
+    <p id="authHint">Enter your password to unlock Atlan.</p>
+    <input id="authInput" type="password" placeholder="password" autocomplete="current-password">
+    <button class="btn hot" id="authSave">Log in</button>
+    <div id="authErr" class="autherr"></div>
   </div>
 </div>
 <div class="phone">
@@ -224,12 +226,17 @@
     </section>
 
     <section class="screen" id="s-doctor">
-      <div class="eyebrow">Access token — for logging in on another browser</div>
+      <div class="eyebrow">Session</div>
       <div class="projbar">
-        <button class="btn" id="revealToken">show my login token</button>
-        <button class="btn ghost" id="copyLoginUrl">copy one-tap login URL</button>
+        <button class="btn ghost" id="logoutBtn">log out</button>
+        <button class="btn ghost" id="changePwBtn">change password</button>
       </div>
-      <div id="tokenBox" class="hint" style="display:none;word-break:break-all"></div>
+      <div id="pwForm" class="bform" style="display:none">
+        <input id="pwCurrent" type="password" placeholder="current password" autocomplete="current-password">
+        <input id="pwNext" type="password" placeholder="new password (8+ chars)" autocomplete="new-password">
+        <div class="projbar"><button class="btn hot" id="pwSave">Save new password</button></div>
+        <div id="pwMsg" class="hint"></div>
+      </div>
       <div class="eyebrow" style="margin-top:6px">Engine keys — encrypted at rest, never shown back</div>
       <div id="keysList" class="doctor-list"></div>
       <div class="eyebrow" style="margin-top:6px">Doctor — the proot boundary, checked</div>

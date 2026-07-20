@@ -19,6 +19,45 @@ async function test(name, fn) {
 
 console.log('SECURITY / PENETRATION SUITE');
 
+// ── password auth: session cookies, no URL token ──
+await test('auth status is an OPEN endpoint (needed to render login)', async () => {
+  const r = await naked('/api/auth/status');
+  assert.equal(r.status, 200);
+});
+const TEST_PW = 'atlan-test-pw-8x';
+// ensure a password exists so these tests exercise the real cookie flow; uses
+// the bearer to set one up on a fresh instance (setup endpoint itself is open).
+async function ensurePassword() {
+  const { configured } = await naked('/api/auth/status').then((r) => r.json());
+  if (!configured) await naked('/api/auth/setup', { method: 'POST', body: JSON.stringify({ password: TEST_PW }) });
+  return configured; // true if a real (possibly different) password was already set
+}
+await test('a valid session cookie authenticates; a forged one does not', async () => {
+  const preexisting = await ensurePassword();
+  const login = await naked('/api/auth/login', { method: 'POST', body: JSON.stringify({ password: TEST_PW }) });
+  if (!preexisting) {
+    assert.equal(login.status, 200, 'login with the password we just set failed');
+    const cookie = login.headers.get('set-cookie')?.split(';')[0];
+    assert.ok(cookie?.startsWith('atlan_session='));
+    assert.equal((await naked('/api/doctor', { headers: { cookie } })).status, 200, 'valid session cookie rejected');
+  }
+  const forged = await naked('/api/doctor', { headers: { cookie: 'atlan_session=' + 'f'.repeat(64) } });
+  assert.equal(forged.status, 401, 'forged session cookie accepted');
+});
+await test('the session cookie is HttpOnly + SameSite=Strict (no JS theft, no CSRF)', async () => {
+  await ensurePassword();
+  const login = await naked('/api/auth/login', { method: 'POST', body: JSON.stringify({ password: TEST_PW }) });
+  if (login.status !== 200) return; // a different real password is set — skip, don't false-fail
+  const sc = login.headers.get('set-cookie') || '';
+  assert.match(sc, /HttpOnly/i);
+  assert.match(sc, /SameSite=Strict/i);
+});
+await test('no token is ever accepted in the URL query (the fixed footgun)', async () => {
+  // the old ?token= login must be gone — a bearer in the query must NOT authenticate
+  const r = await naked('/api/doctor?token=' + TOKEN);
+  assert.equal(r.status, 401, 'URL token still works — the footgun is back');
+});
+
 // ── auth bypass attempts ──
 await test('every state endpoint rejects a missing token (401)', async () => {
   for (const p of ['/api/doctor', '/api/fleet', '/api/routines', '/api/personas', '/api/keys', '/api/preflight']) {

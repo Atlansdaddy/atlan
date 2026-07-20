@@ -3,34 +3,42 @@
   const $ = (id) => document.getElementById(id);
   const chatlog = $('chatlog');
 
-  // ── auth: one token, attached to every request; 401 → login overlay ──
-  // A ?token= in the URL (from the server's startup banner) is the one-tap
-  // login: capture it, persist it, then scrub it from the address bar so it
-  // doesn't linger in history/referer.
-  const urlToken = new URLSearchParams(location.search).get('token');
-  if (urlToken) {
-    localStorage.setItem('atlanToken', urlToken);
-    history.replaceState(null, '', location.pathname);
-  }
-  let authToken = localStorage.getItem('atlanToken') ?? '';
+  // ── auth: password + stay-logged-in session cookie (no token, no URL) ──
+  // Same-origin cookies ride every request automatically; we only watch for a
+  // 401 to raise the login/setup overlay.
   const rawFetch = window.fetch.bind(window);
-  window.fetch = (url, opts = {}) => rawFetch(url, {
-    ...opts,
-    headers: { ...(opts.headers ?? {}), 'x-atlan-token': authToken },
-  }).then((res) => {
-    if (res.status === 401) showAuth();
+  let authShown = false;
+  window.fetch = (url, opts = {}) => rawFetch(url, opts).then((res) => {
+    if (res.status === 401 && !authShown) showAuth();
     return res;
   });
-  function showAuth() {
-    $('authOverlay').classList.add('show');
+  async function showAuth() {
+    authShown = true;
+    const { configured } = await rawFetch('/api/auth/status').then((r) => r.json()).catch(() => ({ configured: true }));
+    const ov = $('authOverlay');
+    ov.dataset.mode = configured ? 'login' : 'setup';
+    $('authTitle').textContent = configured ? 'Welcome back' : 'Set a password';
+    $('authHint').textContent = configured
+      ? 'Enter your password to unlock Atlan.'
+      : 'First run — choose a password (8+ characters). You’ll stay logged in on this device, no need to re-enter it each time.';
+    $('authInput').setAttribute('autocomplete', configured ? 'current-password' : 'new-password');
+    $('authSave').textContent = configured ? 'Log in' : 'Set password & enter';
+    ov.classList.add('show');
+    $('authInput').focus();
   }
-  $('authSave').addEventListener('click', () => {
-    const t = $('authInput').value.trim();
-    if (!t) return;
-    localStorage.setItem('atlanToken', t);
-    location.reload();
-  });
-  $('authInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('authSave').click(); });
+  async function doAuth() {
+    const pw = $('authInput').value;
+    if (!pw) return;
+    const mode = $('authOverlay').dataset.mode;
+    const r = await rawFetch(mode === 'setup' ? '/api/auth/setup' : '/api/auth/login', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ password: pw }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (r.ok) location.reload();
+    else $('authErr').textContent = j.error || 'try again';
+  }
+  $('authSave').addEventListener('click', doAuth);
+  $('authInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') doAuth(); });
 
   // ── tabs ──
   const tabs = document.querySelectorAll('nav button');
@@ -133,7 +141,8 @@
   let ws, wsReady = false;
   const pendingOut = [];
   function connect() {
-    ws = new WebSocket(`ws://${location.host}/ws?token=${encodeURIComponent(authToken)}`);
+    // Session cookie is sent automatically on the same-origin WS upgrade.
+    ws = new WebSocket(`ws://${location.host}/ws`);
     ws.onopen = () => {
       wsReady = true;
       $('connDot').classList.add('on');
@@ -144,7 +153,7 @@
     ws.onclose = (ev) => {
       wsReady = false;
       $('connDot').classList.remove('on');
-      if (ev.code === 4001) { $('sessMeta').textContent = 'auth required'; showAuth(); return; }
+      if (ev.code === 4001) { $('sessMeta').textContent = 'auth required'; if (!authShown) showAuth(); return; }
       $('sessMeta').textContent = 'reconnecting…';
       setTimeout(connect, 1500);
     };
@@ -685,17 +694,22 @@
     }).catch(() => {});
   }
 
-  // ── access token reveal (Doctor tab) — you're already authed to see it ──
-  $('revealToken').addEventListener('click', () => {
-    const box = $('tokenBox');
-    box.style.display = '';
-    box.textContent = authToken || '(no token stored in this browser)';
+  // ── session controls (Doctor tab) ──
+  $('logoutBtn').addEventListener('click', async () => {
+    await fetch('/api/auth/logout', { method: 'POST' });
+    location.reload();
   });
-  $('copyLoginUrl').addEventListener('click', () => {
-    const url = `${location.origin}/?token=${authToken}`;
-    navigator.clipboard?.writeText(url);
-    $('copyLoginUrl').textContent = 'copied — open it on any browser here';
-    setTimeout(() => { $('copyLoginUrl').textContent = 'copy one-tap login URL'; }, 2500);
+  $('changePwBtn').addEventListener('click', () => {
+    $('pwForm').style.display = $('pwForm').style.display === 'none' ? '' : 'none';
+  });
+  $('pwSave').addEventListener('click', async () => {
+    const r = await fetch('/api/auth/password', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ current: $('pwCurrent').value, next: $('pwNext').value }),
+    });
+    const j = await r.json().catch(() => ({}));
+    $('pwMsg').textContent = r.ok ? 'password changed ✓' : (j.error || 'failed');
+    if (r.ok) { $('pwCurrent').value = ''; $('pwNext').value = ''; }
   });
 
   // ── doctor ──

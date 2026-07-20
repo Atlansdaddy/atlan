@@ -106,8 +106,8 @@
     }
   });
 
-  // ── first run: offer, never force ──
-  if (!localStorage.getItem('atlanTourDone') && localStorage.getItem('atlanToken')) {
+  // ── first run: offer, never force (shown once the user is past login) ──
+  if (!localStorage.getItem('atlanTourDone')) {
     const bar = document.createElement('div');
     bar.id = 'firstRun';
     bar.innerHTML = `<span>👋 First dive? Let Atlan walk you through everything.</span><button class="btn hot" id="frGo">Take the tour</button><button class="btn ghost" id="frNo">later</button>`;

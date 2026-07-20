@@ -3,6 +3,7 @@
 // a tmux PTY round-trip, and reconnection after a drop.
 import assert from 'node:assert';
 import { readFileSync } from 'node:fs';
+import { WebSocket } from 'ws'; // the ws client sets real headers; no token in the URL
 
 const BASE = process.env.ATLAN_BASE ?? 'http://127.0.0.1:4589';
 const WS = BASE.replace('http', 'ws') + '/ws';
@@ -14,15 +15,16 @@ async function test(name, fn) {
   try { await fn(); pass++; console.log(`  ✓ ${name}`); }
   catch (err) { fail++; console.log(`  ✗ ${name} — ${err.message}`); }
 }
+// Auth rides the x-atlan-token HEADER (bearer for automation) — never a URL.
 const openWs = (token = TOKEN) => new Promise((res, rej) => {
-  const ws = new WebSocket(`${WS}?token=${encodeURIComponent(token)}`);
-  ws.onopen = () => res(ws);
-  ws.onclose = (e) => rej(new Error('closed ' + e.code));
+  const ws = new WebSocket(WS, { headers: { 'x-atlan-token': token } });
+  ws.on('open', () => res(ws));
+  ws.on('close', (code) => rej(new Error('closed ' + code)));
   setTimeout(() => rej(new Error('ws open timeout')), 4000);
 });
 const nextMsg = (ws, pred, ms = 8000) => new Promise((res, rej) => {
-  const on = (ev) => { const m = JSON.parse(ev.data); if (!pred || pred(m)) { ws.removeEventListener('message', on); res(m); } };
-  ws.addEventListener('message', on);
+  const on = (data) => { const m = JSON.parse(data.toString()); if (!pred || pred(m)) { ws.off('message', on); res(m); } };
+  ws.on('message', on);
   setTimeout(() => rej(new Error('no matching msg')), ms);
 });
 
@@ -35,8 +37,8 @@ await test('authed WS connects', async () => {
 });
 await test('WS with a bad token is closed 4001 (even if handshake completes)', async () => {
   const code = await new Promise((res) => {
-    const ws = new WebSocket(`${WS}?token=garbage`);
-    ws.onclose = (e) => res(e.code);
+    const ws = new WebSocket(WS, { headers: { 'x-atlan-token': 'garbage' } });
+    ws.on('close', (c) => res(c));
     setTimeout(() => res(0), 4000);
   });
   assert.equal(code, 4001, `expected 4001, got ${code}`);

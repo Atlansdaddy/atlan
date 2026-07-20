@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 import { readFileSync } from 'node:fs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const PREVIEW_PORT = 4590;
+import { PREVIEW_PORT } from './config.js';
 
 let target = 'http://127.0.0.1:5173';
 export function setPreviewTarget(url) { target = url; }

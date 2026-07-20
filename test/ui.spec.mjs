@@ -27,7 +27,15 @@ const page = await ctx.newPage();
 const consoleErrors = [];
 page.on('pageerror', (e) => consoleErrors.push(e.message));
 
-await page.addInitScript((t) => localStorage.setItem('atlanToken', t), TOKEN);
+// Log in the real way (password → session cookie) so both fetch AND the WS
+// upgrade are authed. On the throwaway test instance there's no password yet,
+// so we set one; the cookie then rides every request.
+await page.goto(BASE);
+await page.evaluate(async (pw) => {
+  const s = await fetch('/api/auth/status').then((r) => r.json());
+  const ep = s.configured ? '/api/auth/login' : '/api/auth/setup';
+  await fetch(ep, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ password: pw }) });
+}, 'atlan-test-pw-8x');
 await page.goto(BASE, { waitUntil: 'networkidle' });
 
 await test('loads with Atlan wordmark + bot', async () => {

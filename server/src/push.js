@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 // web/public/sw.js — a push-ONLY service worker with no fetch handler, so the
 // stale-SW landmine stays structurally impossible (doctor asserts it).
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const FLEET_DIR = join(__dirname, '../../.fleet');
+import { FLEET_DIR, BRAND } from './config.js';
 mkdirSync(FLEET_DIR, { recursive: true });
 const VAPID_FILE = join(FLEET_DIR, 'vapid.json');
 const SUBS_FILE = join(FLEET_DIR, 'push-subs.json');
@@ -19,7 +19,7 @@ if (!vapid) {
   vapid = webpush.generateVAPIDKeys();
   writeFileSync(VAPID_FILE, JSON.stringify(vapid), { mode: 0o600 });
 }
-webpush.setVapidDetails('mailto:john@midatlantic.ai', vapid.publicKey, vapid.privateKey);
+webpush.setVapidDetails(`mailto:${BRAND.contactEmail}`, vapid.publicKey, vapid.privateKey);
 
 let subs = loadJson(SUBS_FILE, []);
 const saveSubs = () => writeFileSync(SUBS_FILE, JSON.stringify(subs), { mode: 0o600 });
