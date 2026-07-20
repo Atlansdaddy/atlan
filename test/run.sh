@@ -9,6 +9,9 @@ export ATLAN_PORT=4599
 export ATLAN_PREVIEW_PORT=4600
 export ATLAN_FLEET_DIR="$(mktemp -d /tmp/atlan-test-fleet.XXXXXX)"
 export ATLAN_BASE="http://127.0.0.1:$ATLAN_PORT"
+# point the hierarchy's local + cloud-sm tiers at the suite's mock engines
+export ATLAN_TIER_LOCAL_BASE="http://127.0.0.1:8091"
+export ATLAN_TIER_CLOUDSM_BASE="http://127.0.0.1:8092"
 # a dedicated bearer for the test instance so it needs no password
 export ATLAN_TOKEN="test-$(head -c16 /dev/urandom | od -An -tx1 | tr -d ' \n')"
 

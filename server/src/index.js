@@ -22,6 +22,7 @@ import {
   loginThrottled, recordLoginFail, clearLoginFails,
 } from './auth.js';
 import { listRoutines, upsertRoutine, deleteRoutine, setPaused, fireRoutine, startScheduler } from './routines.js';
+import { initHierarchy, listJobs, upsertJob, deleteJob, startJob, listRuns as listHierarchyRuns, getRun as getHierarchyRun, resolveGate, tierList } from './hierarchy.js';
 import {
   listPersonas, listCommands, upsertPersona, deletePersona, upsertCommand, deleteCommand,
   compilePersona, compileCommand, templateSchema, toolSchema, harnessRun,
@@ -164,6 +165,25 @@ app.post('/api/harness/escalate', (req, res) => {
   } catch (err) { res.status(400).json({ error: err.message }); }
 });
 
+// ── worker hierarchy: jobs = chains of scoped links, tiered + checker-gated ──
+app.get('/api/hierarchy', (_req, res) => res.json({ jobs: listJobs(), runs: listHierarchyRuns(), tiers: tierList }));
+app.post('/api/hierarchy/job', (req, res) => {
+  try { res.json(upsertJob(req.body ?? {})); } catch (err) { res.status(400).json({ error: err.message }); }
+});
+app.post('/api/hierarchy/job/delete', (req, res) => res.json({ deleted: deleteJob(String(req.body?.id)) }));
+app.post('/api/hierarchy/start', (req, res) => {
+  try { res.json(startJob(String(req.body?.jobId), req.body?.input ?? {})); } catch (err) { res.status(400).json({ error: err.message }); }
+});
+app.get('/api/hierarchy/run/:id', (req, res) => {
+  const r = getHierarchyRun(req.params.id);
+  if (!r) return res.status(404).json({ error: 'no such run' });
+  res.json(r);
+});
+app.post('/api/hierarchy/gate', (req, res) => {
+  try { res.json(resolveGate(String(req.body?.runId), { approve: !!req.body?.approve, editedOutput: req.body?.editedOutput ?? null })); }
+  catch (err) { res.status(400).json({ error: err.message }); }
+});
+
 app.get('/api/keys', (_req, res) => res.json(keyStatus()));
 app.post('/api/keys', (req, res) => {
   try {
@@ -215,6 +235,7 @@ const wsBroadcast = (obj) => {
   for (const c of wss.clients) if (c.readyState === 1) c.send(s);
 };
 initFleet(wsBroadcast, notifyAll);
+initHierarchy(wsBroadcast);
 // Routines wake with the server; missed slots get flagged + pushed, never
 // auto-fired (a rebooted server must not spend tokens by surprise).
 startScheduler(wsBroadcast, notifyAll);

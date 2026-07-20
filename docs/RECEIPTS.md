@@ -16,10 +16,11 @@ _Free suites only. The E2E suite (real Claude runs) is opt-in — `RUN_PAID=1 no
 | Connection | Live WebSocket + PTY: authed connect, 4001 on bad token, malformed-frame survival, multi-client broadcast, tmux round-trip, reconnection. (Spawns 2 tiny killed runs.) | ✅ 6/6 |
 | Security/Penetration | Auth bypass, SSRF (preview + harness), secret exfiltration, path traversal, stored-XSS, oversized-body DoS, profile privilege-escalation. | ✅ 19/19 |
 | Adversarial | Malformed/oversized/hostile input across all surfaces; profile tool-blocking; preflight honesty. | ✅ 29/29 |
+| Worker Hierarchy | Job = chain of checker-gated links; cheapest-tier-first, escalate-on-fail up the model ladder, blackboard wiring, human gate pause/resume, ladder-exhaustion error. Mock tier engines — no real spend. | ✅ 7/7 |
 | UI/UX | Headless Chromium drives the real cockpit: tabs, engine roster, doctor/preflight render, key entry no-leak, XSS-safe render. | ✅ 11/11 |
 | Tour/Onboarding | Drives all tour steps live — every step spotlights a real visible element; handbook opens/searches/relaunches. | ✅ 9/9 |
 
-**Total: 129 passed, 0 failed across 7 suites.**
+**Total: 136 passed, 0 failed across 8 suites.**
 
 ## Unit
 
@@ -183,6 +184,24 @@ ADVERSARIAL SUITE
   ✓ preflight flags a plaintext keys.json if present
 
 29 passed, 0 failed
+```
+
+## Worker Hierarchy
+
+Job = chain of checker-gated links; cheapest-tier-first, escalate-on-fail up the model ladder, blackboard wiring, human gate pause/resume, ladder-exhaustion error. Mock tier engines — no real spend.
+
+```
+$ node test/hierarchy.mjs
+WORKER HIERARCHY SUITE
+  ✓ setup: a persona + checker-gated command
+  ✓ a job requires a link that references a real command
+  ✓ local tier passes checkers → job done at the cheapest tier
+  ✓ local FAILS checkers → escalates to cloud-sm which passes
+  ✓ both tiers fail → job errors with a clear reason (ladder exhausted)
+  ✓ a human gate PAUSES the run and resumes on approval
+  ✓ cleanup
+
+7 passed, 0 failed
 ```
 
 ## UI/UX
