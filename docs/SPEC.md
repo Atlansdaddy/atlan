@@ -61,9 +61,20 @@ One sentence: **Claude Code in a phone IDE with a live preview sandbox, Mid-Atla
 
 ## Milestones
 - **M0 scaffold** ✓ repo, tokens, docs
-- **M1 cockpit-claude**: server + WS + Chat screen live against Agent SDK, permission cards, session resume, xterm.js tmux pane. *Usable daily from here.*
-- **M2 preview**: iframe proxy + console capture + snapshot-to-session
-- **M3 build+doctor**: APK button wired to recipe, doctor checks real
-- **M4 engines**: Codex + Gemini CLIs (pending research), openai-compat adapter + switcher UI wired
-- **M5 fleet**: subagents UI, budgets, routines (cron), burn meter
-- **M6 atlan-alive**: mood engine on real state, day/night, voice lines
+- **M1 cockpit-claude** ✓ server + WS + Chat live against Agent SDK, permission cards, session resume, xterm.js tmux pane. *Usable daily from here.*
+- **M2 preview** ✓ iframe proxy + console capture + error auto-attach + snapshot-to-session
+- **M3 build+doctor** ✓ APK button wired to recipe, doctor checks real; keys AES-256-GCM; preflight gate
+- **M4 engines** ✓ Codex + Gemini CLIs headless + openai-compat brains adapter + switcher UI; all authed E2E
+- **M5a fleet core** ✓ profiled runs, hard budgets, burn ledger, KILL ALL
+- **M5b reports/needs-you** ✓ push-only SW, chat ping + nav badge, durable inbox, budget top-up resume
+- **M5c routines** ✓ in-server scheduler, missed-run flags (never auto-fire late), pause, run-late
+- **M5d Persona+ builder** ✓ persona + structured-command builders, deterministic checker engine, compile viewer, test harness with escalation ladder
+- **M6 atlan-alive** ✓ mood engine on real state (halo canvas, orbiting agents), time greetings, night dimming
+- **Auth layer** ✓ token-gated /api + /apk + WS (timing-safe, throttled); preflight blocker cleared — 0 blockers
+- **Onboarding** ✓ 27-step in-app spotlight tour + searchable handbook + `docs/HANDOFF.md`
+- **Test campaign** ✓ 124 tests / 8 suites green; `docs/RECEIPTS.md` auto-generated
+
+### Backlog (post-handoff)
+- Persona in Chat (not just fleet/routines); M5d worker hierarchy (frontier writes scope → local Qwen executes under grammar constraint → checkers verify → escalate)
+- Builder/verifier Bash sandboxing (currently unscoped within project — honest caveat in-app)
+- Atlan-as-APK dogfood wrapper; Cloudflare Tunnel + Access exposure (only when John chooses)

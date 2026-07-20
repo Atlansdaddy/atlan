@@ -1,7 +1,7 @@
 {
   "name": "Atlan",
   "short_name": "Atlan",
-  "description": "Mid-Atlantic AI cockpit — Claude Code and friends, on the phone.",
+  "description": "Personal AI build cockpit on the phone: Claude Code + agent CLIs + local/cloud models, live preview sandbox, real terminal, autonomous budgeted agent fleet, scheduled routines, Persona+ builder with deterministic checkers, one-button APK builds, and health/security dashboards — all loopback-only.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#020c18",
