@@ -3,6 +3,27 @@
   const $ = (id) => document.getElementById(id);
   const chatlog = $('chatlog');
 
+  // ── auth: one token, attached to every request; 401 → login overlay ──
+  let authToken = localStorage.getItem('atlanToken') ?? '';
+  const rawFetch = window.fetch.bind(window);
+  window.fetch = (url, opts = {}) => rawFetch(url, {
+    ...opts,
+    headers: { ...(opts.headers ?? {}), 'x-atlan-token': authToken },
+  }).then((res) => {
+    if (res.status === 401) showAuth();
+    return res;
+  });
+  function showAuth() {
+    $('authOverlay').classList.add('show');
+  }
+  $('authSave').addEventListener('click', () => {
+    const t = $('authInput').value.trim();
+    if (!t) return;
+    localStorage.setItem('atlanToken', t);
+    location.reload();
+  });
+  $('authInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('authSave').click(); });
+
   // ── tabs ──
   const tabs = document.querySelectorAll('nav button');
   tabs.forEach((b) => b.addEventListener('click', () => {
@@ -37,7 +58,7 @@
   let ws, wsReady = false;
   const pendingOut = [];
   function connect() {
-    ws = new WebSocket(`ws://${location.host}/ws`);
+    ws = new WebSocket(`ws://${location.host}/ws?token=${encodeURIComponent(authToken)}`);
     ws.onopen = () => {
       wsReady = true;
       $('connDot').classList.add('on');
@@ -45,9 +66,10 @@
       while (pendingOut.length) ws.send(pendingOut.shift());
       if (termOpened) ws.send(JSON.stringify({ t: 'pty.open', name: 'main', cols: term.cols, rows: term.rows }));
     };
-    ws.onclose = () => {
+    ws.onclose = (ev) => {
       wsReady = false;
       $('connDot').classList.remove('on');
+      if (ev.code === 4001) { $('sessMeta').textContent = 'auth required'; showAuth(); return; }
       $('sessMeta').textContent = 'reconnecting…';
       setTimeout(connect, 1500);
     };

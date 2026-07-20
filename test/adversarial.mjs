@@ -6,6 +6,12 @@ import { readFileSync, existsSync } from 'node:fs';
 import WebSocket from '../node_modules/ws/index.js';
 
 const BASE = process.env.ATLAN_BASE ?? 'http://127.0.0.1:4589';
+
+// auth: all API surfaces are token-gated now — tests authenticate like the app
+const TOKEN = (process.env.ATLAN_TOKEN ?? readFileSync(new URL('../.auth-token', import.meta.url), 'utf8')).trim();
+const _fetch = globalThis.fetch;
+globalThis.fetch = (url, opts = {}) => _fetch(url, { ...opts, headers: { ...(opts.headers ?? {}), 'x-atlan-token': TOKEN } });
+
 const ROOT = '/root/atlan';
 let pass = 0, fail = 0;
 const results = [];
@@ -149,7 +155,7 @@ await test('server still alive after garbage', async () => {
 
 // ── WS: malformed frames, unknown types, flooding ──
 await test('WS survives malformed + unknown messages', async () => {
-  const ws = new WebSocket(BASE.replace('http', 'ws') + '/ws');
+  const ws = new WebSocket(BASE.replace('http', 'ws') + '/ws?token=' + encodeURIComponent(TOKEN));
   await new Promise((res, rej) => { ws.on('open', res); ws.on('error', rej); });
   ws.send('not json at all');
   ws.send(JSON.stringify({ t: 'nonexistent.type', x: 1 }));
@@ -163,14 +169,12 @@ await test('WS survives malformed + unknown messages', async () => {
 });
 
 // ── preflight must honestly report auth-missing as a blocker ──
-await test('preflight reports auth-layer blocker (not falsely green)', async () => {
+await test('preflight auth check is green now the layer exists', async () => {
   const p = await j(await fetch(BASE + '/api/preflight'));
   const auth = p.checks.find((c) => c.id === 'auth');
   assert.ok(auth, 'no auth check');
-  if (!process.env.ATLAN_TOKEN) {
-    assert.equal(auth.ok, false, 'auth check should fail with no token');
-    assert.ok(!p.ready, 'preflight should not be ready without auth');
-  }
+  assert.equal(auth.ok, true, 'auth layer exists (.auth-token 0600) — check must be green');
+  assert.ok(/token-gated/.test(auth.detail), 'detail should say what is gated');
 });
 await test('preflight flags a plaintext keys.json if present', async () => {
   const p = await j(await fetch(BASE + '/api/preflight'));

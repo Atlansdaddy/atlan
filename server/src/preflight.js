@@ -18,9 +18,16 @@ export async function runPreflight() {
   add('bind', 'Server bound to 127.0.0.1 only', true,
     'cockpit :4589 and preview :4590 both listen on loopback — nothing reachable off-device');
 
-  const hasAuth = !!process.env.ATLAN_TOKEN;
-  add('auth', 'Access auth layer', hasAuth,
-    hasAuth ? 'ATLAN_TOKEN set' : 'NO auth exists yet — anyone reaching this port owns the phone. Required before any tunnel/deploy.');
+  let authOk = false, authDetail = 'no token — auth layer missing';
+  if (process.env.ATLAN_TOKEN) { authOk = true; authDetail = 'ATLAN_TOKEN from env; /api, /apk and WS all token-gated'; }
+  else if (existsSync(join(ROOT, '.auth-token'))) {
+    const mode = statSync(join(ROOT, '.auth-token')).mode & 0o777;
+    authOk = mode === 0o600;
+    authDetail = authOk
+      ? 'token at .auth-token (0600); /api, /apk and WS all token-gated, timing-safe compare, 429 throttle'
+      : `.auth-token mode ${mode.toString(8)} — expected 600`;
+  }
+  add('auth', 'Access auth layer', authOk, authDetail);
 
   let keysOk = false, keysDetail = 'no keys stored yet (fine)';
   if (existsSync(join(ROOT, '.keys.enc'))) {

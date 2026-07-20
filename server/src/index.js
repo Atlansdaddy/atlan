@@ -16,6 +16,7 @@ import { runPreflight } from './preflight.js';
 import { agentStatus, agentTurn } from './agents.js';
 import { initFleet, spawnRun, listRuns, killRun, killAll, todayBurn, profileList, historyTail, topUpRun } from './fleet.js';
 import { pushPublicKey, addSub, subCount, notifyAll } from './push.js';
+import { authMiddleware, wsAuthed } from './auth.js';
 import { listRoutines, upsertRoutine, deleteRoutine, setPaused, fireRoutine, startScheduler } from './routines.js';
 import {
   listPersonas, listCommands, upsertPersona, deletePersona, upsertCommand, deleteCommand,
@@ -32,6 +33,11 @@ mkdirSync(SNAPDIR, { recursive: true });
 const app = express();
 app.use(express.static(WEB));
 app.use(express.json({ limit: '1mb' }));
+
+// Everything after this line needs the token; the static shell above doesn't
+// (the login screen has to come from somewhere).
+app.use('/api', authMiddleware);
+app.use('/apk', authMiddleware);
 
 app.get('/api/doctor', async (_req, res) => res.json(await runDoctor()));
 
@@ -174,7 +180,8 @@ initFleet(wsBroadcast, notifyAll);
 // auto-fired (a rebooted server must not spend tokens by surprise).
 startScheduler(wsBroadcast, notifyAll);
 
-wss.on('connection', (ws) => {
+wss.on('connection', (ws, req) => {
+  if (!wsAuthed(req)) { ws.close(4001, 'auth required'); return; }
   const send = (obj) => { if (ws.readyState === 1) ws.send(JSON.stringify(obj)); };
   let claude = null;
   const brainHistory = new Map();

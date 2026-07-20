@@ -7,6 +7,13 @@ import assert from 'node:assert';
 const { chromium } = pw;
 
 const BASE = process.env.ATLAN_BASE ?? 'http://127.0.0.1:4589';
+
+// auth: all API surfaces are token-gated now — tests authenticate like the app
+import { readFileSync } from 'node:fs';
+const TOKEN = (process.env.ATLAN_TOKEN ?? readFileSync(new URL('../.auth-token', import.meta.url), 'utf8')).trim();
+const _fetch = globalThis.fetch;
+globalThis.fetch = (url, opts = {}) => _fetch(url, { ...opts, headers: { ...(opts.headers ?? {}), 'x-atlan-token': TOKEN } });
+
 let pass = 0, fail = 0;
 const results = [];
 async function test(name, fn) {
@@ -20,10 +27,11 @@ const page = await ctx.newPage();
 const consoleErrors = [];
 page.on('pageerror', (e) => consoleErrors.push(e.message));
 
+await page.addInitScript((t) => localStorage.setItem('atlanToken', t), TOKEN);
 await page.goto(BASE, { waitUntil: 'networkidle' });
 
 await test('loads with Atlan wordmark + bot', async () => {
-  assert.equal((await page.locator('.wordmark').innerText()).toLowerCase(), 'atlan');
+  assert.equal((await page.locator('header .wordmark').innerText()).toLowerCase(), 'atlan');
   assert.ok(await page.locator('#atlanImg').isVisible(), 'bot logo missing');
 });
 

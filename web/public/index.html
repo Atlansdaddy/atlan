@@ -11,6 +11,15 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
+<div class="authoverlay" id="authOverlay">
+  <div class="authcard">
+    <img src="img/atlan-bot.svg" alt="" style="width:54px">
+    <div class="wordmark">At<em>la</em>n</div>
+    <p>This cockpit is locked. Paste your access token — it lives on the phone at<br><code>/root/atlan/.auth-token</code><br>(in Termux: <code>cat /root/atlan/.auth-token</code>)</p>
+    <input id="authInput" type="password" placeholder="paste token" autocomplete="off">
+    <button class="btn hot" id="authSave">Unlock</button>
+  </div>
+</div>
 <div class="phone">
   <div class="bubbles"><i></i><i></i><i></i><i></i><i></i></div>
 

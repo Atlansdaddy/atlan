@@ -11,3 +11,4 @@ keys.json
 .fleet/
 
 test-results/
+.auth-token
