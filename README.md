@@ -111,6 +111,7 @@ Suites: `unit` · `function` (+ data-store durability) · `connection` (WS/PTY) 
 Loopback-only; all API/WS/APK surfaces token-gated (timing-safe, 20-bad-tokens/min throttle). Preflight is the gate to *ever* exposing this, and it's green — but exposure remains a deliberate act and should go through **Cloudflare Tunnel + Access, never a bare port** (`docs/SECURITY.md`). Accepted, documented gaps: the preview proxy (4590) is unauthenticated loopback; builder/verifier Bash is unscoped *within* the project folder; cloud "brains" see your prompts under their own ToS.
 
 ## Docs
+- `docs/SETUP.md` — clone-and-run guide for a fresh instance
 - `docs/SPEC.md` — full spec + milestone history
 - `docs/HANDOFF.md` — onboarding + recovery playbook (for John or a future maintainer)
 - `docs/RECEIPTS.md` — verbatim output of every test
