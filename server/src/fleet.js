@@ -147,12 +147,15 @@ async function exec(run, prof) {
         cwd: run.cwd,
         model: run.model,
         maxTurns: 40,
-        // CRITICAL: no inherited settings. John's accumulated always-allow
-        // rules (170+ Bash patterns in settings.local.json) would let tools
-        // walk past the profile without ever reaching canUseTool — proven
-        // live by a scout running `ls` on 2026-07-17. Profiles only mean
-        // something if this stays empty.
+        // CRITICAL: no inherited settings. Accumulated always-allow rules in
+        // settings.local.json would let tools walk past the profile without
+        // ever reaching canUseTool — proven live by a scout running `ls` on
+        // 2026-07-17. Profiles only mean something if this stays empty.
         settingSources: [],
+        // Trim the per-run system-prompt cost: excludeDynamicSections drops the
+        // per-session dynamic preamble so the preset caches across the fleet's
+        // many short-lived runs, instead of each one paying a full ~35k write.
+        systemPrompt: { type: 'preset', preset: 'claude_code', excludeDynamicSections: true },
         disallowedTools: prof.disallowed,
         ...(run.resume ? { resume: run.resume } : {}),
         canUseTool: async (tool, input) => {

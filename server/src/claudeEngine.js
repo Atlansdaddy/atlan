@@ -28,12 +28,20 @@ export class ClaudeSession {
     }
     this.busy = true;
     this.send({ t: 'atlan.mood', mood: 'building' });
+    // Immediate feedback so the turn never feels dead: the UI shows a working
+    // pulse the instant this fires, before the model has produced a token.
+    this.send({ t: 'chat.turnstart' });
     try {
       const q = query({
         prompt: text,
         options: {
           cwd: this.cwd,
           model: this.model,
+          // Stream partial messages so text + thinking flow token-by-token
+          // instead of landing in one dead-air lump. thinking:adaptive lets the
+          // model reason visibly; the UI renders it in a collapsible panel.
+          includePartialMessages: true,
+          thinking: { type: 'adaptive' },
           ...(this.sessionId ? { resume: this.sessionId } : {}),
           canUseTool: async (toolName, input) => {
             const id = randomUUID();
@@ -49,9 +57,22 @@ export class ClaudeSession {
         if (m.type === 'system' && m.subtype === 'init') {
           this.sessionId = m.session_id;
           this.send({ t: 'chat.session', id: m.session_id, cwd: this.cwd });
+        } else if (m.type === 'stream_event') {
+          // Live deltas — the whole point of the streaming fix.
+          const ev = m.event;
+          if (ev?.type === 'content_block_start') {
+            const t = ev.content_block?.type;
+            if (t === 'thinking') this.send({ t: 'chat.thinkstart' });
+            else if (t === 'text') this.send({ t: 'chat.textstart' });
+          } else if (ev?.type === 'content_block_delta') {
+            const d = ev.delta;
+            if (d?.type === 'text_delta') this.send({ t: 'chat.delta', text: d.text });
+            else if (d?.type === 'thinking_delta') this.send({ t: 'chat.think', text: d.thinking });
+          }
         } else if (m.type === 'assistant') {
+          // Text + thinking already streamed above; here we only surface tool
+          // calls (their inputs arrive complete on this message).
           for (const block of m.message?.content ?? []) {
-            if (block.type === 'text') this.send({ t: 'chat.msg', role: 'claude', text: block.text });
             if (block.type === 'tool_use') this.send({ t: 'tool.use', name: block.name, input: preview(block.input) });
           }
         } else if (m.type === 'result') {

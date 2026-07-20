@@ -162,11 +162,17 @@
       case 'chat.msg': addMsg(m.role, m.text, m.engine); break;
       case 'chat.err': addMsg('err', m.msg); break;
       case 'tool.use': addTool(m.name, m.input); break;
+      case 'chat.turnstart': startWorking(); break;
+      case 'chat.thinkstart': ensureThinking(); break;
+      case 'chat.think': appendThinking(m.text); break;
+      case 'chat.textstart': startStreamBubble(); break;
+      case 'chat.delta': appendStream(m.text); break;
       case 'chat.session':
         sessionId = m.id;
         $('sessMeta').textContent = `session ${m.id.slice(0, 8)}`;
         break;
       case 'chat.result': {
+        endWorking();
         if (m.brain) {
           const bl = document.createElement('div');
           bl.className = 'sessline';
@@ -243,6 +249,57 @@
         if ($('fp-routines').classList.contains('active')) loadRoutines();
         break;
     }
+  }
+
+  // ── streaming chat: working indicator, live text bubble, thinking panel ──
+  let workingEl = null, streamBubble = null, thinkEl = null, thinkBody = null;
+  function startWorking() {
+    endWorking();
+    workingEl = document.createElement('div');
+    workingEl.className = 'working';
+    workingEl.innerHTML = '<span class="dots"><i></i><i></i><i></i></span> Atlan is working…';
+    chatlog.append(workingEl); scroll();
+  }
+  function endWorking() {
+    workingEl?.remove(); workingEl = null;
+    streamBubble = null; thinkEl = null; thinkBody = null; // close the turn's live nodes
+  }
+  // keep the "working…" line pinned to the bottom; live nodes insert above it
+  function placeAboveWorking(node) {
+    if (workingEl && workingEl.parentNode === chatlog) chatlog.insertBefore(node, workingEl);
+    else chatlog.append(node);
+  }
+  function ensureThinking() {
+    if (thinkEl) return;
+    thinkEl = document.createElement('details');
+    thinkEl.className = 'thinking';
+    thinkEl.open = true; // show reasoning live; user can collapse
+    thinkEl.innerHTML = '<summary>🧠 thinking…</summary><div class="tbody"></div>';
+    thinkBody = thinkEl.querySelector('.tbody');
+    placeAboveWorking(thinkEl);
+    scroll();
+  }
+  function appendThinking(t) {
+    ensureThinking();
+    thinkBody.textContent += t;
+    scroll();
+  }
+  function startStreamBubble() {
+    // reasoning is done once real text starts — mark the panel closed/summarized
+    if (thinkEl) { thinkEl.open = false; thinkEl.querySelector('summary').textContent = '🧠 thought process'; }
+    streamBubble = document.createElement('div');
+    streamBubble.className = 'msg claude';
+    const who = document.createElement('div');
+    who.className = 'who'; who.textContent = 'Atlan';
+    streamBubble.append(who);
+    streamBubble.append(document.createElement('span'));
+    placeAboveWorking(streamBubble);
+    scroll();
+  }
+  function appendStream(t) {
+    if (!streamBubble) startStreamBubble();
+    streamBubble.lastChild.textContent += t;
+    scroll();
   }
 
   function addMsg(role, text, engineLabel) {
