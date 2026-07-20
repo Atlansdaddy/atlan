@@ -245,6 +245,23 @@ details summary{cursor:pointer;font-size:12.5px;font-weight:800;letter-spacing:.
 details[open] summary{color:var(--teal);margin-bottom:8px}
 details .doctor-list{margin-bottom:8px}
 #hOut{display:flex;flex-direction:column;gap:6px}
+.linkedit{display:flex;flex-direction:column;gap:5px;border:1px solid var(--line);border-radius:9px;padding:8px;margin-bottom:6px}
+.linkedit input,.linkedit select{font-size:12px;padding:6px 7px}
+.tierrow{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:11px;color:var(--dim)}
+.tierrow select{flex:0 0 auto}
+.hierrun{margin-top:10px;display:flex;flex-direction:column;gap:6px}
+.hstep{border:1px solid var(--line);border-radius:10px;padding:8px}
+.hstep.st-done{border-color:var(--teal)}
+.hstep.st-failed,.hstep.st-error,.hstep.st-rejected{border-color:var(--err)}
+.hstep.st-awaiting-you{border-color:var(--hot2)}
+.htop{display:flex;align-items:center;gap:6px;font-size:12.5px}
+.htier{color:var(--teal);font-size:11px}
+.hstat{margin-left:auto;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim)}
+.hnote{font-size:11px;color:var(--dim);margin:3px 0}
+.hchk{font-size:11px;font-family:ui-monospace,monospace}
+.hchk.ok{color:var(--teal)}
+.hchk.bad{color:var(--hot2)}
+.hgate{border:1px solid var(--hot2);border-radius:10px;padding:8px;font-size:12.5px}
 
 /* doctor */
 .doctor-list{display:flex;flex-direction:column;gap:8px}

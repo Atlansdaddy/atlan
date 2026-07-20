@@ -85,6 +85,7 @@
         <button class="active" data-p="fp-runs">Runs</button>
         <button data-p="fp-routines">Routines</button>
         <button data-p="fp-builder">Builder</button>
+        <button data-p="fp-hierarchy">Hierarchy</button>
       </div>
 
       <div class="fpane active" id="fp-runs">
@@ -215,6 +216,41 @@
           <div id="hOut"></div>
         </details>
       </div><!-- /fp-builder -->
+
+      <div class="fpane" id="fp-hierarchy">
+        <div class="eyebrow">Worker hierarchy — cheap models do the reps, frontier catches the hard 5%</div>
+        <div class="hint">A <b>job</b> is a chain of <b>links</b>. Each link runs a structured command on the cheapest capable tier; deterministic checkers grade it; a failure escalates up the model ladder; you're asked only where judgment is needed. Build the command in the Builder tab first.</div>
+        <div class="projbar">
+          <button class="btn hot" id="jobNewBtn">＋ new job</button>
+        </div>
+        <div id="jobList" class="doctor-list"><div class="hint">no jobs yet</div></div>
+
+        <div id="jobForm" class="bform" style="display:none">
+          <input id="jobTitle" placeholder="job title — e.g. messy note → categorized estimate">
+          <div class="projbar">
+            <select id="jobGate" title="when to ask you">
+              <option value="on-tier3">gate: on last tier (tier-3 risk)</option>
+              <option value="each-link">gate: every link</option>
+              <option value="final">gate: final only</option>
+              <option value="never">gate: never (full auto)</option>
+            </select>
+            <select id="jobBudget">
+              <option value="100000">100k tok</option>
+              <option value="200000" selected>200k tok</option>
+              <option value="500000">500k tok</option>
+            </select>
+          </div>
+          <div class="eyebrow">Links — each is a command + a tier ladder</div>
+          <div id="linkRows"></div>
+          <button class="btn ghost" id="linkAdd">＋ link</button>
+          <div class="projbar">
+            <button class="btn hot" id="jobSave">Save job</button>
+            <button class="btn ghost" id="jobCancel">cancel</button>
+          </div>
+        </div>
+
+        <div id="hierRun" class="hierrun" style="display:none"></div>
+      </div><!-- /fp-hierarchy -->
     </section>
 
     <section class="screen" id="s-build">

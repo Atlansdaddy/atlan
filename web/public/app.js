@@ -257,6 +257,9 @@
       case 'routines.changed':
         if ($('fp-routines').classList.contains('active')) loadRoutines();
         break;
+      case 'hierarchy.update':
+        if (hierWatch === m.run.id) paintHierRun(m.run);
+        break;
     }
   }
 
@@ -760,6 +763,7 @@
     $(b.dataset.p).classList.add('active');
     if (b.dataset.p === 'fp-routines') loadRoutines();
     if (b.dataset.p === 'fp-builder') loadBuilder();
+    if (b.dataset.p === 'fp-hierarchy') loadHierarchy();
   }));
 
   // ── routines ──
@@ -1115,6 +1119,124 @@
       });
       box.append(btn);
     }
+  }
+
+  // ── worker hierarchy ──
+  let hierJobs = [], hierCommands = [], hierTiers = [], jobEditing = null, hierWatch = null;
+  function loadHierarchy() {
+    fetch('/api/hierarchy').then((r) => r.json()).then((d) => {
+      hierJobs = d.jobs; hierTiers = d.tiers;
+      fetch('/api/personas').then((r) => r.json()).then((p) => { hierCommands = p.commands; renderJobs(); });
+    }).catch(() => {});
+  }
+  function renderJobs() {
+    const box = $('jobList');
+    box.innerHTML = hierJobs.length ? '' : '<div class="hint">no jobs yet — a job chains structured commands across model tiers</div>';
+    for (const jb of hierJobs) {
+      const card = document.createElement('div');
+      card.className = 'runcard';
+      card.innerHTML = `<div class="rtop"><span class="rwho"></span><span class="rstatus"></span></div><div class="rprompt"></div>
+        <div class="projbar"><button class="btn hot jstart">▶ run</button><button class="btn ghost jedit">edit</button><button class="btn ghost jdel">✖</button></div>`;
+      card.querySelector('.rwho').textContent = jb.title;
+      card.querySelector('.rstatus').textContent = `${jb.links.length} link${jb.links.length > 1 ? 's' : ''} · gate: ${jb.humanGate}`;
+      card.querySelector('.rprompt').textContent = jb.links.map((l) => (hierCommands.find((c) => c.id === l.commandId)?.name ?? l.commandId)).join(' → ');
+      card.querySelector('.jstart').addEventListener('click', () => startJobFlow(jb));
+      card.querySelector('.jedit').addEventListener('click', () => editJob(jb));
+      card.querySelector('.jdel').addEventListener('click', () => fetch('/api/hierarchy/job/delete', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: jb.id }) }).then(loadHierarchy));
+      box.append(card);
+    }
+  }
+  const LINK_ROW = () => {
+    const cmdOpts = hierCommands.map((c) => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
+    const tierChecks = hierTiers.map((t) => `<label class="ck"><input type="checkbox" data-tier="${t.id}" checked>${t.id}</label>`).join('');
+    return `<div class="linkedit">
+      <input data-k="id" placeholder="link id (e.g. extract)">
+      <select data-k="commandId">${cmdOpts}</select>
+      <input data-k="inputsFrom" placeholder="inputs from (comma: job.input, extract.field)">
+      <div class="tierrow">start:<select data-k="startTier">${hierTiers.map((t) => `<option value="${t.id}">${t.id}</option>`).join('')}</select>
+        ladder: ${tierChecks}
+        <select data-k="onCheckerFail"><option value="escalate">escalate</option><option value="human">ask me</option><option value="halt">halt</option></select></div>
+      <button class="btn ghost linkdel">✖ link</button></div>`;
+  };
+  function addLinkRow(data) {
+    const wrap = document.createElement('div');
+    wrap.innerHTML = LINK_ROW();
+    const row = wrap.firstElementChild;
+    row.querySelector('.linkdel').addEventListener('click', () => row.remove());
+    if (data) {
+      row.querySelector('[data-k="id"]').value = data.id ?? '';
+      row.querySelector('[data-k="commandId"]').value = data.commandId ?? '';
+      row.querySelector('[data-k="inputsFrom"]').value = (data.inputsFrom ?? []).join(', ');
+      row.querySelector('[data-k="startTier"]').value = data.startTier ?? 'local';
+      row.querySelector('[data-k="onCheckerFail"]').value = data.onCheckerFail ?? 'escalate';
+      row.querySelectorAll('[data-tier]').forEach((cb) => { cb.checked = (data.escalation ?? []).includes(cb.dataset.tier); });
+    }
+    $('linkRows').append(row);
+  }
+  function editJob(jb) {
+    jobEditing = jb?.id ?? null;
+    $('jobForm').style.display = '';
+    $('jobTitle').value = jb?.title ?? '';
+    $('jobGate').value = jb?.humanGate ?? 'on-tier3';
+    $('jobBudget').value = String(jb?.budget ?? 200000);
+    $('linkRows').innerHTML = '';
+    (jb?.links ?? [{}]).forEach(addLinkRow);
+  }
+  $('jobNewBtn').addEventListener('click', () => editJob(null));
+  $('jobCancel').addEventListener('click', () => { $('jobForm').style.display = 'none'; jobEditing = null; });
+  $('linkAdd').addEventListener('click', () => addLinkRow());
+  $('jobSave').addEventListener('click', () => {
+    const links = [...$('linkRows').querySelectorAll('.linkedit')].map((row) => ({
+      id: row.querySelector('[data-k="id"]').value.trim(),
+      commandId: row.querySelector('[data-k="commandId"]').value,
+      inputsFrom: row.querySelector('[data-k="inputsFrom"]').value.split(',').map((s) => s.trim()).filter(Boolean),
+      startTier: row.querySelector('[data-k="startTier"]').value,
+      escalation: [...row.querySelectorAll('[data-tier]')].filter((cb) => cb.checked).map((cb) => cb.dataset.tier),
+      onCheckerFail: row.querySelector('[data-k="onCheckerFail"]').value,
+    }));
+    fetch('/api/hierarchy/job', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id: jobEditing ?? undefined, title: $('jobTitle').value, humanGate: $('jobGate').value, budget: Number($('jobBudget').value), links }),
+    }).then((r) => r.json()).then((jb) => {
+      if (jb.error) return addMsg('err', jb.error);
+      $('jobForm').style.display = 'none'; jobEditing = null; loadHierarchy();
+    });
+  });
+  function startJobFlow(jb) {
+    const need = jb.links.flatMap((l) => hierCommands.find((c) => c.id === l.commandId)?.variables ?? []);
+    const uniq = [...new Map(need.map((v) => [v.name, v])).values()];
+    const input = {};
+    for (const v of uniq) {
+      const val = prompt(`Job input — ${v.name} (${v.type}):`);
+      if (val === null) return;
+      input[v.name] = v.type === 'number' ? Number(val) : val;
+    }
+    fetch('/api/hierarchy/start', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jobId: jb.id, input }) })
+      .then((r) => r.json()).then((run) => { if (run.error) return addMsg('err', run.error); hierWatch = run.id; paintHierRun(run); });
+  }
+  function paintHierRun(run) {
+    hierWatch = run.id;
+    const box = $('hierRun');
+    box.style.display = '';
+    const stepHtml = run.steps.map((s) => {
+      const checks = (s.checks ?? []).map((c) => `<div class="hchk ${c.ok ? 'ok' : 'bad'}">${c.ok ? '✓' : '✗'} t${c.tier} ${escapeHtml(c.check)}${c.ok ? '' : ' — ' + escapeHtml(String(c.got ?? ''))}</div>`).join('');
+      return `<div class="hstep st-${s.status}">
+        <div class="htop"><b>${escapeHtml(s.linkId)}</b> · ${escapeHtml(s.command)} <span class="htier">${s.tier}${s.escalations ? ` (↑${s.escalations})` : ''}</span><span class="hstat">${s.status}</span></div>
+        ${s.note ? `<div class="hnote">${escapeHtml(s.note)}</div>` : ''}
+        ${checks}
+        ${s.output ? `<pre class="rresult" style="display:block">${escapeHtml(JSON.stringify(s.output, null, 1))}</pre>` : ''}</div>`;
+    }).join('');
+    box.innerHTML = `<div class="eyebrow">Run ${run.id} · ${run.status} · ${fmtTok(run.tokens)}/${fmtTok(run.budget)} tok</div>${stepHtml}
+      ${run.awaiting ? `<div class="hgate"><b>Needs you</b> — approve the output of "${escapeHtml(run.awaiting.linkId)}"?<div class="projbar"><button class="btn hot" id="gateOk">Approve</button><button class="btn ghost" id="gateNo">Reject</button></div></div>` : ''}
+      ${run.result && typeof run.result === 'object' ? `<div class="eyebrow" style="margin-top:6px">Final</div><pre class="rresult" style="display:block">${escapeHtml(JSON.stringify(run.result.final ?? run.result, null, 1))}</pre>` : run.result ? `<div class="hnote">${escapeHtml(String(run.result))}</div>` : ''}`;
+    if (run.awaiting) {
+      $('gateOk').addEventListener('click', () => resolveGate(run.id, true));
+      $('gateNo').addEventListener('click', () => resolveGate(run.id, false));
+    }
+  }
+  function resolveGate(runId, approve) {
+    fetch('/api/hierarchy/gate', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ runId, approve }) })
+      .then((r) => r.json()).then((run) => { if (run.error) return addMsg('err', run.error); paintHierRun(run); });
   }
 
   connect();
