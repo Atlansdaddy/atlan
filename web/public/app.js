@@ -369,15 +369,66 @@
   function scroll() { chatlog.scrollTop = chatlog.scrollHeight; }
   function escapeHtml(s) { return s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`); }
 
+  // ── attachments ──
+  let attachments = []; // {id, kind, name, path, note}
+  const KIND_ICON = { image: '🖼', audio: '🔊', video: '🎬', folder: '📁', file: '📄' };
+  function renderChips() {
+    const box = $('attachChips');
+    box.innerHTML = '';
+    for (const a of attachments) {
+      const chip = document.createElement('span');
+      chip.className = 'achip';
+      const route = a.kind === 'image' ? '→ vision' : (a.kind === 'audio' || a.kind === 'video') ? '→ Gemini/GPT' : '→ read';
+      chip.innerHTML = `<b></b> <span class="aname"></span> <span class="aroute">${route}</span> <button class="ax">×</button>`;
+      chip.querySelector('b').textContent = KIND_ICON[a.kind] ?? '📄';
+      chip.querySelector('.aname').textContent = a.name;
+      chip.querySelector('.ax').addEventListener('click', () => { attachments = attachments.filter((x) => x.id !== a.id); renderChips(); });
+      box.append(chip);
+    }
+  }
+  function pushAttachment(a) { if (a && !a.error) { attachments.push(a); renderChips(); } else if (a?.error) addMsg('err', 'attach: ' + a.error); }
+  function uploadFile(file) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const chip = { id: 'up' + Date.now(), kind: 'file', name: file.name };
+      attachments.push({ ...chip, name: file.name + ' …' }); renderChips();
+      fetch('/api/attach', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: file.name, mime: file.type, data: reader.result }),
+      }).then((r) => r.json()).then((a) => {
+        attachments = attachments.filter((x) => x.id !== chip.id);
+        pushAttachment(a);
+      }).catch(() => { attachments = attachments.filter((x) => x.id !== chip.id); renderChips(); addMsg('err', 'upload failed'); });
+    };
+    reader.readAsDataURL(file);
+  }
+  $('attachBtn').addEventListener('click', () => $('attachFile').click());
+  $('attachFile').addEventListener('change', (e) => { for (const f of e.target.files) uploadFile(f); e.target.value = ''; });
+  $('attachRefBtn').addEventListener('click', () => {
+    const path = $('attachRefPath').value.trim();
+    if (!path) return;
+    fetch('/api/attach/ref', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ path }) })
+      .then((r) => r.json()).then((a) => { pushAttachment(a); if (!a.error) $('attachRefPath').value = ''; });
+  });
+  // paste an image straight into the chat
+  document.addEventListener('paste', (e) => {
+    if (!$('s-chat').classList.contains('active')) return;
+    for (const item of e.clipboardData?.items ?? []) {
+      if (item.type.startsWith('image/')) { const f = item.getAsFile(); if (f) uploadFile(f); }
+    }
+  });
+
   // ── chat send ──
   function sendChat() {
     const input = $('chatInput');
     const text = input.value.trim();
-    if (!text) return;
-    addMsg('user', text);
+    if (!text && !attachments.length) return;
+    const ready = attachments.filter((a) => a.path || a.note); // drop still-uploading
+    addMsg('user', text + (ready.length ? `  ·  📎 ${ready.length}` : ''));
     const [engine, model] = $('modelSel').value.split('|');
-    send({ t: 'chat.send', text, cwd: $('projSel').value, engine, model });
+    send({ t: 'chat.send', text, cwd: $('projSel').value, engine, model, attachments: ready });
     input.value = '';
+    attachments = []; renderChips();
     $('sendBtn').disabled = true;
     errCount = 0; updateSeen(); // queued preview context flushes into this turn
   }

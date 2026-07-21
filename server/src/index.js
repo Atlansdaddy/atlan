@@ -23,6 +23,7 @@ import {
 } from './auth.js';
 import { listRoutines, upsertRoutine, deleteRoutine, setPaused, fireRoutine, startScheduler } from './routines.js';
 import { initHierarchy, listJobs, upsertJob, deleteJob, startJob, listRuns as listHierarchyRuns, getRun as getHierarchyRun, resolveGate, tierList } from './hierarchy.js';
+import { saveUpload, saveRef, turnContext } from './attachments.js';
 import {
   listPersonas, listCommands, upsertPersona, deletePersona, upsertCommand, deleteCommand,
   compilePersona, compileCommand, templateSchema, toolSchema, harnessRun,
@@ -184,6 +185,14 @@ app.post('/api/hierarchy/gate', (req, res) => {
   catch (err) { res.status(400).json({ error: err.message }); }
 });
 
+// ── attachments: upload (base64, up to 20MB) or reference an existing path ──
+app.post('/api/attach', express.json({ limit: '28mb' }), async (req, res) => {
+  try { res.json(await saveUpload(req.body ?? {})); } catch (err) { res.status(400).json({ error: err.message }); }
+});
+app.post('/api/attach/ref', (req, res) => {
+  try { res.json(saveRef(req.body ?? {})); } catch (err) { res.status(400).json({ error: err.message }); }
+});
+
 app.get('/api/keys', (_req, res) => res.json(keyStatus()));
 app.post('/api/keys', (req, res) => {
   try {
@@ -256,6 +265,9 @@ wss.on('connection', (ws, req) => {
     switch (m.t) {
       case 'chat.send': {
         let text = m.text;
+        // Attachments this turn: images/files/folders as path refs the agent
+        // Reads; audio/video already turned to text by a multimodal model.
+        if (Array.isArray(m.attachments) && m.attachments.length) text += turnContext(m.attachments);
         if (pending.errors.length) {
           text += `\n\n[Atlan preview console — errors since last turn, from ${getPreviewTarget()}]\n`
             + pending.errors.slice(-12).map((e) => `• ${e}`).join('\n');

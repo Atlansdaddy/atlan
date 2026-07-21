@@ -55,9 +55,16 @@
           <optgroup label="Cloud brains — chat only" id="ogCloud"></optgroup>
         </select>
       </div>
+      <div id="attachChips" class="attachchips"></div>
       <div class="composer">
+        <button class="btn iconbtn" id="attachBtn" title="attach image / audio / video / file">📎</button>
         <input id="chatInput" placeholder="Message Claude Code…" autocomplete="off">
         <button class="btn hot send" id="sendBtn">➤</button>
+      </div>
+      <input type="file" id="attachFile" multiple style="display:none">
+      <div class="attachref">
+        <input id="attachRefPath" placeholder="…or reference a file/folder path in your project" spellcheck="false">
+        <button class="btn ghost" id="attachRefBtn">＋ ref</button>
       </div>
     </section>
 

@@ -14,6 +14,7 @@ const SUITES = [
   ['Security/Penetration', 'test/security.mjs', 'Auth bypass, SSRF (preview + harness), secret exfiltration, path traversal, stored-XSS, oversized-body DoS, profile privilege-escalation.'],
   ['Adversarial', 'test/adversarial.mjs', 'Malformed/oversized/hostile input across all surfaces; profile tool-blocking; preflight honesty.'],
   ['Worker Hierarchy', 'test/hierarchy.mjs', 'Job = chain of checker-gated links; cheapest-tier-first, escalate-on-fail up the model ladder, blackboard wiring, human gate pause/resume, ladder-exhaustion error. Mock tier engines — no real spend.'],
+  ['Attachments', 'test/attachments.mjs', 'Upload (image/file) + reference (file/folder) + path-traversal guard + oversize/empty reject + audio/video graceful degradation without a key.'],
   ...(PAID ? [['E2E', 'test/e2e.mjs', 'Real flows: fleet run to completion, budget-halt→top-up resume, harness good/bad + escalation, routine fire→inbox. (PAID — real Claude runs.)']] : []),
   ['UI/UX', 'test/ui.spec.mjs', 'Headless Chromium drives the real cockpit: tabs, engine roster, doctor/preflight render, key entry no-leak, XSS-safe render.'],
   ['Tour/Onboarding', 'test/tour.spec.mjs', 'Drives all tour steps live — every step spotlights a real visible element; handbook opens/searches/relaunches.'],
