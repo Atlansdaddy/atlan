@@ -17,6 +17,14 @@
   --err:#FF6B5B;
   --mono:ui-monospace,'Cascadia Code','Roboto Mono',monospace;
   --sans:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+  /* aliases — later components were written against these names; map them to
+     the real palette so nothing falls back to transparent/inherited. */
+  --dim:var(--muted);
+  --teal:var(--accent);
+  --panel:#04121f;
+  --fg:var(--ink);
+  --orange:var(--hot2);
+  --tap:44px; /* minimum accessible touch target */
 }
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%}
@@ -87,9 +95,10 @@ header{display:flex;align-items:center;gap:10px;padding:12px 14px 10px;border-bo
 .btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .btn:disabled{opacity:.4}
 
-.projbar{display:flex;gap:8px;flex-shrink:0}
-.projbar select{flex:1;font-family:var(--mono);font-size:11.5px;background:var(--surface);color:var(--ink);
-  border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+.projbar{display:flex;gap:8px;flex-shrink:0;flex-wrap:wrap}
+.projbar select{flex:1 1 46%;min-width:0;font-family:var(--mono);font-size:11.5px;background:var(--surface);color:var(--ink);
+  border:1px solid var(--line);border-radius:10px;padding:9px 10px}
+.projbar>.btn{min-height:var(--tap)}
 .composer{display:flex;gap:8px;align-items:center;flex-shrink:0}
 .composer input{flex:1;font:inherit;font-size:14px;background:var(--surface);color:var(--ink);
   border:1px solid var(--line);border-radius:12px;padding:11px 13px}
@@ -160,7 +169,9 @@ header{display:flex;align-items:center;gap:10px;padding:12px 14px 10px;border-bo
   white-space:pre-wrap;word-break:break-word;border-top:1px solid var(--line);padding-top:8px;margin-top:2px}
 .runcard.open .rresult{display:block}
 .runcard.open .rprompt{-webkit-line-clamp:unset}
-.killall{border-color:var(--err);color:var(--err);background:transparent;font-weight:800;letter-spacing:.1em;flex-shrink:0;flex:1}
+.killall{border:1px solid var(--err);color:var(--err);background:rgba(255,107,91,.08);font-weight:800;
+  letter-spacing:.06em;flex:1;border-radius:10px;padding:11px 12px;min-height:var(--tap)}
+.killall:active{background:rgba(255,107,91,.2)}
 .runcard .rtopup{align-self:flex-start;padding:6px 12px;font-size:11.5px}
 .sessline.needsyou{color:var(--hot2);font-weight:700}
 nav button .lb.hotlb{color:var(--hot2)}
@@ -289,7 +300,10 @@ details .doctor-list{margin-bottom:8px}
 .hgate{border:1px solid var(--hot2);border-radius:10px;padding:8px;font-size:12.5px}
 
 /* doctor */
-.doctor-list{display:flex;flex-direction:column;gap:8px;min-height:22px}
+/* flex-shrink:0 is critical: these lists live inside a flex-column scroll
+   container, and without it an overflowing page shrinks them below their
+   content, spilling items over the elements below (the Doctor overlap bug). */
+.doctor-list{display:flex;flex-direction:column;gap:8px;min-height:22px;flex-shrink:0}
 .check{display:flex;align-items:center;gap:11px;border:1px solid var(--line);border-radius:11px;background:var(--surface);padding:10px 13px}
 .check .sig{width:9px;height:9px;border-radius:50%;flex-shrink:0;background:var(--err)}
 .check.pass .sig{background:var(--ok)}
@@ -312,3 +326,52 @@ nav button .ic{font-size:16px;line-height:1;font-family:var(--mono)}
 nav button .lb{font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;font-weight:700}
 nav button.active{color:var(--accent)}
 nav button:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+nav button .lb{white-space:nowrap}
+
+/* ─────────────────────────────────────────────────────────────────────
+   RESPONSIVE + ACCESSIBILITY (ADA/WCAG) — applies across every screen
+   ───────────────────────────────────────────────────────────────────── */
+
+/* Never let a screen scroll sideways; wide content scrolls inside its own box */
+.screen{overflow-x:hidden}
+select,input,textarea{max-width:100%}
+
+/* Visible keyboard focus on every interactive control (WCAG 2.4.7) */
+a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,
+summary:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-radius:6px}
+a{color:var(--accent)}
+
+/* Touch targets ≥ 44px on primary controls (WCAG 2.5.5); dense secondary
+   controls keep spacing instead of size. */
+.iconbtn,.send{min-width:var(--tap);min-height:var(--tap)}
+.btn{min-height:38px}
+.subnav button{min-height:40px}
+.composer input,.ptools .url,#edPath{min-height:var(--tap)}
+.runcard .rkill{min-width:34px;min-height:34px;display:grid;place-items:center}
+.achip .ax{min-width:28px;min-height:28px}
+
+/* Screen-reader live regions get announced (added via aria-live in HTML) */
+.atlan-line{max-width:100%}
+
+/* Desktop / large screens: frame the app instead of stretching edge-to-edge */
+@media (min-width:720px){
+  body{display:flex;justify-content:center;background:#01080f}
+  .phone{max-width:700px;box-shadow:0 0 0 1px var(--line),0 24px 70px rgba(0,0,0,.55)}
+  .msg{max-width:76%}
+  .runcard{cursor:pointer}
+}
+
+/* Very narrow phones: tighten the 7-tab bar + chrome so nothing clips */
+@media (max-width:380px){
+  nav button .lb{font-size:8px;letter-spacing:.04em}
+  nav button .ic{font-size:15px}
+  .wordmark{font-size:13px;letter-spacing:.22em}
+  .atlan-line{font-size:9.5px}
+  .screen{padding:10px 9px 14px}
+  .projbar select{font-size:11px}
+}
+
+/* Respect reduced-motion everywhere (WCAG 2.3.3) */
+@media (prefers-reduced-motion:reduce){
+  *{animation-duration:.001ms !important;animation-iteration-count:1 !important;transition-duration:.001ms !important}
+}

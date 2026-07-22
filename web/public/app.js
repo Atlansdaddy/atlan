@@ -43,8 +43,9 @@
   // ── tabs ──
   const tabs = document.querySelectorAll('nav button');
   tabs.forEach((b) => b.addEventListener('click', () => {
-    tabs.forEach((x) => x.classList.remove('active'));
+    tabs.forEach((x) => { x.classList.remove('active'); x.removeAttribute('aria-current'); });
     b.classList.add('active');
+    b.setAttribute('aria-current', 'page');
     document.querySelectorAll('.screen').forEach((s) => s.classList.remove('active'));
     $(b.dataset.s).classList.add('active');
     if (b.dataset.s === 's-term') initTerm();
@@ -270,6 +271,8 @@
     endWorking();
     workingEl = document.createElement('div');
     workingEl.className = 'working';
+    workingEl.setAttribute('role', 'status');
+    workingEl.setAttribute('aria-live', 'polite');
     workingEl.innerHTML = '<span class="dots"><i></i><i></i><i></i></span> Atlan is working…';
     chatlog.append(workingEl); scroll();
   }

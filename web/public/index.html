@@ -31,21 +31,21 @@
     <div class="atlan" id="atlanWrap"><canvas id="atlanHalo" width="112" height="112" aria-hidden="true"></canvas><img src="img/atlan-bot.svg" alt="Atlan" id="atlanImg"></div>
     <div class="head-mid">
       <div class="wordmark">At<em>la</em>n</div>
-      <div class="atlan-line" id="atlanLine">The water's calm, boss. What are we building today?</div>
+      <div class="atlan-line" id="atlanLine" aria-live="polite" role="status">The water's calm, boss. What are we building today?</div>
     </div>
-    <div class="sess" id="sessInfo"><span class="dot" id="connDot"></span><b id="projName">no project</b><br><span id="sessMeta">connecting…</span><br><span id="burnMeta" class="burnmeta"></span></div>
+    <div class="sess" id="sessInfo"><span class="dot" id="connDot" role="img" aria-label="connection status"></span><b id="projName">no project</b><br><span id="sessMeta" aria-live="polite">connecting…</span><br><span id="burnMeta" class="burnmeta"></span></div>
     <button id="helpBtn" title="guide & tour" aria-label="open guide">?</button>
   </header>
 
   <div class="screens">
 
     <section class="screen active" id="s-chat">
-      <div class="chatlog" id="chatlog">
+      <div class="chatlog" id="chatlog" role="log" aria-live="polite" aria-label="conversation">
         <div class="msg claude"><div class="who">Atlan</div>Pick a project below, then talk to Claude Code. Every session here can be picked up in the terminal with <code>claude --resume</code> — tap the session id to copy the command.</div>
       </div>
       <div class="projbar">
-        <select id="projSel"><option value="/root">/root</option></select>
-        <select id="modelSel">
+        <select id="projSel" aria-label="project"><option value="/root">/root</option></select>
+        <select id="modelSel" aria-label="engine and model">
           <optgroup label="Claude Code — agent (files · tools · builds)">
             <option value="claude|claude-fable-5">fable-5</option>
             <option value="claude|claude-opus-4-8">opus-4.8</option>
@@ -59,9 +59,9 @@
       </div>
       <div id="attachChips" class="attachchips"></div>
       <div class="composer">
-        <button class="btn iconbtn" id="attachBtn" title="attach image / audio / video / file">📎</button>
-        <input id="chatInput" placeholder="Message Claude Code…" autocomplete="off">
-        <button class="btn hot send" id="sendBtn">➤</button>
+        <button class="btn iconbtn" id="attachBtn" title="attach image / audio / video / file" aria-label="attach a file">📎</button>
+        <input id="chatInput" placeholder="Message Claude Code…" autocomplete="off" aria-label="message">
+        <button class="btn hot send" id="sendBtn" aria-label="send message">➤</button>
       </div>
       <input type="file" id="attachFile" multiple style="display:none">
       <div class="attachref">
@@ -309,7 +309,7 @@
     </section>
   </div>
 
-  <nav>
+  <nav aria-label="sections">
     <button class="active" data-s="s-chat"><span class="ic">◆</span><span class="lb">Chat</span></button>
     <button data-s="s-preview"><span class="ic">▣</span><span class="lb">Preview</span></button>
     <button data-s="s-editor"><span class="ic">✎</span><span class="lb">Editor</span></button>
