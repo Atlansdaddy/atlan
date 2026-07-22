@@ -11,7 +11,7 @@ import { dirname } from 'node:path';
 //     off-profile tools are denied with a reason the agent can read.
 //  3. Idle = zero tokens — nothing runs unless spawned (or, M5c, scheduled).
 const __dirname = dirname(fileURLToPath(import.meta.url));
-import { FLEET_DIR } from './config.js';
+import { FLEET_DIR, DAILY_TOKEN_CAP, MAX_CONCURRENT_RUNS } from './config.js';
 mkdirSync(FLEET_DIR, { recursive: true });
 const HISTORY = join(FLEET_DIR, 'history.jsonl');
 const BURN = join(FLEET_DIR, 'burn.json');
@@ -123,6 +123,15 @@ export function spawnRun({ prompt, profile = 'scout', cwd = '/root', model = 'cl
   const prof = PROFILES[profile];
   if (!prof) throw new Error(`unknown profile: ${profile}`);
   if (!prompt?.trim()) throw new Error('empty prompt');
+  // Aggregate guards (peer review): cap concurrency + a global daily token
+  // ceiling that all runs draw from — so N concurrent runs can't multiply past
+  // the wall. todayBurn() already folds in live runs' current spend.
+  if (MAX_CONCURRENT_RUNS > 0 && active.size >= MAX_CONCURRENT_RUNS) {
+    throw new Error(`too many runs in flight (${active.size}/${MAX_CONCURRENT_RUNS}) — let some finish or KILL ALL`);
+  }
+  if (DAILY_TOKEN_CAP > 0 && todayBurn().tokens >= DAILY_TOKEN_CAP) {
+    throw new Error(`daily token cap reached (${todayBurn().tokens}/${DAILY_TOKEN_CAP}) — resets tomorrow, or raise ATLAN_DAILY_TOKEN_CAP`);
+  }
   budget = Math.min(2_000_000, Math.max(1000, Number(budget) || 150000));
   const run = {
     id: randomUUID().slice(0, 8), prompt: prompt.trim(), profile, cwd, model, budget,

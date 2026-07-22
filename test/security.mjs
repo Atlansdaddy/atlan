@@ -58,6 +58,17 @@ await test('no token is ever accepted in the URL query (the fixed footgun)', asy
   assert.equal(r.status, 401, 'URL token still works — the footgun is back');
 });
 
+// ── origin pinning (peer review 2026-07-22): cross-origin state change → 403 ──
+await test('a cross-origin POST is rejected (403) before auth', async () => {
+  const r = await naked('/api/auth/login', { method: 'POST', headers: { origin: 'http://evil.example' }, body: JSON.stringify({ password: 'x' }) });
+  assert.equal(r.status, 403, 'cross-origin POST not blocked');
+});
+await test('a POST with no Origin (automation) is NOT blocked by the origin guard', async () => {
+  // authed() sends the bearer + no Origin → should pass origin guard and reach the handler
+  const r = await authed('/api/fleet/run', { method: 'POST', body: JSON.stringify({ prompt: '  ' }) });
+  assert.equal(r.status, 400, 'no-origin automation wrongly blocked (or empty-prompt not validated)');
+});
+
 // ── auth bypass attempts ──
 await test('every state endpoint rejects a missing token (401)', async () => {
   for (const p of ['/api/doctor', '/api/fleet', '/api/routines', '/api/personas', '/api/keys', '/api/preflight']) {

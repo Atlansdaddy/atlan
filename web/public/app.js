@@ -580,6 +580,7 @@
 
   // ── preview ──
   const PROXY = `http://${location.hostname}:4590/`;
+  const PREVIEW_ORIGIN = `http://${location.hostname}:4590`;
   let errCount = 0;
   function loadPreview() {
     fetch('/api/preview/target', {
@@ -610,6 +611,13 @@
   $('consoleClear').addEventListener('click', () => { $('previewConsole').innerHTML = ''; errCount = 0; updateSeen(); });
 
   window.addEventListener('message', (e) => {
+    // Origin pinning (peer review, 2026-07-22): preview content is UNTRUSTED and
+    // its "console errors" get auto-attached to the agent's next turn — a
+    // prompt-injection path. Only accept messages that actually came from the
+    // preview proxy frame; a payload flag (__atlan) any sender can set is not a
+    // trust signal. Everything from here on is still treated as adversarial.
+    if (e.origin !== PREVIEW_ORIGIN) return;
+    if (e.source !== $('previewFrame').contentWindow) return;
     const m = e.data;
     if (!m || m.__atlan !== true) return;
     if (m.kind === 'ready') addConsoleLine('log', '⚓ atlan hooked into ' + m.url);
@@ -624,7 +632,7 @@
   $('snapBtn').addEventListener('click', () => {
     const w = $('previewFrame').contentWindow;
     if (!w) return addConsoleLine('error', 'nothing loaded');
-    w.postMessage({ __atlan: 'snapshot' }, '*');
+    w.postMessage({ __atlan: 'snapshot' }, PREVIEW_ORIGIN); // targeted origin, not '*'
     $('snapBtn').textContent = '📸 …';
   });
 

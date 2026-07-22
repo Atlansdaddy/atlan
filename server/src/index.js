@@ -18,7 +18,7 @@ import { initFleet, spawnRun, listRuns, killRun, killAll, todayBurn, profileList
 import { pushPublicKey, addSub, subCount, notifyAll } from './push.js';
 import {
   authMiddleware, wsAuthed, isConfigured, setPassword, checkPassword,
-  newSession, dropSession, cookieHeader, COOKIE,
+  newSession, dropSession, cookieHeader, COOKIE, originOk, revokeAllSessions,
   loginThrottled, recordLoginFail, clearLoginFails,
 } from './auth.js';
 import { listRoutines, upsertRoutine, deleteRoutine, setPaused, fireRoutine, startScheduler } from './routines.js';
@@ -44,6 +44,14 @@ const app = express();
 app.use((_req, res, next) => { res.setHeader('X-Atlan-Author', 'John Viruet / Mid-Atlantic AI'); res.setHeader('X-Atlan-License', 'Apache-2.0'); next(); });
 app.use(express.static(WEB));
 app.use(express.json({ limit: '1mb' }));
+
+// Origin guard (peer review, 2026-07-22): reject cross-origin STATE changes —
+// closes DNS-rebinding / cross-site POST against login, setup, and every
+// mutating endpoint. Browsers send Origin; automation (no Origin) is bearer-gated.
+app.use((req, res, next) => {
+  if (req.method !== 'GET' && req.method !== 'HEAD' && !originOk(req)) return res.status(403).json({ error: 'bad origin' });
+  next();
+});
 
 // Auth endpoints are OPEN (they're how you get in). Everything else needs a
 // session cookie or the automation bearer.
@@ -74,10 +82,15 @@ app.post('/api/auth/logout', (req, res) => {
   res.json({ ok: true });
 });
 app.post('/api/auth/password', authMiddleware, (req, res) => {
-  // change password: must know the current one
+  // change password: must know the current one; revoke ALL sessions (peer
+  // review — a stolen cookie must die), then re-issue one for this caller.
   if (!checkPassword(String(req.body?.current ?? ''))) return res.status(401).json({ error: 'current password is wrong' });
-  try { setPassword(String(req.body?.next ?? '')); res.json({ ok: true }); }
-  catch (err) { res.status(400).json({ error: err.message }); }
+  try {
+    setPassword(String(req.body?.next ?? ''));
+    revokeAllSessions();
+    res.setHeader('Set-Cookie', cookieHeader(newSession()));
+    res.json({ ok: true });
+  } catch (err) { res.status(400).json({ error: err.message }); }
 });
 
 // Everything after this line needs auth; the static shell + /api/auth above don't.
@@ -265,6 +278,9 @@ initHierarchy(wsBroadcast);
 startScheduler(wsBroadcast, notifyAll);
 
 wss.on('connection', (ws, req) => {
+  // Origin pinning (peer review): the WS *executes* things — reject any browser
+  // upgrade from an origin that isn't our own (cross-site-WS / rebinding).
+  if (!originOk(req)) { ws.close(4003, 'bad origin'); return; }
   if (!wsAuthed(req)) { ws.close(4001, 'auth required'); return; }
   const send = (obj) => { if (ws.readyState === 1) ws.send(JSON.stringify(obj)); };
   let claude = null;

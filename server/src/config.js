@@ -23,6 +23,12 @@ export const DEFAULT_BUILD_PROJECT = pick('ATLAN_BUILD_PROJECT', 'defaultBuildPr
 export const PORT = Number(pick('ATLAN_PORT', 'port', 4589));
 export const PREVIEW_PORT = Number(pick('ATLAN_PREVIEW_PORT', 'previewPort', 4590));
 
+// Aggregate spend controls (peer review, 2026-07-22): per-run budgets don't
+// bound concurrent runs, so a global daily token ceiling + a concurrency cap
+// backstop the whole account. 0 = unlimited.
+export const DAILY_TOKEN_CAP = Number(pick('ATLAN_DAILY_TOKEN_CAP', 'dailyTokenCap', 5_000_000));
+export const MAX_CONCURRENT_RUNS = Number(pick('ATLAN_MAX_CONCURRENT_RUNS', 'maxConcurrentRuns', 6));
+
 // Branding / identity — neutral defaults; a fork sets its own (logo stays a file)
 export const BRAND = {
   name: file.brand?.name ?? 'Atlan',

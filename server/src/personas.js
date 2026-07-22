@@ -183,9 +183,13 @@ export function runCheckers(cmd, output, vars = {}) {
       else if (k.kind === 'regex') ok = new RegExp(k.pattern).test(String(v ?? ''));
       else if (k.kind === 'max-length') ok = String(v ?? '').length <= k.max;
       else if (k.kind === 'subset-of-var') {
-        const allowed = String(vars[k.ofVar] ?? '').split(/[,\n]/).map((s) => s.trim().toLowerCase()).filter(Boolean);
+        // EXACT membership, not substring (peer review, 2026-07-22): the old
+        // `a.includes(it) || it.includes(a)` passed "concatenate" for allowed
+        // "cat" — a checker that green-lit strays. A subset means every item is
+        // an exact allowed value.
+        const allowed = new Set(String(vars[k.ofVar] ?? '').split(/[,\n]/).map((s) => s.trim().toLowerCase()).filter(Boolean));
         const items = (Array.isArray(v) ? v : [v]).map((s) => String(s).trim().toLowerCase());
-        const strays = items.filter((it) => !allowed.some((a) => a.includes(it) || it.includes(a)));
+        const strays = items.filter((it) => it && !allowed.has(it));
         ok = strays.length === 0;
         if (!ok) got = `not in ${k.ofVar}: ${strays.join(', ')}`.slice(0, 120);
       } else if (k.kind === 'arith') {

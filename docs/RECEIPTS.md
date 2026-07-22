@@ -11,18 +11,18 @@ _Free suites only. The E2E suite (real Claude runs) is opt-in — `RUN_PAID=1 no
 
 | Suite | What it proves | Result |
 |---|---|---|
-| Unit | Pure functions in isolation: safe-arith evaluator, checker engine, Persona+ compilers, schema builders, scheduler math, token compare. | ✅ 30/30 |
+| Unit | Pure functions in isolation: safe-arith evaluator, checker engine, Persona+ compilers, schema builders, scheduler math, token compare. | ✅ 31/31 |
 | Function | Every HTTP endpoint contract + shape, plus data-store durability (corrupt/truncated JSON fails soft). (Spawns 1 tiny killed run.) | ✅ 25/25 |
 | Connection | Live WebSocket + PTY: authed connect, 4001 on bad token, malformed-frame survival, multi-client broadcast, tmux round-trip, reconnection. (Spawns 2 tiny killed runs.) | ✅ 6/6 |
-| Security/Penetration | Auth bypass, SSRF (preview + harness), secret exfiltration, path traversal, stored-XSS, oversized-body DoS, profile privilege-escalation. | ✅ 19/19 |
+| Security/Penetration | Auth bypass, SSRF (preview + harness), secret exfiltration, path traversal, stored-XSS, oversized-body DoS, profile privilege-escalation. | ✅ 21/21 |
 | Adversarial | Malformed/oversized/hostile input across all surfaces; profile tool-blocking; preflight honesty. | ✅ 29/29 |
 | Worker Hierarchy | Job = chain of checker-gated links; cheapest-tier-first, escalate-on-fail up the model ladder, blackboard wiring, human gate pause/resume, ladder-exhaustion error. Mock tier engines — no real spend. | ✅ 7/7 |
 | Attachments | Upload (image/file) + reference (file/folder) + path-traversal guard + oversize/empty reject + audio/video graceful degradation without a key. | ✅ 7/7 |
-| Code Editor | File read/write/tree scoped to the project, folders-first listing, noise-dir hiding, secrets + traversal + folder-as-file guards. | ✅ 9/9 |
+| Code Editor | File read/write/tree scoped to the project, folders-first listing, noise-dir hiding, secrets + traversal + folder-as-file guards. | ✅ 10/10 |
 | UI/UX | Headless Chromium drives the real cockpit: tabs, engine roster, doctor/preflight render, key entry no-leak, XSS-safe render. | ✅ 11/11 |
 | Tour/Onboarding | Drives all tour steps live — every step spotlights a real visible element; handbook opens/searches/relaunches. | ✅ 9/9 |
 
-**Total: 152 passed, 0 failed across 10 suites.**
+**Total: 156 passed, 0 failed across 10 suites.**
 
 ## Unit
 
@@ -41,6 +41,7 @@ UNIT SUITE
   ✓ tier-1 catches a wrong type
   ✓ enum checker rejects an off-list value
   ✓ subset-of-var catches an invented part
+  ✓ subset-of-var rejects a substring stray (concatenate ⊄ [cat])
   ✓ arith checker catches a math error with the expected value
   ✓ not-empty catches blank + whitespace
   ✓ compilePersona emits FOCUS, NO_NOS, scope guard
@@ -62,7 +63,7 @@ UNIT SUITE
   ✓ bearerOk rejects wrong length + wrong value
   ✓ a forged session token is invalid
 
-30 passed, 0 failed
+31 passed, 0 failed
 ```
 
 ## Function
@@ -129,6 +130,8 @@ SECURITY / PENETRATION SUITE
   ✓ a valid session cookie authenticates; a forged one does not
   ✓ the session cookie is HttpOnly + SameSite=Strict (no JS theft, no CSRF)
   ✓ no token is ever accepted in the URL query (the fixed footgun)
+  ✓ a cross-origin POST is rejected (403) before auth
+  ✓ a POST with no Origin (automation) is NOT blocked by the origin guard
   ✓ every state endpoint rejects a missing token (401)
   ✓ POST endpoints reject a missing token before acting
   ✓ a near-miss token (one char off) is rejected
@@ -145,7 +148,7 @@ SECURITY / PENETRATION SUITE
   ✓ oversized JSON body is rejected, server stays up
   ✓ fleet run rejects an unknown profile (no privilege escalation via typo)
 
-19 passed, 0 failed
+21 passed, 0 failed
 ```
 
 ## Adversarial
@@ -239,9 +242,10 @@ CODE EDITOR SUITE
   ✓ writing outside the project is refused
   ✓ reading a folder as a file errors cleanly
   ✓ a symlink escaping the project is refused (read + attach)
+  ✓ write to a new file under a symlinked parent is refused
   ✓ cleanup
 
-9 passed, 0 failed
+10 passed, 0 failed
 ```
 
 ## UI/UX

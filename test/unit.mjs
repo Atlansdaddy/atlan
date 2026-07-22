@@ -75,6 +75,15 @@ test('subset-of-var catches an invented part', () => {
   const r = v.results.find((x) => x.check.includes('parts') && x.tier === 2);
   assert.ok(!r.ok && /flux/.test(r.got));
 });
+// REGRESSION (peer review 2026-07-22): subset-of-var must be EXACT membership,
+// not substring — "concatenate" must NOT pass for allowed "cat".
+test('subset-of-var rejects a substring stray (concatenate ⊄ [cat])', () => {
+  const cmd = { fields: [{ name: 'parts', type: 'array' }], checkers: [{ kind: 'subset-of-var', field: 'parts', ofVar: 'stock' }] };
+  const bad = runCheckers(cmd, { parts: ['concatenate'] }, { stock: 'cat, dog' });
+  assert.ok(!bad.passed, 'substring stray wrongly passed');
+  const good = runCheckers(cmd, { parts: ['cat'] }, { stock: 'cat, dog' });
+  assert.ok(good.passed, 'exact member wrongly rejected');
+});
 test('arith checker catches a math error with the expected value', () => {
   const v = runCheckers(CMD, { category: 'washer', parts: [], total: 999, note: 'x' }, { stock: '', qty: 4, price: 5 });
   const r = v.results.find((x) => x.tier === 2 && x.check.includes('total'));

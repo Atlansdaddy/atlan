@@ -60,6 +60,19 @@ await test('a symlink escaping the project is refused (read + attach)', async ()
   assert.equal(att.status, 400, 'symlink attach not blocked');
 });
 
+// REGRESSION (peer review 2026-07-22): a NEW file written under a symlinked
+// PARENT dir must be refused — the original symlink fix only checked existing files.
+await test('write to a new file under a symlinked parent is refused', async () => {
+  const { symlinkSync, unlinkSync: rm, mkdtempSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const outside = mkdtempSync(tmpdir() + '/atlan-esc-');
+  const linkDir = under('atlan/.attachments/escdir');
+  try { if (existsSync(linkDir)) rm(linkDir); symlinkSync(outside, linkDir); } catch { return; }
+  const r = await api('/api/file', { method: 'POST', body: JSON.stringify({ path: linkDir + '/pwned.txt', content: 'x' }) });
+  try { rm(linkDir); } catch {}
+  assert.equal(r.status, 400, 'new-file write via symlinked parent not blocked');
+});
+
 await test('cleanup', () => { if (tmpPath && existsSync(tmpPath)) unlinkSync(tmpPath); });
 
 console.log(`\n${pass} passed, ${fail} failed`);

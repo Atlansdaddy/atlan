@@ -16,12 +16,15 @@ function guard(p, { mustExist = true } = {}) {
   if (!underRoot(abs)) throw new Error(`path must be under ${PROJECTS_DIR}`);
   if (SENSITIVE.test(abs)) throw new Error('that path looks like credentials/secrets — not editable here');
   if (mustExist && !existsSync(abs)) throw new Error('no such path');
-  // Symlink guard (found by a fleet scout audit 2026-07-22): resolve() handles
-  // `..` but NOT symlinks — a link under the project pointing at /etc/passwd
-  // would otherwise pass. Re-check the REAL path.
-  if (existsSync(abs)) {
-    const real = realpathSync(abs);
-    if (!underRoot(real)) throw new Error('symlink escapes the project root — refused');
+  // Symlink guard. Original scout audit caught existing-file links; peer review
+  // (2026-07-22) caught the gap: a NEW file under a symlinked PARENT dir skipped
+  // the check (existsSync(abs) was false). So realpath the nearest EXISTING
+  // ancestor — for a new file that's the parent dir — and verify IT stays in root.
+  let anc = abs;
+  while (!existsSync(anc) && dirname(anc) !== anc) anc = dirname(anc);
+  if (existsSync(anc)) {
+    const real = realpathSync(anc);
+    if (!underRoot(real)) throw new Error('a symlinked path escapes the project root — refused');
     if (SENSITIVE.test(real)) throw new Error('resolves to a credentials/secrets path — refused');
   }
   return abs;

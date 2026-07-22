@@ -1,7 +1,8 @@
-import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
+import { randomBytes, scryptSync, timingSafeEqual, createHash } from 'node:crypto';
 import { chmodSync, existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { PORT } from './config.js';
 
 // Auth — familiar password + stay-logged-in session (John's call 2026-07-20,
 // replacing the token-in-URL footgun). Three honest properties:
@@ -57,28 +58,50 @@ const SESSION_TTL = 30 * 24 * 3600_000; // 30 days
 let sessions = loadJson(SESS_FILE, []).filter((s) => Date.now() - s.at < SESSION_TTL);
 const saveSessions = () => { try { writeFileSync(SESS_FILE, JSON.stringify(sessions), { mode: 0o600 }); } catch { /* */ } };
 saveSessions();
+// Session tokens are HASHED at rest (peer review, 2026-07-22): sessions.json
+// holds only sha256(token), so reading the file can't replay a session.
+const sha = (t) => createHash('sha256').update(String(t)).digest('hex');
 export function newSession() {
   const t = randomBytes(32).toString('hex');
-  sessions.push({ t, at: Date.now() });
+  sessions.push({ h: sha(t), at: Date.now() });
   saveSessions();
   return t;
 }
 function sessionValid(t) {
   if (!t) return false;
-  const s = sessions.find((x) => x.t === t);
+  const h = sha(t);
+  const s = sessions.find((x) => x.h === h); // legacy plaintext {t} entries no longer match → forced re-login once
   if (!s) return false;
   if (Date.now() - s.at > SESSION_TTL) { dropSession(t); return false; }
   return true;
 }
-export function dropSession(t) { sessions = sessions.filter((x) => x.t !== t); saveSessions(); }
+export function dropSession(t) { const h = sha(t); sessions = sessions.filter((x) => x.h !== h); saveSessions(); }
+// Password change revokes every session (peer review): a stolen cookie dies.
+export function revokeAllSessions() { sessions = []; saveSessions(); }
 export const COOKIE = 'atlan_session';
+// Secure flag when served over TLS (a tunnel); omitted on plain loopback http.
+const SECURE = !!process.env.ATLAN_SECURE_COOKIE;
 export function cookieHeader(token, { clear = false } = {}) {
-  const base = `${COOKIE}=${clear ? '' : token}; HttpOnly; SameSite=Strict; Path=/`;
+  const base = `${COOKIE}=${clear ? '' : token}; HttpOnly; SameSite=Strict; Path=/${SECURE ? '; Secure' : ''}`;
   return clear ? `${base}; Max-Age=0` : `${base}; Max-Age=${Math.floor(SESSION_TTL / 1000)}`;
 }
 function cookieToken(req) {
   const m = /(?:^|;\s*)atlan_session=([^;]+)/.exec(req.headers.cookie || '');
   return m ? m[1] : null;
+}
+
+// Origin pinning (peer review): browsers send Origin on WS + cross-site fetch.
+// Only our own loopback origins (or a configured one) are allowed; a rebinding
+// page or co-resident app on a different origin is rejected. Non-browser
+// automation sends no Origin and is gated by the bearer instead.
+const ALLOWED_ORIGINS = new Set([
+  `http://127.0.0.1:${PORT}`, `http://localhost:${PORT}`,
+  ...(process.env.ATLAN_ORIGIN ? [process.env.ATLAN_ORIGIN] : []),
+]);
+export function originOk(req) {
+  const o = req.headers?.origin;
+  if (!o) return true; // non-browser (automation) — bearer-gated
+  return ALLOWED_ORIGINS.has(o);
 }
 
 // ── failed-login throttle (a password IS guessable, unlike the 256-bit

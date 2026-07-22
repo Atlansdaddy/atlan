@@ -46,7 +46,7 @@ Building on a phone normally means a cramped terminal and no feedback loop. Atla
 
 ### ❖ Fleet — autonomous agents (four sub-panes)
 **Runs.** Describe a job; an agent runs it alone and reports back.
-- **Profiles are hard walls, not requests.** *Scout* = read-only (write/exec tools are stripped at the SDK level, provably — not merely denied). *Builder* = files + bash, file writes fenced to the project folder. *Verifier* = reads + runs checks, never edits what it grades. Off-profile tools are simply absent. (Bash *side effects* are gated by the profile's tool set, not OS-sandboxed on proot — see Security.)
+- **Profiles gate tools; only Scout is a hard wall.** *Scout* = **SDK-read-only** (write/exec tools stripped at the SDK level, provably — not merely denied). *Builder* / *Verifier* get Bash, which is **full host execution as the Termux user** — its *SDK file-edit* tools are fenced to the project, but Bash side-effects are **not** OS-sandboxed on proot (bubblewrap/Landlock don't run there). So don't read "Builder writes stay in the project" as a security boundary — it isn't one for Bash. See `docs/SECURITY.md` for the honest threat model; run untrusted work on a native sandboxed host.
 - **Budgets HALT — with an honest edge.** The budget is checked between the agent's steps, so at the cap the run halts, but a single in-flight step can overshoot before the halt lands (a tiny-budget run may spend a few thousand tokens past the cap). There is no *unbounded* spend, and the ledger always reports the true number. First turn ≈ 35k tokens (Claude Code's preset system prompt, cached after), so ~50k is the practical floor.
 - **Top-up.** A budget-halted run resumes its *exact* session with fresh budget — nothing lost.
 - **Inbox.** Report cards carry live burn bar, tokens/cost, denials, final report; they survive restarts (`.fleet/history.jsonl`). Chat gets a ping line; the Fleet tab shows an unseen-count badge.
@@ -100,7 +100,7 @@ atlan-server (Node 22)
   push.js       Web Push (VAPID)        pty.js  tmux-backed PTYs
 ```
 
-Front-end is deliberately **no-build vanilla** (no vite/bundler process, no app service worker) — fewer moving parts to break in proot, and no stale-SW landmine.
+Front-end is deliberately **no-build vanilla** (no vite/bundler process). There *is* one service worker — but it's **push-only with no fetch handler**, so it can never serve stale content (the stale-SW landmine stays dead; Doctor asserts it). Fewer moving parts to break in proot.
 
 ## Run it
 
