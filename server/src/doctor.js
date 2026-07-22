@@ -48,6 +48,19 @@ export async function runDoctor() {
       const hasFetch = /addEventListener\(\s*['"]fetch['"]/.test(src);
       return { ok: !hasFetch, detail: hasFetch ? 'FETCH HANDLER FOUND — stale-cache risk, remove it' : 'push-only, cannot cache' };
     }),
+    check('bash-sandbox', 'Bash OS-sandbox (bubblewrap)', async () => {
+      // Claude Code's docs offer an OS-level Bash sandbox via bubblewrap, which
+      // needs real user namespaces. proot (ptrace-based) doesn't provide them,
+      // so on-phone it CAN'T run — tool-level profile gating is the control
+      // here; a native Linux host (e.g. the 4060Ti node) gets the full sandbox.
+      try {
+        const { stdout, stderr } = await sh('bwrap --ro-bind / / --unshare-all true 2>&1 || true');
+        const ok = !/namespace|not permitted|failed/i.test(stdout + stderr);
+        return { ok, warn: !ok, detail: ok ? 'available — builder/verifier Bash can be OS-confined' : 'unavailable in proot (no namespaces) — profiles gate tools; native host gets full sandbox' };
+      } catch {
+        return { ok: false, warn: true, detail: 'bubblewrap not installed (optional; only usable on a native host)' };
+      }
+    }),
     check('llama', 'llama-server :8080', async () => {
       try {
         const res = await fetch('http://127.0.0.1:8080/health', { signal: AbortSignal.timeout(1500) });

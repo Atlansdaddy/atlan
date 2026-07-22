@@ -133,7 +133,7 @@
         </select>
         <button class="btn hot" id="fleetSpawn">⚓ Spawn</button>
       </div>
-      <div class="hint">Runs in the Chat tab's project. Budget is a <b>halt</b>, not a warning — and turn 1 alone costs ~35k fresh tokens (system-prompt cache write), so 50k is the practical floor. Scout is provably read-only; builder/verifier get bash (unscoped — honest caveat until sandboxing). <b>On a Claude subscription the $ figures are an estimate at API rates — a work gauge, not a charge; your plan meters tokens/usage.</b></div>
+      <div class="hint">Runs in the Chat tab's project. Budget is a <b>halt</b>, not a warning — and turn 1 alone costs ~35k fresh tokens (system-prompt cache write), so 50k is the practical floor. Scout is provably read-only; builder/verifier get bash — tool-gated by profile. OS-level bash sandboxing (bubblewrap) needs kernel namespaces proot can't provide, so on-phone the profile gating is the control; a native Linux host gets the full OS sandbox (Doctor shows which). <b>On a Claude subscription the $ figures are an estimate at API rates — a work gauge, not a charge; your plan meters tokens/usage.</b></div>
       <div class="eyebrow" style="margin-top:4px">Runs &amp; inbox — reports live here, ping in Chat</div>
       <div id="fleetRuns" class="doctor-list"><div class="hint">no runs yet — an idle fleet burns zero tokens, by construction</div></div>
       <div class="projbar">
