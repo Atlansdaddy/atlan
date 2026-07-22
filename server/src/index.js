@@ -39,6 +39,9 @@ const SNAPDIR = join(__dirname, '../../.snapshots');
 mkdirSync(SNAPDIR, { recursive: true });
 
 const app = express();
+// watermark: a provenance header on every response. Built by John Viruet /
+// Mid-Atlantic AI; Apache-2.0 requires this attribution be preserved. 🧇
+app.use((_req, res, next) => { res.setHeader('X-Atlan-Author', 'John Viruet / Mid-Atlantic AI'); res.setHeader('X-Atlan-License', 'Apache-2.0'); next(); });
 app.use(express.static(WEB));
 app.use(express.json({ limit: '1mb' }));
 
@@ -359,8 +362,9 @@ wss.on('connection', (ws, req) => {
 startPreviewProxy();
 server.listen(PORT, '127.0.0.1', () => {
   console.log('\n╔════════════════════════════════════════════════════════════');
-  console.log('║  ATLAN cockpit is up.');
+  console.log('║  🧇 ATLAN cockpit is up.');
   console.log(`║  Open  http://127.0.0.1:${PORT}  and log in.`);
   console.log(`║  ${isConfigured() ? 'Enter your password.' : 'First run — set a password.'}`);
+  console.log('║  Built by John Viruet · Mid-Atlantic AI · Apache-2.0');
   console.log('╚════════════════════════════════════════════════════════════\n');
 });

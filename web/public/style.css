@@ -189,6 +189,12 @@ nav button .lb.hotlb{color:var(--hot2)}
 #s-editor{display:none}
 #s-editor.active{display:flex;flex-direction:column}
 
+/* 🧇 waffle easter egg */
+.waffles-egg{position:fixed;inset:0;z-index:95;pointer-events:none;overflow:hidden}
+.waffles-egg span{position:absolute;top:-40px;animation:waffledrop 3.4s cubic-bezier(.3,.1,.4,1) forwards;filter:drop-shadow(0 4px 8px rgba(0,0,0,.4))}
+@keyframes waffledrop{to{transform:translateY(110vh) rotate(320deg);opacity:.2}}
+@media(prefers-reduced-motion:reduce){.waffles-egg span{animation-duration:.8s}}
+
 /* attachments */
 .attachchips{display:flex;flex-wrap:wrap;gap:6px;padding:0 2px 6px}
 .attachchips:empty{display:none}

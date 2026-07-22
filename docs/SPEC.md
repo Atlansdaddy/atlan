@@ -71,7 +71,8 @@ One sentence: **Claude Code in a phone IDE with a live preview sandbox, Mid-Atla
 - **M6 atlan-alive** ✓ mood engine on real state (halo canvas, orbiting agents), time greetings, night dimming
 - **Auth layer** ✓ token-gated /api + /apk + WS (timing-safe, throttled); preflight blocker cleared — 0 blockers
 - **Onboarding** ✓ 27-step in-app spotlight tour + searchable handbook + `docs/HANDOFF.md`
-- **Test campaign** ✓ 124 tests / 8 suites green; `docs/RECEIPTS.md` auto-generated
+- **Test campaign** ✓ 151 tests / 10 suites green; `docs/RECEIPTS.md` auto-generated
+- **Post-M6** ✓ chat streaming + live thinking; password auth + sessions; forkable config layer; worker hierarchy (engine + UI); message attachments; live code editor; UI/a11y pass; Apache-2.0 + watermark
 
 ### Backlog (post-handoff)
 - Persona in Chat (not just fleet/routines); M5d worker hierarchy (frontier writes scope → local Qwen executes under grammar constraint → checkers verify → escalate)

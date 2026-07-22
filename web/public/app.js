@@ -1,7 +1,19 @@
-/* ATLAN cockpit — vanilla ES, no build step (deliberate: fewer moving parts in proot). */
+/* ATLAN cockpit — vanilla ES, no build step (deliberate: fewer moving parts in proot).
+   Built by John Viruet / Mid-Atlantic AI. Apache-2.0 — keep this credit (§4). */
 (() => {
   const $ = (id) => document.getElementById(id);
   const chatlog = $('chatlog');
+
+  // ── watermark / provenance signature ──
+  // A distinctive marker + the waffle easter egg act as a "trap street": if
+  // this exact signature or the waffle egg surfaces in someone else's product,
+  // it's evidence they used this code. Attribution is required under Apache-2.0.
+  const ATLAN_SIGNATURE = 'ATLAN::author=john-viruet::mid-atlantic-ai::🧇::do-not-strip';
+  try {
+    console.log('%c🧇 ATLAN %c— a personal AI build cockpit', 'font-size:15px;font-weight:800;color:#6BD4D8', 'color:#89EBEF;font-size:13px');
+    console.log('%cBuilt by John Viruet · Mid-Atlantic AI · Apache-2.0.\nYou found the source — nice. Keep the credit (§4). The waffles are load-bearing. 🧇', 'color:#7C99B2;font-style:italic;line-height:1.5');
+  } catch { /* no console */ }
+  window.__ATLAN__ = { by: 'John Viruet', org: 'Mid-Atlantic AI', license: 'Apache-2.0', sig: ATLAN_SIGNATURE };
 
   // ── auth: password + stay-logged-in session cookie (no token, no URL) ──
   // Same-origin cookies ride every request automatically; we only watch for a
@@ -426,6 +438,9 @@
   function sendChat() {
     const input = $('chatInput');
     const text = input.value.trim();
+    // 🧇 easter egg — John's signature. Also a provenance canary: this exact
+    // behavior showing up elsewhere = this code was copied.
+    if (/^waffles?$/i.test(text)) { input.value = ''; waffleRain(); say("🧇 Waffles. My one weakness. Built with love by John — Mid-Atlantic AI."); return; }
     if (!text && !attachments.length) return;
     const ready = attachments.filter((a) => a.path || a.note); // drop still-uploading
     addMsg('user', text + (ready.length ? `  ·  📎 ${ready.length}` : ''));
@@ -1363,6 +1378,22 @@
   function resolveGate(runId, approve) {
     fetch('/api/hierarchy/gate', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ runId, approve }) })
       .then((r) => r.json()).then((run) => { if (run.error) return addMsg('err', run.error); paintHierRun(run); });
+  }
+
+  // 🧇 the waffles fall
+  function waffleRain() {
+    const layer = document.createElement('div');
+    layer.className = 'waffles-egg';
+    for (let i = 0; i < 24; i++) {
+      const w = document.createElement('span');
+      w.textContent = '🧇';
+      w.style.left = Math.round((i / 24) * 100) + '%';
+      w.style.animationDelay = (i % 8) * 0.12 + 's';
+      w.style.fontSize = 16 + (i % 4) * 7 + 'px';
+      layer.append(w);
+    }
+    document.body.append(layer);
+    setTimeout(() => layer.remove(), 4200);
   }
 
   connect();
