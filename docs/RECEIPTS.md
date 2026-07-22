@@ -17,11 +17,12 @@ _Free suites only. The E2E suite (real Claude runs) is opt-in — `RUN_PAID=1 no
 | Security/Penetration | Auth bypass, SSRF (preview + harness), secret exfiltration, path traversal, stored-XSS, oversized-body DoS, profile privilege-escalation. | ✅ 19/19 |
 | Adversarial | Malformed/oversized/hostile input across all surfaces; profile tool-blocking; preflight honesty. | ✅ 29/29 |
 | Worker Hierarchy | Job = chain of checker-gated links; cheapest-tier-first, escalate-on-fail up the model ladder, blackboard wiring, human gate pause/resume, ladder-exhaustion error. Mock tier engines — no real spend. | ✅ 7/7 |
-| Attachments | Upload (image/file) + reference (file/folder) + path-traversal guard + oversize/empty reject + audio/video graceful degradation without a key. | ❌ 6 pass, 1 fail |
+| Attachments | Upload (image/file) + reference (file/folder) + path-traversal guard + oversize/empty reject + audio/video graceful degradation without a key. | ✅ 7/7 |
+| Code Editor | File read/write/tree scoped to the project, folders-first listing, noise-dir hiding, secrets + traversal + folder-as-file guards. | ✅ 8/8 |
 | UI/UX | Headless Chromium drives the real cockpit: tabs, engine roster, doctor/preflight render, key entry no-leak, XSS-safe render. | ✅ 11/11 |
 | Tour/Onboarding | Drives all tour steps live — every step spotlights a real visible element; handbook opens/searches/relaunches. | ✅ 9/9 |
 
-**Total: 142 passed, 1 failed across 9 suites.**
+**Total: 151 passed, 0 failed across 10 suites.**
 
 ## Unit
 
@@ -217,10 +218,29 @@ ATTACHMENTS SUITE
   ✓ empty upload is rejected
   ✓ reference an existing folder in the project → kind folder
   ✓ reference a file → kind file
-  ✗ path traversal outside project is rejected — accepted /root/.ssh
+  ✓ path traversal outside project is rejected
   ✓ audio with no key degrades gracefully (note, no crash)
 
-6 passed, 1 failed
+7 passed, 0 failed
+```
+
+## Code Editor
+
+File read/write/tree scoped to the project, folders-first listing, noise-dir hiding, secrets + traversal + folder-as-file guards.
+
+```
+$ node test/editor.mjs
+CODE EDITOR SUITE
+  ✓ read an existing file returns its content
+  ✓ tree lists a directory, folders first
+  ✓ write creates a new file and reads back
+  ✓ reading a secrets path is refused
+  ✓ reading outside the project is refused
+  ✓ writing outside the project is refused
+  ✓ reading a folder as a file errors cleanly
+  ✓ cleanup
+
+8 passed, 0 failed
 ```
 
 ## UI/UX
@@ -231,7 +251,7 @@ Headless Chromium drives the real cockpit: tabs, engine roster, doctor/preflight
 $ node test/ui.spec.mjs
 PLAYWRIGHT UI SUITE
   ✓ loads with Atlan wordmark + bot
-  ✓ all six tabs switch
+  ✓ all tabs switch
   ✓ WS connects (dot goes green)
   ✓ Fleet tab: profiles load, spawn form + KILL ALL present
   ✓ engine switcher has all four groups populated
@@ -254,7 +274,7 @@ $ node test/tour.spec.mjs
 TOUR + HANDBOOK SUITE
   ✓ first-run banner offers the tour to a fresh browser
   ✓ banner "later" dismisses without marking done
-  ✓ tour has full coverage (27 steps ≥ 26)
+  ✓ tour has full coverage (28 steps ≥ 26)
   ✓ every tour step spotlights a real, visible element + card fits portrait
   ✓ finishing the tour marks it done and closes the overlay
   ✓ no first-run banner on revisit after completion

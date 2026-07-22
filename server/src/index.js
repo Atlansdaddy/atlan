@@ -24,6 +24,7 @@ import {
 import { listRoutines, upsertRoutine, deleteRoutine, setPaused, fireRoutine, startScheduler } from './routines.js';
 import { initHierarchy, listJobs, upsertJob, deleteJob, startJob, listRuns as listHierarchyRuns, getRun as getHierarchyRun, resolveGate, tierList } from './hierarchy.js';
 import { saveUpload, saveRef, turnContext } from './attachments.js';
+import { readFile, writeFile, listDir } from './files.js';
 import {
   listPersonas, listCommands, upsertPersona, deletePersona, upsertCommand, deleteCommand,
   compilePersona, compileCommand, templateSchema, toolSchema, harnessRun,
@@ -191,6 +192,17 @@ app.post('/api/attach', express.json({ limit: '28mb' }), async (req, res) => {
 });
 app.post('/api/attach/ref', (req, res) => {
   try { res.json(saveRef(req.body ?? {})); } catch (err) { res.status(400).json({ error: err.message }); }
+});
+
+// ── code editor: read / write / list, scoped to the project ──
+app.get('/api/file', (req, res) => {
+  try { res.json(readFile(req.query.path)); } catch (err) { res.status(400).json({ error: err.message }); }
+});
+app.post('/api/file', express.json({ limit: '4mb' }), (req, res) => {
+  try { res.json(writeFile(req.body?.path, req.body?.content ?? '')); } catch (err) { res.status(400).json({ error: err.message }); }
+});
+app.get('/api/tree', (req, res) => {
+  try { res.json(listDir(req.query.path)); } catch (err) { res.status(400).json({ error: err.message }); }
 });
 
 app.get('/api/keys', (_req, res) => res.json(keyStatus()));

@@ -48,6 +48,7 @@
     document.querySelectorAll('.screen').forEach((s) => s.classList.remove('active'));
     $(b.dataset.s).classList.add('active');
     if (b.dataset.s === 's-term') initTerm();
+    if (b.dataset.s === 's-editor') initEditor();
     if (b.dataset.s === 's-fleet') loadFleet();
     if (b.dataset.s === 's-doctor') { loadDoctor(); loadKeys(); loadPreflight(); }
   }));
@@ -487,6 +488,77 @@
       send({ t: 'pty.resize', name: 'main', cols: term.cols, rows: term.rows });
     } catch { /* hidden tab */ }
   }
+
+  // ── code editor (CodeMirror, language-agnostic) ──
+  let cmEditor = null, edCurrentPath = null, edClean = '';
+  function initEditor() {
+    if (cmEditor) { cmEditor.refresh(); return; }
+    CodeMirror.modeURL = 'vendor/cm/mode/%N/%N.js';
+    cmEditor = CodeMirror($('editor'), {
+      lineNumbers: true, theme: 'material-darker', autoCloseBrackets: true, matchBrackets: true,
+      styleActiveLine: true, indentUnit: 2, tabSize: 2, lineWrapping: false,
+      value: '// Open a file above, browse with ☰, or type here and Save to a new path.\n',
+    });
+    cmEditor.on('change', () => { $('edDirty').textContent = cmEditor.getValue() !== edClean ? '● unsaved' : ''; });
+  }
+  function edMode(name) {
+    const info = window.CodeMirror && CodeMirror.findModeByFileName ? CodeMirror.findModeByFileName(name) : null;
+    if (info) { cmEditor.setOption('mode', info.mime); CodeMirror.autoLoadMode(cmEditor, info.mode); $('edLang').textContent = info.name; }
+    else { cmEditor.setOption('mode', null); $('edLang').textContent = 'text'; }
+  }
+  function openFile(path) {
+    if (!path) return;
+    fetch('/api/file?path=' + encodeURIComponent(path)).then((r) => r.json()).then((f) => {
+      if (f.error) return addMsg('err', f.error);
+      initEditor();
+      cmEditor.setValue(f.content); edClean = f.content; edCurrentPath = f.path;
+      $('edName').textContent = f.name; $('edPath').value = f.path; $('edDirty').textContent = '';
+      edMode(f.name);
+    });
+  }
+  $('edOpen').addEventListener('click', () => openFile($('edPath').value.trim()));
+  $('edPath').addEventListener('keydown', (e) => { if (e.key === 'Enter') openFile($('edPath').value.trim()); });
+  $('edSave').addEventListener('click', () => {
+    const path = $('edPath').value.trim() || edCurrentPath;
+    if (!path) return addMsg('err', 'set a path to save to');
+    initEditor();
+    fetch('/api/file', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ path, content: cmEditor.getValue() }) })
+      .then((r) => r.json()).then((f) => {
+        if (f.error) return addMsg('err', f.error);
+        edClean = cmEditor.getValue(); edCurrentPath = f.path; $('edName').textContent = f.name;
+        $('edDirty').textContent = 'saved ✓';
+        setTimeout(() => { if ($('edDirty').textContent === 'saved ✓') $('edDirty').textContent = ''; }, 1500);
+      });
+  });
+  $('edTree').addEventListener('click', () => {
+    const box = $('edTreeBox');
+    if (box.style.display !== 'none') { box.style.display = 'none'; return; }
+    loadTree($('projSel').value);
+  });
+  function loadTree(path) {
+    fetch('/api/tree' + (path ? '?path=' + encodeURIComponent(path) : '')).then((r) => r.json()).then((t) => {
+      if (t.error) return addMsg('err', t.error);
+      const box = $('edTreeBox'); box.innerHTML = ''; box.style.display = '';
+      if (t.parent) { const up = document.createElement('div'); up.className = 'trow'; up.textContent = '⬆ ..'; up.addEventListener('click', () => loadTree(t.parent)); box.append(up); }
+      for (const e of t.entries) {
+        const row = document.createElement('div'); row.className = 'trow';
+        row.textContent = (e.dir ? '📁 ' : '📄 ') + e.name;
+        row.addEventListener('click', () => e.dir ? loadTree(e.path) : (openFile(e.path), box.style.display = 'none'));
+        box.append(row);
+      }
+    });
+  }
+  $('edToChat').addEventListener('click', () => {
+    if (!edCurrentPath) return addMsg('err', 'open or save a file first');
+    fetch('/api/attach/ref', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ path: edCurrentPath }) })
+      .then((r) => r.json()).then((a) => {
+        if (a.error) return addMsg('err', a.error);
+        attachments.push(a); renderChips();
+        document.querySelector('nav button[data-s="s-chat"]').click();
+        $('chatInput').value = 'Review this file and tell me what you would improve, with specifics.';
+        $('chatInput').focus();
+      });
+  });
 
   // ── preview ──
   const PROXY = `http://${location.hostname}:4590/`;

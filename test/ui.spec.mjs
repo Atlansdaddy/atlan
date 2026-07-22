@@ -36,6 +36,8 @@ await page.evaluate(async (pw) => {
   const ep = s.configured ? '/api/auth/login' : '/api/auth/setup';
   await fetch(ep, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ password: pw }) });
 }, 'atlan-test-pw-8x');
+// dismiss the first-run tour banner — this suite tests the app, not onboarding
+await page.evaluate(() => localStorage.setItem('atlanTourDone', '1'));
 await page.goto(BASE, { waitUntil: 'networkidle' });
 
 await test('loads with Atlan wordmark + bot', async () => {
@@ -43,8 +45,8 @@ await test('loads with Atlan wordmark + bot', async () => {
   assert.ok(await page.locator('#atlanImg').isVisible(), 'bot logo missing');
 });
 
-await test('all six tabs switch', async () => {
-  for (const [tab, screen] of [['Preview', 's-preview'], ['Term', 's-term'], ['Fleet', 's-fleet'], ['Build', 's-build'], ['Doctor', 's-doctor'], ['Chat', 's-chat']]) {
+await test('all tabs switch', async () => {
+  for (const [tab, screen] of [['Preview', 's-preview'], ['Editor', 's-editor'], ['Term', 's-term'], ['Fleet', 's-fleet'], ['Build', 's-build'], ['Doctor', 's-doctor'], ['Chat', 's-chat']]) {
     await page.locator(`nav button:has-text("${tab}")`).click();
     await page.waitForTimeout(150);
     assert.ok(await page.locator('#' + screen).evaluate((el) => el.classList.contains('active')), `${tab} did not activate`);
@@ -95,9 +97,11 @@ await test('Preflight renders and shows honest verdict', async () => {
 });
 
 await test('key entry field posts and refreshes without leaking', async () => {
+  await page.locator('nav button:has-text("Doctor")').click(); // self-contained, don't rely on prior state
   await page.waitForSelector('#keysList .keyrow');
   const row = page.locator('#keysList .keyrow', { hasText: 'DeepSeek' });
   await row.locator('input').fill('sk-uitest-SECRET-999');
+  await row.locator('button:has-text("Save")').scrollIntoViewIfNeeded();
   await row.locator('button:has-text("Save")').click();
   await page.waitForTimeout(600);
   // after save, field cleared and no plaintext of the key anywhere in the DOM

@@ -58,7 +58,9 @@ await test('every tour step spotlights a real, visible element + card fits portr
     const ring = await page.locator('#tourRing').boundingBox();
     assert.ok(ring && ring.width > 8 && ring.height > 8, `step ${i + 1}: ring not placed`);
     // the spotlit element really is the declared one, visible on the right tab
-    assert.ok(await page.locator(st.el).first().isVisible(), `step ${i + 1}: ${st.el} not visible`);
+    // (wait for it — some targets populate async, e.g. the Doctor lists)
+    await page.locator(st.el).first().waitFor({ state: 'visible', timeout: 4000 })
+      .catch(() => { throw new Error(`step ${i + 1}: ${st.el} not visible`); });
     // the card must sit FULLY within the viewport in portrait — no clipped cards
     const c = await page.locator('#tourCard').boundingBox();
     assert.ok(c.y >= -1 && c.y + c.height <= vh + 1, `step ${i + 1}: card clipped vertically (y=${c.y.toFixed(0)}, bottom=${(c.y + c.height).toFixed(0)}, vh=${vh})`);

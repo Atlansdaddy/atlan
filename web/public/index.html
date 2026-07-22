@@ -8,6 +8,8 @@
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="img/atlan-bot.svg">
 <link rel="stylesheet" href="vendor/xterm.css">
+<link rel="stylesheet" href="vendor/cm/codemirror.css">
+<link rel="stylesheet" href="vendor/cm/material-darker.css">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -80,6 +82,21 @@
         <button class="btn ghost" id="consoleClear">clear</button>
       </div>
       <div class="seen" id="seenLine"></div>
+    </section>
+
+    <section class="screen" id="s-editor">
+      <div class="ptools">
+        <input class="url" id="edPath" placeholder="path to open (e.g. /root/atlan/web/public/app.js)" spellcheck="false" enterkeyhint="open">
+        <button class="btn iconbtn" id="edOpen" title="open">↵</button>
+        <button class="btn iconbtn" id="edTree" title="browse">☰</button>
+      </div>
+      <div id="edTreeBox" class="edtree" style="display:none"></div>
+      <div class="edmeta"><span id="edName">no file open</span><span id="edLang"></span><span id="edDirty"></span></div>
+      <div id="editor" class="editorpane"></div>
+      <div class="snapbar">
+        <button class="btn hot" id="edSave">Save</button>
+        <button class="btn ghost" id="edToChat">Send to Claude for review</button>
+      </div>
     </section>
 
     <section class="screen" id="s-term">
@@ -295,6 +312,7 @@
   <nav>
     <button class="active" data-s="s-chat"><span class="ic">◆</span><span class="lb">Chat</span></button>
     <button data-s="s-preview"><span class="ic">▣</span><span class="lb">Preview</span></button>
+    <button data-s="s-editor"><span class="ic">✎</span><span class="lb">Editor</span></button>
     <button data-s="s-term"><span class="ic">❯_</span><span class="lb">Term</span></button>
     <button data-s="s-fleet"><span class="ic">❖</span><span class="lb">Fleet</span></button>
     <button data-s="s-build"><span class="ic">⚒</span><span class="lb">Build</span></button>
@@ -353,6 +371,12 @@
 
 <script src="vendor/xterm.js"></script>
 <script src="vendor/addon-fit.js"></script>
+<script src="vendor/cm/codemirror.js"></script>
+<script src="vendor/cm/mode/meta.js"></script>
+<script src="vendor/cm/addon/mode/loadmode.js"></script>
+<script src="vendor/cm/addon/edit/closebrackets.js"></script>
+<script src="vendor/cm/addon/edit/matchbrackets.js"></script>
+<script src="vendor/cm/addon/selection/active-line.js"></script>
 <script src="app.js"></script>
 <script src="guide.js"></script>
 </body>
