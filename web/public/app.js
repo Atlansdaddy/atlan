@@ -259,7 +259,7 @@
       }
       case 'fleet.burn': {
         const r = fleetRuns.get(m.id);
-        if (r) { r.tokens = m.tokens; r.cost = m.cost; paintRun(r); }
+        if (r) { r.tokens = m.tokens; r.cost = m.cost; if (m.cacheRead != null) r.cacheRead = m.cacheRead; paintRun(r); }
         break;
       }
       case 'fleet.done':
@@ -689,8 +689,11 @@
     // Tokens are the real currency on a Claude subscription (they meter your
     // plan's usage limits). The dollar figure is the SDK's ESTIMATE at public
     // API rates — a gauge of work done, NOT a charge on a Pro/Max plan. Label
-    // it honestly so it never reads as money leaving the account.
-    const s = `burn today: ${fmtTok(t.tokens)} tok · ≈$${(t.cost ?? 0).toFixed(2)} API-equiv`;
+    // it honestly so it never reads as money leaving the account. cacheRead =
+    // input tokens served from the prompt cache at ~0.1x — the caching win,
+    // shown so the savings are visible.
+    const cache = t.cacheRead ? ` · ${fmtTok(t.cacheRead)} cached` : '';
+    const s = `burn today: ${fmtTok(t.tokens)} fresh tok${cache} · ≈$${(t.cost ?? 0).toFixed(2)} API-equiv`;
     $('burnMeta').textContent = t.tokens ? s : '';
   }
 
@@ -746,7 +749,7 @@
     card.querySelector('.rkill').style.display = r.status === 'running' ? '' : 'none';
     card.querySelector('.burn i').style.width = Math.min(100, (r.tokens / r.budget) * 100) + '%';
     card.querySelector('.rmeta').textContent =
-      `${fmtTok(r.tokens)} / ${fmtTok(r.budget)} tok${r.cost ? ` · ≈$${r.cost.toFixed(4)}` : ''}${r.denials ? ` · ${r.denials} denied` : ''}`;
+      `${fmtTok(r.tokens)} / ${fmtTok(r.budget)} tok${r.cacheRead ? ` · ${fmtTok(r.cacheRead)} cached` : ''}${r.cost ? ` · ≈$${r.cost.toFixed(4)}` : ''}${r.denials ? ` · ${r.denials} denied` : ''}`;
     card.querySelector('.rlast').textContent = r.lastLine ?? '';
     card.querySelector('.rtopup').style.display = r.resumable ? '' : 'none';
     card.querySelector('.rresult').textContent = r.resultText ?? '';

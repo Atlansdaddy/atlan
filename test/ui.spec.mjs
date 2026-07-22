@@ -99,10 +99,10 @@ await test('Preflight renders and shows honest verdict', async () => {
 await test('key entry field posts and refreshes without leaking', async () => {
   await page.locator('nav button:has-text("Doctor")').click(); // self-contained, don't rely on prior state
   await page.waitForSelector('#keysList .keyrow');
+  await page.waitForTimeout(400); // let the async key list settle so nodes don't detach mid-action
   const row = page.locator('#keysList .keyrow', { hasText: 'DeepSeek' });
   await row.locator('input').fill('sk-uitest-SECRET-999');
-  await row.locator('button:has-text("Save")').scrollIntoViewIfNeeded();
-  await row.locator('button:has-text("Save")').click();
+  await row.locator('button:has-text("Save")').click(); // Playwright auto-scrolls + auto-retries on detach
   await page.waitForTimeout(600);
   // after save, field cleared and no plaintext of the key anywhere in the DOM
   const html = await page.content();

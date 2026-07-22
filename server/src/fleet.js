@@ -75,14 +75,14 @@ export const PROFILES_FOR_TEST = PROFILES;
 function dateKey() { return new Date().toISOString().slice(0, 10); }
 function loadBurn() { try { return JSON.parse(readFileSync(BURN, 'utf8')); } catch { return {}; } }
 export function todayBurn() {
-  const d = loadBurn()[dateKey()] ?? { tokens: 0, cost: 0 };
-  for (const r of runs) if (r.status === 'running') { d.tokens += r.tokens; d.cost += r.cost; }
+  const d = { tokens: 0, cost: 0, cacheRead: 0, ...loadBurn()[dateKey()] };
+  for (const r of runs) if (r.status === 'running') { d.tokens += r.tokens; d.cost += r.cost; d.cacheRead += r.cacheRead ?? 0; }
   return d;
 }
-function commitBurn(tokens, cost) {
+function commitBurn(tokens, cost, cacheRead = 0) {
   const b = loadBurn();
-  const d = b[dateKey()] ?? { tokens: 0, cost: 0 };
-  d.tokens += tokens; d.cost += cost;
+  const d = { tokens: 0, cost: 0, cacheRead: 0, ...b[dateKey()] };
+  d.tokens += tokens; d.cost += cost; d.cacheRead += cacheRead;
   b[dateKey()] = d;
   writeFileSync(BURN, JSON.stringify(b));
 }
@@ -101,6 +101,7 @@ function publicRun(r) {
     resumable: r.status === 'halted-budget' && !!r.sessionId,
     resumedFrom: r.resumedFrom ?? null,
     source: r.source ?? null,
+    cacheRead: r.cacheRead ?? 0,
   };
 }
 
@@ -128,6 +129,7 @@ export function spawnRun({ prompt, profile = 'scout', cwd = '/root', model = 'cl
     tokens: 0, cost: 0, status: 'running', startedAt: Date.now(), endedAt: null,
     lastLine: 'diving…', denials: [], resultText: null,
     sessionId: null, resume, resumedFrom, source: source ? String(source).slice(0, 80) : null,
+    cacheRead: 0, // cache-read input tokens (~free) — measures caching savings
   };
   runs.unshift(run);
   if (runs.length > 200) runs.pop();
@@ -183,7 +185,8 @@ async function exec(run, prof) {
         const u = m.message?.usage;
         if (u) {
           run.tokens += (u.input_tokens ?? 0) + (u.output_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0);
-          broadcast({ t: 'fleet.burn', id: run.id, tokens: run.tokens, budget: run.budget, cost: run.cost });
+          run.cacheRead += (u.cache_read_input_tokens ?? 0); // cache hits, billed at ~0.1x — excluded from budget
+          broadcast({ t: 'fleet.burn', id: run.id, tokens: run.tokens, budget: run.budget, cost: run.cost, cacheRead: run.cacheRead });
           if (run.tokens >= run.budget && run.status === 'running') halt(run, q);
         }
         for (const b of m.message?.content ?? []) {
@@ -222,7 +225,7 @@ function event(run, line) {
 function finish(run) {
   active.delete(run.id);
   if (!run.endedAt) run.endedAt = Date.now();
-  commitBurn(run.tokens, run.cost);
+  commitBurn(run.tokens, run.cost, run.cacheRead);
   try { appendFileSync(HISTORY, JSON.stringify({ ...publicRun(run), prompt: run.prompt }) + '\n'); } catch {}
   broadcast({ t: 'fleet.done', run: publicRun(run), today: todayBurn() });
   broadcast({
