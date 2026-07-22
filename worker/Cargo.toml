@@ -1,0 +1,9 @@
+[package]
+name = "atlan-worker"
+version = "0.1.0"
+edition = "2021"
+description = "Atlan hardened execution worker — the real security boundary"
+
+[[bin]]
+name = "atlan-worker"
+path = "src/main.rs"
