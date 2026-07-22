@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, existsSync, statSync, readdirSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, statSync, readdirSync, mkdirSync, realpathSync } from 'node:fs';
 import { resolve, join, dirname, basename } from 'node:path';
 import { PROJECTS_DIR } from './config.js';
 
@@ -7,12 +7,23 @@ import { PROJECTS_DIR } from './config.js';
 const SENSITIVE = /(^|\/)\.(ssh|aws|gnupg|gcloud|docker|kube)(\/|$)|(^|\/)(\.auth-token|\.keys\.enc|\.keysecret|id_rsa|id_ed25519)(\/|$)/;
 const MAX = 2 * 1024 * 1024; // 2MB — don't load huge files into a browser editor
 
+function underRoot(p) {
+  const root = PROJECTS_DIR.endsWith('/') ? PROJECTS_DIR : PROJECTS_DIR + '/';
+  return p === PROJECTS_DIR || p.startsWith(root);
+}
 function guard(p, { mustExist = true } = {}) {
   const abs = resolve(String(p || ''));
-  const root = PROJECTS_DIR.endsWith('/') ? PROJECTS_DIR : PROJECTS_DIR + '/';
-  if (abs !== PROJECTS_DIR && !abs.startsWith(root)) throw new Error(`path must be under ${PROJECTS_DIR}`);
+  if (!underRoot(abs)) throw new Error(`path must be under ${PROJECTS_DIR}`);
   if (SENSITIVE.test(abs)) throw new Error('that path looks like credentials/secrets — not editable here');
   if (mustExist && !existsSync(abs)) throw new Error('no such path');
+  // Symlink guard (found by a fleet scout audit 2026-07-22): resolve() handles
+  // `..` but NOT symlinks — a link under the project pointing at /etc/passwd
+  // would otherwise pass. Re-check the REAL path.
+  if (existsSync(abs)) {
+    const real = realpathSync(abs);
+    if (!underRoot(real)) throw new Error('symlink escapes the project root — refused');
+    if (SENSITIVE.test(real)) throw new Error('resolves to a credentials/secrets path — refused');
+  }
   return abs;
 }
 

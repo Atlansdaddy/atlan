@@ -18,11 +18,11 @@ _Free suites only. The E2E suite (real Claude runs) is opt-in — `RUN_PAID=1 no
 | Adversarial | Malformed/oversized/hostile input across all surfaces; profile tool-blocking; preflight honesty. | ✅ 29/29 |
 | Worker Hierarchy | Job = chain of checker-gated links; cheapest-tier-first, escalate-on-fail up the model ladder, blackboard wiring, human gate pause/resume, ladder-exhaustion error. Mock tier engines — no real spend. | ✅ 7/7 |
 | Attachments | Upload (image/file) + reference (file/folder) + path-traversal guard + oversize/empty reject + audio/video graceful degradation without a key. | ✅ 7/7 |
-| Code Editor | File read/write/tree scoped to the project, folders-first listing, noise-dir hiding, secrets + traversal + folder-as-file guards. | ✅ 8/8 |
+| Code Editor | File read/write/tree scoped to the project, folders-first listing, noise-dir hiding, secrets + traversal + folder-as-file guards. | ✅ 9/9 |
 | UI/UX | Headless Chromium drives the real cockpit: tabs, engine roster, doctor/preflight render, key entry no-leak, XSS-safe render. | ✅ 11/11 |
 | Tour/Onboarding | Drives all tour steps live — every step spotlights a real visible element; handbook opens/searches/relaunches. | ✅ 9/9 |
 
-**Total: 151 passed, 0 failed across 10 suites.**
+**Total: 152 passed, 0 failed across 10 suites.**
 
 ## Unit
 
@@ -238,9 +238,10 @@ CODE EDITOR SUITE
   ✓ reading outside the project is refused
   ✓ writing outside the project is refused
   ✓ reading a folder as a file errors cleanly
+  ✓ a symlink escaping the project is refused (read + attach)
   ✓ cleanup
 
-8 passed, 0 failed
+9 passed, 0 failed
 ```
 
 ## UI/UX

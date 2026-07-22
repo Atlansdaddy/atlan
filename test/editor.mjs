@@ -46,6 +46,20 @@ await test('writing outside the project is refused', async () => {
 await test('reading a folder as a file errors cleanly', async () => {
   assert.equal((await api('/api/file?path=' + encodeURIComponent(under('atlan')))).status, 400);
 });
+// REGRESSION (fleet scout audit 2026-07-22): a symlink under the project that
+// points outside it must not be readable/attachable — resolve() doesn't follow
+// links, so we realpath-check.
+await test('a symlink escaping the project is refused (read + attach)', async () => {
+  const { symlinkSync, unlinkSync: rm } = await import('node:fs');
+  const link = under('atlan/.attachments/evil-link-test');
+  try { if (existsSync(link)) rm(link); symlinkSync('/etc/passwd', link); } catch { return; }
+  const read = await api('/api/file?path=' + encodeURIComponent(link));
+  const att = await api('/api/attach/ref', { method: 'POST', body: JSON.stringify({ path: link }) });
+  try { rm(link); } catch {}
+  assert.equal(read.status, 400, 'symlink read not blocked');
+  assert.equal(att.status, 400, 'symlink attach not blocked');
+});
+
 await test('cleanup', () => { if (tmpPath && existsSync(tmpPath)) unlinkSync(tmpPath); });
 
 console.log(`\n${pass} passed, ${fail} failed`);

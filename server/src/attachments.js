@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, writeFileSync, existsSync, statSync, readFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync, existsSync, statSync, readFileSync, realpathSync } from 'node:fs';
 import { basename, join, resolve, extname } from 'node:path';
 import { APP_ROOT, PROJECTS_DIR } from './config.js';
 import { getStoredKey } from './keys.js';
@@ -55,6 +55,11 @@ export function saveRef({ path }) {
   if (p !== PROJECTS_DIR && !p.startsWith(root)) throw new Error(`references must live under ${PROJECTS_DIR}`);
   if (SENSITIVE.test(p)) throw new Error('that path looks like credentials/secrets — not attachable');
   if (!existsSync(p)) throw new Error('no such path');
+  // Symlink guard (fleet scout audit 2026-07-22): a link under the project
+  // pointing outside it, or at a secret, must not be attachable.
+  const real = realpathSync(p);
+  if (real !== PROJECTS_DIR && !real.startsWith(root)) throw new Error('symlink escapes the project root — refused');
+  if (SENSITIVE.test(real)) throw new Error('resolves to a credentials/secrets path — refused');
   const isDir = statSync(p).isDirectory();
   return { id: randomUUID().slice(0, 8), kind: isDir ? 'folder' : 'file', name: basename(p), path: p, note: null };
 }
