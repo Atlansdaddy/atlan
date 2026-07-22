@@ -1,7 +1,7 @@
 {
   "name": "Atlan",
   "short_name": "Atlan",
-  "description": "Personal AI build cockpit on the phone: Claude Code + agent CLIs + local/cloud models, live preview sandbox, real terminal, autonomous budgeted agent fleet, scheduled routines, Persona+ builder with deterministic checkers, one-button APK builds, and health/security dashboards — all loopback-only.",
+  "description": "An AI-native software engineering cockpit that turns a phone into a complete development workstation. Not an LLM wrapper — it integrates code editing, terminal access, local and cloud models, deterministic verification, build automation, and agent orchestration into one loopback execution environment.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#020c18",

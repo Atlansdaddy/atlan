@@ -1,6 +1,6 @@
 # Atlan
 
-**A personal AI build cockpit that runs entirely on a phone.** One page at `http://127.0.0.1:4589` puts Claude Code, other agent CLIs, local and cloud models, a live preview sandbox, a real terminal, a code editor, message attachments, an autonomous agent fleet, a worker hierarchy, a Persona+ builder, and one-button APK builds into a single tap-through app. The reference platform is Ubuntu proot under Termux on a phone; it also runs on any Linux/macOS host (see `docs/SETUP.md`). Nothing leaves the machine unless you deliberately build a tunnel.
+**An AI-native software engineering cockpit that turns a phone into a complete development workstation.** Instead of wrapping an LLM, Atlan integrates code editing, terminal access, local and cloud models, deterministic verification, build automation, and agent orchestration into a single execution environment — one page at `http://127.0.0.1:4589`. The reference platform is Ubuntu proot under Termux on a phone; it also runs on any Linux/macOS host (see `docs/SETUP.md`). Loopback-only by design; nothing leaves the machine unless you deliberately build a tunnel.
 
 Built by John Viruet / Mid-Atlantic AI. Licensed **Apache-2.0** — free to use and fork; keep the attribution. Its resident AI, **Atlan**, is the cockpit's living mascot — a calm presence that reacts to what's actually happening as you build.
 
