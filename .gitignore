@@ -15,3 +15,7 @@ test-results/
 atlan.config.json
 .attachments/
 worker/target/
+
+# durable launcher runtime
+.atlan-server.log
+.atlan-supervisor.pid
