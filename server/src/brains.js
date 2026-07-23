@@ -3,6 +3,11 @@ import { getStoredKey } from './keys.js';
 // "Brains" = chat-only engines (no tools, no files) behind ONE OpenAI-compat
 // adapter — base-URL swap per provider. Claude Code stays the only agent
 // with hands until M4 wires Codex/Gemini CLIs.
+// Every provider here speaks the OpenAI /chat/completions shape, so one adapter
+// covers them all — new provider = one base-URL row. defaultModel is just a
+// sensible starting point; users can type any model the provider offers in the
+// model box. These are BRAINS (chat only, no tools/files) — the agent engines
+// with hands (Claude Code / Codex / Gemini CLI) live elsewhere.
 const PROVIDERS = {
   local: {
     label: 'llama-server (on-phone, free)',
@@ -27,6 +32,54 @@ const PROVIDERS = {
     base: 'https://api.deepseek.com/v1',
     keyEnv: 'DEEPSEEK_API_KEY',
     defaultModel: 'deepseek-chat',
+  },
+  kimi: {
+    label: 'Kimi (Moonshot)',
+    base: 'https://api.moonshot.ai/v1',
+    keyEnv: 'MOONSHOT_API_KEY',
+    defaultModel: 'kimi-k2-0711-preview',
+  },
+  grok: {
+    label: 'xAI Grok',
+    base: 'https://api.x.ai/v1',
+    keyEnv: 'XAI_API_KEY',
+    defaultModel: 'grok-4',
+  },
+  mistral: {
+    label: 'Mistral',
+    base: 'https://api.mistral.ai/v1',
+    keyEnv: 'MISTRAL_API_KEY',
+    defaultModel: 'mistral-large-latest',
+  },
+  groq: {
+    label: 'Groq (fast inference)',
+    base: 'https://api.groq.com/openai/v1',
+    keyEnv: 'GROQ_API_KEY',
+    defaultModel: 'llama-3.3-70b-versatile',
+  },
+  together: {
+    label: 'Together AI',
+    base: 'https://api.together.xyz/v1',
+    keyEnv: 'TOGETHER_API_KEY',
+    defaultModel: 'meta-llama/Llama-3.3-70B-Instruct-Turbo',
+  },
+  openrouter: {
+    label: 'OpenRouter (many models, 1 key)',
+    base: 'https://openrouter.ai/api/v1',
+    keyEnv: 'OPENROUTER_API_KEY',
+    defaultModel: 'openrouter/auto',
+  },
+  fireworks: {
+    label: 'Fireworks AI',
+    base: 'https://api.fireworks.ai/inference/v1',
+    keyEnv: 'FIREWORKS_API_KEY',
+    defaultModel: 'accounts/fireworks/models/llama-v3p3-70b-instruct',
+  },
+  cohere: {
+    label: 'Cohere',
+    base: 'https://api.cohere.ai/compatibility/v1',
+    keyEnv: 'COHERE_API_KEY',
+    defaultModel: 'command-r-plus',
   },
 };
 

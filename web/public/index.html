@@ -34,6 +34,7 @@
       <div class="atlan-line" id="atlanLine" aria-live="polite" role="status">The water's calm, boss. What are we building today?</div>
     </div>
     <div class="sess" id="sessInfo"><span class="dot" id="connDot" role="img" aria-label="connection status"></span><b id="projName">no project</b><br><span id="sessMeta" aria-live="polite">connecting…</span><br><span id="burnMeta" class="burnmeta"></span></div>
+    <button id="voiceBtn" title="voice replies on/off" aria-label="toggle voice replies" aria-pressed="false">🔈</button>
     <button id="helpBtn" title="guide & tour" aria-label="open guide">?</button>
   </header>
 
@@ -59,6 +60,7 @@
       </div>
       <div id="attachChips" class="attachchips"></div>
       <div class="composer">
+        <button class="btn iconbtn" id="micBtn" title="speak (voice input)" aria-label="voice input">🎤</button>
         <button class="btn iconbtn" id="attachBtn" title="attach image / audio / video / file" aria-label="attach a file">📎</button>
         <input id="chatInput" placeholder="Message Claude Code…" autocomplete="off" aria-label="message">
         <button class="btn hot send" id="sendBtn" aria-label="send message">➤</button>
@@ -298,7 +300,13 @@
         <div id="pwMsg" class="hint"></div>
       </div>
       <div class="eyebrow" style="margin-top:6px">Engine keys — encrypted at rest, never shown back</div>
+      <div class="hint">Each row links out to where you get the key. Everything works without any of these — they just unlock more models &amp; voices.</div>
       <div id="keysList" class="doctor-list"></div>
+      <div class="eyebrow" style="margin-top:6px">Voice — pick who speaks back</div>
+      <div class="projbar">
+        <select id="voiceProviderSel" aria-label="voice provider"></select>
+      </div>
+      <div class="hint" id="voiceProviderNote">The browser voice always works, free. Add a key above to unlock a nicer one.</div>
       <div class="eyebrow" style="margin-top:6px">Doctor — the proot boundary, checked</div>
       <div id="doctorList" class="doctor-list"><div class="hint">running checks…</div></div>
       <button class="btn" id="doctorBtn">Run doctor again</button>

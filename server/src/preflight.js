@@ -44,10 +44,23 @@ export async function runPreflight() {
   add('permmode', 'Claude permission gate', true,
     'sessions run permission-mode default — every dangerous tool asks you first');
 
-  let tunnel = false;
-  try { tunnel = !!(await sh('pgrep -f "[c]loudflared|[n]grok tunnel|[t]ailscale funnel" || true')).stdout.trim(); } catch { /* none */ }
-  add('tunnel', 'No active tunnels', !tunnel,
-    tunnel ? 'a tunnel process is RUNNING — if it points here, close it until preflight is green' : 'none detected');
+  // A SECURITY gate — it must FAIL CLOSED. The old form `pgrep … || true` +
+  // catch{} reported "none detected" (GREEN) whenever pgrep itself couldn't run,
+  // and only matched "ngrok tunnel" — a normal `ngrok http 4589` has no "tunnel"
+  // word and slipped through. Now: match the process names alone, trust pgrep's
+  // exit code (1 = genuinely no match; anything else = couldn't verify → blocker).
+  let tunnel = false, verified = true;
+  try {
+    const { stdout } = await sh("pgrep -af '[c]loudflared|[n]grok|tailscale (funnel|serve)'");
+    tunnel = !!stdout.trim(); // exit 0 → at least one match
+  } catch (err) {
+    if (err && err.code === 1) tunnel = false; // pgrep exit 1 = no matches (the safe case)
+    else verified = false;                      // pgrep missing/broken = we do NOT know → fail closed
+  }
+  add('tunnel', 'No active tunnels', verified && !tunnel,
+    !verified ? 'could not verify tunnels (pgrep unavailable) — treat as UNSAFE to expose until checked'
+      : tunnel ? 'a tunnel process is RUNNING — if it points here, close it until preflight is green'
+        : 'none detected (cloudflared / ngrok / tailscale funnel|serve)');
 
   add('previewscope', 'Preview proxy local-only', true,
     'target URLs restricted to 127.0.0.1/localhost by the API');

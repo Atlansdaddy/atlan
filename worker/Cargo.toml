@@ -7,3 +7,12 @@ description = "Atlan hardened execution worker — the real security boundary"
 [[bin]]
 name = "atlan-worker"
 path = "src/main.rs"
+
+[dependencies]
+libc = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.release]
+strip = true
+lto = true

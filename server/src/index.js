@@ -25,6 +25,7 @@ import { listRoutines, upsertRoutine, deleteRoutine, setPaused, fireRoutine, sta
 import { initHierarchy, listJobs, upsertJob, deleteJob, startJob, listRuns as listHierarchyRuns, getRun as getHierarchyRun, resolveGate, tierList } from './hierarchy.js';
 import { saveUpload, saveRef, turnContext } from './attachments.js';
 import { readFile, writeFile, listDir } from './files.js';
+import { voiceRoster, synthesize } from './voice.js';
 import {
   listPersonas, listCommands, upsertPersona, deletePersona, upsertCommand, deleteCommand,
   compilePersona, compileCommand, templateSchema, toolSchema, harnessRun,
@@ -203,7 +204,9 @@ app.post('/api/hierarchy/gate', (req, res) => {
 });
 
 // ── attachments: upload (base64, up to 20MB) or reference an existing path ──
-app.post('/api/attach', express.json({ limit: '28mb' }), async (req, res) => {
+// 20MB raw → ~27MB base64; 34mb gives headroom so a legit large photo doesn't
+// hit a 413 (which returns non-JSON and surfaced as a useless "upload failed").
+app.post('/api/attach', express.json({ limit: '34mb' }), async (req, res) => {
   try { res.json(await saveUpload(req.body ?? {})); } catch (err) { res.status(400).json({ error: err.message }); }
 });
 app.post('/api/attach/ref', (req, res) => {
@@ -219,6 +222,12 @@ app.post('/api/file', express.json({ limit: '4mb' }), (req, res) => {
 });
 app.get('/api/tree', (req, res) => {
   try { res.json(listDir(req.query.path)); } catch (err) { res.status(400).json({ error: err.message }); }
+});
+
+// ── voice: TTS roster + synthesis (STT is browser-side Web Speech) ──
+app.get('/api/voice/roster', async (_req, res) => res.json(await voiceRoster()));
+app.post('/api/voice/tts', async (req, res) => {
+  try { res.json(await synthesize(req.body ?? {})); } catch (err) { res.status(400).json({ error: err.message }); }
 });
 
 app.get('/api/keys', (_req, res) => res.json(keyStatus()));
@@ -264,6 +273,29 @@ function existsQuiet(p) { try { statSync(p); return true; } catch { return false
 
 const server = createServer(app);
 const wss = new WebSocketServer({ server, path: '/ws' });
+
+// ── time awareness ──────────────────────────────────────────────────────────
+// Atlan should feel the passage of time. Each turn gets a compact clock line
+// appended to the *end* of the prompt — the uncached tail — so the stable
+// system prompt + history stay cached and only these few digits are fresh
+// (John's insight: cache the template, not the numbers). The model then knows
+// the wall-clock time and how long since the last exchange.
+let lastActivityAt = null;
+function fmtGap(ms) {
+  const s = Math.floor(ms / 1000);
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+  return `${h ? h + 'h ' : ''}${m || h ? m + 'm ' : ''}${sec}s`;
+}
+function timeContext() {
+  const now = new Date();
+  const clock = now.toTimeString().slice(0, 8);
+  const date = now.toISOString().slice(0, 10);
+  let line = `\n\n[Atlan clock — now ${date} ${clock}`;
+  if (lastActivityAt) line += `; last exchange ${lastActivityAt.toTimeString().slice(0, 8)}, ${fmtGap(now - lastActivityAt)} ago`;
+  line += `. You perceive elapsed time — factor it into how you greet and respond.]`;
+  lastActivityAt = now;
+  return line;
+}
 
 // Fleet events are server-global — every open cockpit sees the same runs.
 // Finished/halted runs also go out as real push notifications (app closed OK).
@@ -311,6 +343,9 @@ wss.on('connection', (ws, req) => {
           }
         }
         pending.errors = []; pending.snaps = (isClaude || isAgentCli) ? [] : pending.snaps;
+
+        // clock line rides in the uncached tail — always-fresh time awareness, ~0 token cost
+        text += timeContext();
 
         if (isAgentCli) {
           const state = agentState.get(m.engine) ?? {};

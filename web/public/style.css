@@ -223,6 +223,14 @@ details.thinking .tbody{font-size:11.5px;line-height:1.5;color:var(--dim);white-
 #helpBtn{flex:0 0 auto;width:30px;height:30px;border-radius:50%;border:1px solid var(--line);background:transparent;
   color:var(--dim);font-weight:800;font-size:14px;margin-left:6px}
 #helpBtn:active{color:var(--teal);border-color:var(--teal)}
+/* voice: header toggle + mic listening state */
+#voiceBtn{flex:0 0 auto;width:30px;height:30px;border-radius:50%;border:1px solid var(--line);background:transparent;
+  color:var(--dim);font-size:14px;margin-left:6px}
+#voiceBtn:active{color:var(--teal);border-color:var(--teal)}
+#voiceBtn[aria-pressed="true"]{color:var(--teal);border-color:var(--teal);box-shadow:0 0 0 2px rgba(56,208,196,.18)}
+#micBtn.listening{color:#fff;background:var(--danger,#e5484d);border-color:var(--danger,#e5484d);animation:micpulse 1s ease-in-out infinite}
+@keyframes micpulse{50%{box-shadow:0 0 0 6px rgba(229,72,77,.22)}}
+@media (prefers-reduced-motion:reduce){#micBtn.listening{animation:none}}
 .tour{position:fixed;inset:0;z-index:90;display:none;background:rgba(2,8,15,.55)}
 .tour.show{display:block}
 .tour-ring{position:fixed;border:2px solid var(--teal);border-radius:14px;box-shadow:0 0 0 4000px rgba(2,8,15,.62),0 0 22px rgba(63,232,200,.5);
@@ -322,6 +330,12 @@ details .doctor-list{margin-bottom:8px}
   border:1px solid var(--line);border-radius:8px;padding:7px 9px}
 .keyrow .kset{font-family:var(--mono);font-size:9.5px;color:var(--ok);flex-shrink:0}
 .keyrow .btn{padding:6px 10px;font-size:11px;flex-shrink:0}
+.keyrow .khelp{font-size:10px;color:var(--teal);text-decoration:none;flex-shrink:0;white-space:nowrap}
+.keyrow .khelp:hover{text-decoration:underline}
+/* keyrow wraps on narrow screens so the help link never overflows */
+@media (max-width:560px){.keyrow{flex-wrap:wrap}.keyrow input{flex:1 1 100%;order:5}}
+#voiceProviderSel{flex:1;min-width:0;font-size:12px;background:var(--surface2);color:var(--ink);
+  border:1px solid var(--line);border-radius:9px;padding:8px 10px;min-height:var(--tap)}
 .lore{margin-top:auto;padding-top:14px;text-align:center;font-family:var(--mono);font-size:9.5px;color:var(--muted);letter-spacing:.06em;line-height:1.7}
 .lore span{color:var(--accent);opacity:.8}
 

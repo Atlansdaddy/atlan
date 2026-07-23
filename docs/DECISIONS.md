@@ -35,3 +35,36 @@ John pushed back that tests passing first-try meant I hadn't pushed outside the 
 - **Try a real routine overnight** to confirm the scheduler fires on his device (tested via manual fire + boot-sweep logic; a real wall-clock daily fire wasn't waited out).
 - **Decide on exposure** — preflight is green, but tunneling is his call (Cloudflare Tunnel + Access per SECURITY.md).
 - **The model auto-switch** — mid-session, the safeguard layer flagged the security-test writing as sensitive and switched Fable 5 → Opus 4.8. This is a known false-positive on legitimate defensive security work; `/feedback` is where to report it, `/config` where to steer model behavior. Work was unaffected.
+
+## Voice + provider spread (2026-07-22)
+Building voice I/O, John asked for a wide, honest spread of providers — "cheap expensive free whatever, all that make sense, code situated for it with honesty about what they can and can't do" — for both voices and AI models.
+
+- **Voice input (STT)** — chose the browser Web Speech API (free, on-device, push-to-talk). Transcript drops in the box to review before sending, never auto-fires. Server-side STT (Deepgram/Whisper) left as a documented, un-built gap rather than half-shipped.
+- **Voice output (TTS) — a 9-provider registry + 1 roadmap.** `voice.js` is a single dispatch with per-provider honest `caps` (cost, latency, SSML). browser + Piper (free), then ElevenLabs / Cartesia / Deepgram / OpenAI / Google / Azure / Polly (BYOK). Each greys out until its key is set — **the picker never claims a voice you can't use.**
+  - **Amazon Polly needed a real SigV4 signer** — AWS has no simple API key for Polly. Implemented a minimal SigV4 (POST+JSON) in `voice.js` rather than drop the cheapest provider or fake it.
+  - **OpenAI Realtime is a WebSocket voice-to-voice pipe, not one-shot TTS.** Rather than pretend, it's listed as `ready:false` with a "ROADMAP" note — visible, honest, not wired.
+  - Mood → light prosody (real SSML where honored, tone-instruction where not). SSML is XML-escaped to prevent broken/injected markup.
+- **AI models — widened brains.js from 4 to 12 providers.** Added Kimi, Grok, Mistral, Groq, Together, OpenRouter, Fireworks, Cohere alongside local/Gemini/OpenAI/DeepSeek. All OpenAI-compatible, so it was one base-URL row each; they flow into the switcher automatically, disabled until keyed. `defaultModel` is a starting point; any model name is typeable.
+- **"How to get ↗" links** — every key row in Settings links to that provider's key page with a one-line honest tip (the thing that trips people up). John's idea: optional setup tutorials, on demand, not forced.
+- **Doctor Piper check bug (found + fixed same turn).** First version matched `/piper/i` against `piper --version` output — which caught the *error string* "piper: not found" and reported Piper installed when it wasn't. Switched to `command -v piper`, which resolves the binary or prints nothing.
+- **Docs discipline (John's standing ask):** every turn of new stuff updates README + project docs. This turn added `docs/VOICE-AND-MODELS.md` (the full provider matrix + how to add more) and these decision notes.
+
+### Reverted earlier: token-in-URL login
+The "Locked out of his own app" fix above (token in the startup-banner login URL) was **reverted** at John's call — he flagged a token in the URL as a security risk. Auth is now **password (scrypt) + httpOnly SameSite=Strict session cookie**; automation uses an `x-atlan-token` header, never a URL. Kept here so the history is honest.
+
+## Brittleness hunt — the Piper bug wasn't alone (2026-07-22)
+John's hunch after the Piper fix: "if that was brittle, we may have other stuff too." Right. Self-audited every check that reads a subprocess's output. Found two more of the same class in `doctor.js`, both fixed by trusting exit codes / positive banners instead of word-in-output greps:
+- **aapt2** — `|| /aapt2/i.test(stdout)` matched the tool name inside error text → falsely "installed." Now requires the real banner or an `aapt2 <version>` line; no `|| true` masking.
+- **bash-sandbox (security-critical)** — reported the OS sandbox "available" unless known error words appeared, so an *unrecognized* failure would falsely claim a sandbox that isn't there. Now trusts bwrap's exit code; fails closed.
+- Captured the rule as a vault micro-page: `vault/atlan/dont-grep-command-output-for-presence.md` (presence → `command -v`/exit code; working → positive signal; security → fail closed). Plus SSML XML-escaping in `voice.js`.
+- **Reusable testers, not one-offs:** `docs/FLEET-TESTERS.md` seeds 3 launchable adversarial agents (brittle-detection hunter, injection prober, boundary-honesty auditor) — read-only, report-don't-edit, fired on demand so they don't burn tokens unasked. Good findings get promoted to `vault/` pages (verified only after a second pass).
+- Started `vault/` as the file-backed pre-L3 knowledge store (schema matches `docs/VAULT-DESIGN.md`, so L3 ingests it directly later).
+
+## Adversarial tester pass — 5 real bugs, all fixed (2026-07-22)
+Ran the 3 `docs/FLEET-TESTERS.md` agents as read-only subagents (no fleet spend, John's on micro). They found 5 confirmed bugs first-try — validation that adversarial passes catch what green first-try tests miss:
+1. **RCE (build.js)** — client build path interpolated into `bash -c` (`cd ${projPath}`). Fixed: realpath+PROJECTS_DIR guard + pass as spawn `cwd`, never shell text. Unit regression added.
+2. **Preflight tunnel gate fail-open** — reported "safe to expose" when pgrep couldn't run / missed normal `ngrok http`. Fixed: exit-code logic, fails closed.
+3. **Chat permission-card bypass** — `claudeEngine.js` lacked `settingSources: []` (fleet had it), so accumulated allow-rules ran tools with no card. Fixed: added it.
+4. **Azure SSML injection** — `voice` field interpolated into `name="…"` unescaped. Fixed: `xmlEscape(name)`.
+5. **JDK-11-as-21 + broken-tmux-green** (doctor.js) — same brittle-detection class as the Piper bug. Fixed via version-field parse / `^tmux \d`.
+Plus doc honesty fixes (README test count → 11 suites; Preview "loopback" not just "127.0.0.1"). Findings captured in `vault/atlan/adversarial-tester-pass-2026-07-22.md`. Suite 173/0. **These fixes are in source but NOT yet live on John's running instance — they apply on next server restart (deferred so as not to interrupt his live exploration).**

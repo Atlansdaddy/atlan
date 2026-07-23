@@ -11,7 +11,10 @@ export async function runDoctor() {
     check('jdk', 'JDK 21', async () => {
       const { stderr, stdout } = await sh('java -version 2>&1 || true');
       const out = stdout + stderr;
-      return { ok: /21\./.test(out), detail: out.split('\n')[0] };
+      // Parse the MAJOR version from the `version "21…"` field — an unanchored
+      // /21\./ falsely matches JDK 11's build "11.0.21.1" (the "21." substring).
+      const m = out.match(/version "(\d+)/);
+      return { ok: m ? m[1] === '21' : false, detail: out.split('\n')[0] };
     }),
     check('sdk', 'Android SDK 35', async () => ({
       ok: existsSync('/root/android-sdk/build-tools/35.0.0'),
@@ -20,20 +23,38 @@ export async function runDoctor() {
     check('aapt2', 'aapt2 qemu shim', async () => {
       const shim = '/root/android-sdk/build-tools/35.0.0/aapt2';
       if (!existsSync(shim)) return { ok: false, detail: 'shim missing' };
-      const { stdout } = await sh(`${shim} version 2>&1 || true`, { timeout: 20000 });
-      return { ok: /Android Asset Packaging/i.test(stdout) || /aapt2/i.test(stdout), detail: stdout.trim().slice(0, 80) };
+      // Require the real version banner or an "aapt2 <version>" line — NOT the
+      // bare word "aapt2", which also appears in error output (the same trap the
+      // Piper check fell into). No `|| true`: a broken qemu shim rejects and we
+      // report the real failure instead of falsely passing on its error text.
+      try {
+        const { stdout, stderr } = await sh(`${shim} version`, { timeout: 20000 });
+        const out = (stdout + stderr).trim();
+        const ok = /Android Asset Packaging Tool/i.test(out) || /\baapt2\s+v?\d+\.\d/i.test(out);
+        return { ok, detail: out.slice(0, 80) };
+      } catch (err) {
+        return { ok: false, detail: `shim run failed: ${String(err.message).slice(0, 70)}` };
+      }
     }),
     check('claude', 'claude binary', async () => {
-      const { stdout } = await sh('which claude && claude --version 2>/dev/null | head -1 || true');
-      return { ok: stdout.includes('claude'), detail: stdout.trim().replace('\n', ' · ') };
+      // Presence via `command -v` exit code, not a word-grep; version is detail only.
+      try {
+        const { stdout } = await sh('command -v claude', { timeout: 5000 });
+        if (!stdout.trim()) return { ok: false, detail: 'not on PATH' };
+        const { stdout: v } = await sh('claude --version 2>/dev/null | head -1 || true');
+        return { ok: true, detail: `${stdout.trim()}${v.trim() ? ' · ' + v.trim() : ''}` };
+      } catch { return { ok: false, detail: 'not on PATH' }; }
     }),
     check('auth', 'Claude auth', async () => ({
       ok: existsSync(`${process.env.HOME}/.claude/.credentials.json`) || !!process.env.ANTHROPIC_API_KEY,
       detail: process.env.ANTHROPIC_API_KEY ? 'API key (env)' : 'subscription OAuth',
     })),
     check('tmux', 'tmux', async () => {
+      // Require the "tmux <version>" banner. A present-but-broken tmux prints
+      // "tmux: error while loading shared libraries…" which startsWith('tmux')
+      // and would falsely read green (the broken-binary trap).
       const { stdout } = await sh('tmux -V 2>&1 || true');
-      return { ok: stdout.startsWith('tmux'), detail: stdout.trim() };
+      return { ok: /^tmux \d/.test(stdout.trim()), detail: stdout.trim() };
     }),
     check('disk', 'Free disk', async () => {
       const { stdout } = await sh("df -h /root | tail -1 | awk '{print $4}'");
@@ -53,13 +74,38 @@ export async function runDoctor() {
       // needs real user namespaces. proot (ptrace-based) doesn't provide them,
       // so on-phone it CAN'T run — tool-level profile gating is the control
       // here; a native Linux host (e.g. the 4060Ti node) gets the full sandbox.
+      //
+      // SECURITY-CRITICAL honesty: trust bwrap's EXIT CODE, never a grep of its
+      // error text. `bwrap ... true` exits 0 ONLY if it actually created the
+      // namespaces; any failure is non-zero. The old code masked the exit with
+      // `|| true` then grepped for known error words — an unrecognized failure
+      // would slip through and falsely report the sandbox "available." Claiming
+      // a boundary that isn't there is the exact thing the threat model forbids.
       try {
-        const { stdout, stderr } = await sh('bwrap --ro-bind / / --unshare-all true 2>&1 || true');
-        const ok = !/namespace|not permitted|failed/i.test(stdout + stderr);
-        return { ok, warn: !ok, detail: ok ? 'available — builder/verifier Bash can be OS-confined' : 'unavailable in proot (no namespaces) — profiles gate tools; native host gets full sandbox' };
-      } catch {
-        return { ok: false, warn: true, detail: 'bubblewrap not installed (optional; only usable on a native host)' };
+        await sh('bwrap --ro-bind / / --unshare-all true', { timeout: 5000 });
+        return { ok: true, detail: 'available — builder/verifier Bash can be OS-confined' };
+      } catch (err) {
+        const notInstalled = /ENOENT|not found|command not found/i.test(String(err?.message ?? err));
+        return {
+          ok: false, warn: true,
+          detail: notInstalled
+            ? 'bubblewrap not installed (optional; only usable on a native host)'
+            : 'unavailable in proot (no namespaces) — profiles gate tools; native host gets full sandbox',
+        };
       }
+    }),
+    check('piper', 'Piper voice (local TTS)', async () => {
+      // Optional "sounds good" local voice. Browser voice always works without
+      // it; ElevenLabs/OpenAI cover BYO-key. Green only when the binary AND a
+      // model are both present, since Piper needs a .onnx to speak.
+      // `command -v` resolves the binary or prints nothing — never the word
+      // "piper" from an error message (which a `--version` grep would falsely match).
+      const { stdout } = await sh('command -v piper 2>/dev/null || true', { timeout: 3000 });
+      const hasBin = !!stdout.trim();
+      if (!hasBin) return { ok: false, warn: true, detail: 'not installed (optional) — pip install piper-tts; browser/BYO-key voices still work' };
+      const model = process.env.PIPER_MODEL || (await import('./keys.js')).getStoredKey('PIPER_MODEL');
+      const hasModel = !!model && existsSync(model);
+      return { ok: hasModel, warn: !hasModel, detail: hasModel ? `installed · ${model.split('/').pop()}` : 'installed, but PIPER_MODEL unset/missing — set a .onnx voice path in Keys' };
     }),
     check('llama', 'llama-server :8080', async () => {
       try {

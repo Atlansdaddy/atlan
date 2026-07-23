@@ -9,8 +9,14 @@ const STORE_FILE = join(__dirname, '../../.keys.enc');
 
 // Providers we accept keys for. Anything else is rejected.
 export const KEY_WHITELIST = [
+  // chat / LLM providers
   'GEMINI_API_KEY', 'OPENAI_API_KEY', 'DEEPSEEK_API_KEY',
   'XAI_API_KEY', 'MISTRAL_API_KEY', 'MOONSHOT_API_KEY', 'ANTHROPIC_API_KEY',
+  'GROQ_API_KEY', 'TOGETHER_API_KEY', 'OPENROUTER_API_KEY', 'FIREWORKS_API_KEY', 'COHERE_API_KEY',
+  // voice (TTS) providers
+  'ELEVENLABS_API_KEY', 'PIPER_MODEL', 'CARTESIA_API_KEY', 'DEEPGRAM_API_KEY',
+  'GOOGLE_TTS_API_KEY', 'AZURE_SPEECH_KEY', 'AZURE_SPEECH_REGION',
+  'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_REGION',
 ];
 
 // At-rest encryption: AES-256-GCM keyed off a per-device secret (0600).

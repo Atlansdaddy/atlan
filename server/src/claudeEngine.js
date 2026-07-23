@@ -37,6 +37,14 @@ export class ClaudeSession {
         options: {
           cwd: this.cwd,
           model: this.model,
+          // settingSources:[] is a SECURITY boundary, not a preference: without it
+          // the SDK loads ~/.claude + project settings.local.json, whose accumulated
+          // "always allow" rules (and auto-approved sandboxed Bash) let tools run
+          // WITHOUT ever hitting canUseTool — i.e. no permission card. The fleet was
+          // hardened against exactly this; the interactive Chat path must match, or
+          // "every dangerous tool asks you first" is a lie (boundary-honesty audit,
+          // 2026-07-22). Empty = only the permission card below decides.
+          settingSources: [],
           // Stream partial messages so text + thinking flow token-by-token
           // instead of landing in one dead-air lump. thinking:adaptive lets the
           // model reason visibly; the UI renders it in a collapsible panel.

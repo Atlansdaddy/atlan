@@ -16,6 +16,7 @@ const SUITES = [
   ['Worker Hierarchy', 'test/hierarchy.mjs', 'Job = chain of checker-gated links; cheapest-tier-first, escalate-on-fail up the model ladder, blackboard wiring, human gate pause/resume, ladder-exhaustion error. Mock tier engines — no real spend.'],
   ['Attachments', 'test/attachments.mjs', 'Upload (image/file) + reference (file/folder) + path-traversal guard + oversize/empty reject + audio/video graceful degradation without a key.'],
   ['Code Editor', 'test/editor.mjs', 'File read/write/tree scoped to the project, folders-first listing, noise-dir hiding, secrets + traversal + folder-as-file guards.'],
+  ['Voice & Providers', 'test/voice.mjs', 'TTS roster honesty (readiness tracks keys, roadmap items never claim ready), TTS input validation + clean degradation, SSML XML-escaping (no injection), Polly SigV4 signer, and the 12-provider AI-model spread.'],
   ...(PAID ? [['E2E', 'test/e2e.mjs', 'Real flows: fleet run to completion, budget-halt→top-up resume, harness good/bad + escalation, routine fire→inbox. (PAID — real Claude runs.)']] : []),
   ['UI/UX', 'test/ui.spec.mjs', 'Headless Chromium drives the real cockpit: tabs, engine roster, doctor/preflight render, key entry no-leak, XSS-safe render.'],
   ['Tour/Onboarding', 'test/tour.spec.mjs', 'Drives all tour steps live — every step spotlights a real visible element; handbook opens/searches/relaunches.'],

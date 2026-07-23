@@ -79,6 +79,7 @@
   let mood = 'calm', moodTimer = null, orbiters = 0;
   function setMood(next, agents) {
     mood = moodLines[next] ? next : 'calm';
+    currentMood = mood; // drives voice prosody
     if (typeof agents === 'number') orbiters = agents;
     $('atlanWrap').className = 'atlan ' + mood;
     $('atlanWrap').title = `Atlan is ${mood}` + (orbiters ? ` · ${orbiters} agent${orbiters > 1 ? 's' : ''} out` : '');
@@ -196,6 +197,9 @@
         break;
       case 'chat.result': {
         endWorking();
+        // voice mode: speak the reply when the turn finishes
+        lastReplyText = (turnText || '').trim();
+        if (voiceMode && lastReplyText) speak(lastReplyText);
         if (m.brain) {
           const bl = document.createElement('div');
           bl.className = 'sessline';
@@ -281,6 +285,7 @@
   let workingEl = null, streamBubble = null, thinkEl = null, thinkBody = null;
   function startWorking() {
     endWorking();
+    turnText = ''; // accumulate the reply so voice mode can speak it when done
     workingEl = document.createElement('div');
     workingEl.className = 'working';
     workingEl.setAttribute('role', 'status');
@@ -327,6 +332,7 @@
   function appendStream(t) {
     if (!streamBubble) startStreamBubble();
     streamBubble.lastChild.textContent += t;
+    turnText += t;
     scroll();
   }
 
@@ -340,6 +346,8 @@
       div.append(who);
     }
     div.append(document.createTextNode(text));
+    // capture non-streamed assistant replies (brains, agent CLIs) for voice
+    if ((role === 'claude' || role === 'brain') && !streamBubble) turnText = text;
     chatlog.append(div); scroll();
   }
 
@@ -403,7 +411,14 @@
     }
   }
   function pushAttachment(a) { if (a && !a.error) { attachments.push(a); renderChips(); } else if (a?.error) addMsg('err', 'attach: ' + a.error); }
+  const MAX_UPLOAD = 20 * 1024 * 1024; // matches server MAX_BYTES (Gemini inline ceiling)
   function uploadFile(file) {
+    // Pre-check size so a big phone photo fails with a REAL reason, not a generic
+    // "upload failed" (the old path hit a 413 → non-JSON → useless message).
+    if (file.size > MAX_UPLOAD) {
+      addMsg('err', `“${file.name}” is ${(file.size / 1024 / 1024).toFixed(1)} MB — max 20 MB. Resize or screenshot it, then attach.`);
+      return;
+    }
     const reader = new FileReader();
     reader.onload = () => {
       const chip = { id: 'up' + Date.now(), kind: 'file', name: file.name };
@@ -411,11 +426,14 @@
       fetch('/api/attach', {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ name: file.name, mime: file.type, data: reader.result }),
-      }).then((r) => r.json()).then((a) => {
+      }).then(async (r) => {
         attachments = attachments.filter((x) => x.id !== chip.id);
+        // surface the server's real error even on 4xx/413 (which may not be JSON)
+        let a; try { a = await r.json(); } catch { a = { error: r.status === 413 ? 'too large for the server' : `upload failed (${r.status})` }; }
         pushAttachment(a);
-      }).catch(() => { attachments = attachments.filter((x) => x.id !== chip.id); renderChips(); addMsg('err', 'upload failed'); });
+      }).catch(() => { attachments = attachments.filter((x) => x.id !== chip.id); renderChips(); addMsg('err', 'upload failed — network error'); });
     };
+    reader.onerror = () => addMsg('err', `couldn’t read “${file.name}”`);
     reader.readAsDataURL(file);
   }
   $('attachBtn').addEventListener('click', () => $('attachFile').click());
@@ -433,6 +451,90 @@
       if (item.type.startsWith('image/')) { const f = item.getAsFile(); if (f) uploadFile(f); }
     }
   });
+
+  // ── voice: speak (STT, browser) + hear Atlan back (TTS, server or browser) ──
+  let voiceMode = localStorage.getItem('atlanVoice') === '1';
+  let voiceProvider = 'browser';      // upgraded to a "sounds good" server voice if one's ready
+  let lastReplyText = '', turnText = '';
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+  function initVoice() {
+    $('voiceBtn').textContent = voiceMode ? '🔊' : '🔈';
+    $('voiceBtn').setAttribute('aria-pressed', String(voiceMode));
+    if (!SR) $('micBtn').style.display = 'none'; // no speech-input support
+    // pick the best ready server voice (piper > elevenlabs > openai), else browser
+    fetch('/api/voice/roster').then((r) => r.json()).then((list) => {
+      // prefer free/private local, then quality cloud voices — first ready wins
+      const pref = ['piper', 'elevenlabs', 'cartesia', 'deepgram', 'openai', 'google', 'azure', 'polly'];
+      const saved = localStorage.getItem('atlanVoiceProvider');
+      const best = (saved && list.find((v) => v.id === saved && v.ready) && saved)
+        || pref.find((id) => list.find((v) => v.id === id && v.ready));
+      if (best) voiceProvider = best;
+    }).catch(() => {});
+  }
+  $('voiceBtn').addEventListener('click', () => {
+    voiceMode = !voiceMode;
+    localStorage.setItem('atlanVoice', voiceMode ? '1' : '0');
+    $('voiceBtn').textContent = voiceMode ? '🔊' : '🔈';
+    $('voiceBtn').setAttribute('aria-pressed', String(voiceMode));
+    // one-time nudge: the basic browser voice has no SSML — point to the picker
+    if (voiceMode && voiceProvider === 'browser' && !localStorage.getItem('atlanVoiceHinted')) {
+      localStorage.setItem('atlanVoiceHinted', '1');
+      addMsg('claude', 'Speaking with the basic browser voice (no SSML). For a warmer voice with real prosody, pick one in Settings (⚙/Doctor tab) → “Voice — pick who speaks back”. Piper is free & on-device.');
+    }
+    if (voiceMode && lastReplyText) speak(lastReplyText);
+    else stopSpeaking();
+  });
+
+  // speech-to-text (browser Web Speech) → drops the transcript in the box to review
+  let recog = null, listening = false;
+  $('micBtn').addEventListener('click', () => {
+    if (!SR) return addMsg('err', 'voice input not supported in this browser');
+    if (listening) { recog?.stop(); return; }
+    recog = new SR();
+    // continuous so it doesn't cut off mid-sentence (a big "bleh transcript"
+    // cause); tap the mic again to stop. maxAlternatives lets the engine pick
+    // its best guess. True accuracy upgrade is server STT (Deepgram/Whisper) —
+    // a documented next step, since the browser engine is what it is.
+    recog.lang = navigator.language || 'en-US';
+    recog.interimResults = true; recog.continuous = true; recog.maxAlternatives = 3;
+    listening = true; $('micBtn').classList.add('listening');
+    let finalText = '';
+    recog.onresult = (e) => {
+      let interim = '';
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const t = e.results[i][0].transcript;
+        if (e.results[i].isFinal) finalText += t; else interim += t;
+      }
+      $('chatInput').value = (finalText + interim).trim();
+    };
+    recog.onerror = () => { listening = false; $('micBtn').classList.remove('listening'); };
+    recog.onend = () => { listening = false; $('micBtn').classList.remove('listening'); $('chatInput').focus(); };
+    recog.start();
+  });
+
+  // text-to-speech: server "good" voice if configured, else the browser voice
+  let audioEl = null, currentMood = 'calm';
+  function stopSpeaking() { try { audioEl?.pause(); } catch {} try { speechSynthesis.cancel(); } catch {} }
+  function speak(text) {
+    if (!text) return;
+    stopSpeaking();
+    if (voiceProvider === 'browser') {
+      try { const u = new SpeechSynthesisUtterance(text.slice(0, 4000)); u.rate = 1; speechSynthesis.speak(u); } catch {}
+      return;
+    }
+    fetch('/api/voice/tts', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ text: text.slice(0, 4000), provider: voiceProvider, mood: currentMood }),
+    }).then((r) => r.json()).then((a) => {
+      if (a.error || !a.data) { // fall back to the browser voice on any failure
+        try { speechSynthesis.speak(new SpeechSynthesisUtterance(text.slice(0, 4000))); } catch {}
+        return;
+      }
+      audioEl = new Audio(`data:${a.mime};base64,${a.data}`);
+      audioEl.play().catch(() => {});
+    }).catch(() => {});
+  }
 
   // ── chat send ──
   function sendChat() {
@@ -821,6 +923,36 @@
   const KEY_LABELS = {
     GEMINI_API_KEY: 'Gemini', OPENAI_API_KEY: 'OpenAI', DEEPSEEK_API_KEY: 'DeepSeek',
     XAI_API_KEY: 'xAI Grok', MISTRAL_API_KEY: 'Mistral', MOONSHOT_API_KEY: 'Kimi', ANTHROPIC_API_KEY: 'Anthropic (optional — OAuth already works)',
+    GROQ_API_KEY: 'Groq (fast Llama/Kimi/etc)', TOGETHER_API_KEY: 'Together AI', OPENROUTER_API_KEY: 'OpenRouter (many models, 1 key)', FIREWORKS_API_KEY: 'Fireworks AI', COHERE_API_KEY: 'Cohere',
+    ELEVENLABS_API_KEY: 'ElevenLabs (voice)', PIPER_MODEL: 'Piper voice model (.onnx path)', CARTESIA_API_KEY: 'Cartesia (voice)', DEEPGRAM_API_KEY: 'Deepgram (voice)',
+    GOOGLE_TTS_API_KEY: 'Google Cloud TTS (voice)', AZURE_SPEECH_KEY: 'Azure Speech key (voice)', AZURE_SPEECH_REGION: 'Azure Speech region (e.g. eastus)',
+    AWS_ACCESS_KEY_ID: 'AWS access key (Polly voice)', AWS_SECRET_ACCESS_KEY: 'AWS secret key (Polly voice)', AWS_REGION: 'AWS region (e.g. us-east-1)',
+  };
+  // "How do I get this?" — a one-tap tutorial link per provider. Honest: where
+  // to sign up + the one thing that trips people up. No key is ever required.
+  const KEY_HELP = {
+    GEMINI_API_KEY: ['aistudio.google.com/apikey', 'Free tier. Sign in → Get API key.'],
+    OPENAI_API_KEY: ['platform.openai.com/api-keys', 'Add billing, then create a secret key. Powers OpenAI chat + TTS.'],
+    DEEPSEEK_API_KEY: ['platform.deepseek.com/api_keys', 'Cheap. Top up a few dollars, create a key.'],
+    XAI_API_KEY: ['console.x.ai', 'Create a key under API Keys.'],
+    MISTRAL_API_KEY: ['console.mistral.ai/api-keys', 'La Plateforme → API Keys.'],
+    MOONSHOT_API_KEY: ['platform.moonshot.ai/console/api-keys', 'Kimi. Create a key; balance required.'],
+    ANTHROPIC_API_KEY: ['console.anthropic.com/settings/keys', 'Optional — your Claude subscription OAuth already works.'],
+    GROQ_API_KEY: ['console.groq.com/keys', 'Free + very fast. Create an API key.'],
+    TOGETHER_API_KEY: ['api.together.ai/settings/api-keys', 'Many open models on one key.'],
+    OPENROUTER_API_KEY: ['openrouter.ai/keys', 'One key, hundreds of models. Great for trying things.'],
+    FIREWORKS_API_KEY: ['fireworks.ai/account/api-keys', 'Fast open-model hosting.'],
+    COHERE_API_KEY: ['dashboard.cohere.com/api-keys', 'Command models; free trial keys available.'],
+    ELEVENLABS_API_KEY: ['elevenlabs.io/app/settings/api-keys', 'Best voices. Profile → API Keys. Free tier included.'],
+    PIPER_MODEL: ['github.com/rhasspy/piper', 'Free, offline. `pip install piper-tts`, download a .onnx voice, paste its path here.'],
+    CARTESIA_API_KEY: ['play.cartesia.ai/keys', 'Real-time emotive voices. Set CARTESIA_VOICE for a specific voice id.'],
+    DEEPGRAM_API_KEY: ['console.deepgram.com', 'Voice-agent grade, very low latency. Free credits to start.'],
+    GOOGLE_TTS_API_KEY: ['console.cloud.google.com/apis/credentials', 'Enable "Cloud Text-to-Speech API", then create an API key.'],
+    AZURE_SPEECH_KEY: ['portal.azure.com', 'Create a Speech resource → Keys and Endpoint. Also set the region below.'],
+    AZURE_SPEECH_REGION: ['portal.azure.com', 'The region of your Speech resource, e.g. eastus.'],
+    AWS_ACCESS_KEY_ID: ['console.aws.amazon.com/iam', 'IAM user with AmazonPollyReadOnly. Cheapest voices. Also add the secret + region.'],
+    AWS_SECRET_ACCESS_KEY: ['console.aws.amazon.com/iam', 'The secret shown once when you create the access key.'],
+    AWS_REGION: ['docs.aws.amazon.com/general/latest/gr/pol.html', 'A region where Polly runs, e.g. us-east-1.'],
   };
   function loadKeys() {
     fetch('/api/keys').then((r) => r.json()).then((list) => {
@@ -829,9 +961,16 @@
       for (const k of list) {
         const row = document.createElement('div');
         row.className = 'keyrow';
+        const help = KEY_HELP[k.env];
         row.innerHTML = `<span class="kname"></span><input type="password" placeholder="${k.set ? 'saved ' + k.hint + ' — paste to replace' : 'paste key'}" autocomplete="off">
           <span class="kset">${k.set ? '● ' + (k.source === 'env' ? 'env' : 'set') : ''}</span><button class="btn">Save</button>`;
         row.querySelector('.kname').textContent = KEY_LABELS[k.env] ?? k.env;
+        if (help) {
+          const a = document.createElement('a');
+          a.className = 'khelp'; a.href = 'https://' + help[0]; a.target = '_blank'; a.rel = 'noopener';
+          a.textContent = 'how to get ↗'; a.title = help[1]; a.setAttribute('aria-label', `How to get ${KEY_LABELS[k.env] ?? k.env}: ${help[1]}`);
+          row.append(a);
+        }
         const input = row.querySelector('input');
         row.querySelector('button').addEventListener('click', () => {
           fetch('/api/keys', {
@@ -841,13 +980,43 @@
           }).then((r) => r.json()).then((j) => {
             if (j.error) return addMsg('err', j.error);
             input.value = '';
-            loadKeys(); loadEngines(); // refresh switcher availability
+            loadKeys(); loadEngines(); loadVoicePicker(); // refresh availability everywhere
           });
         });
         box.append(row);
       }
     }).catch(() => {});
   }
+
+  // Voice provider picker (Settings) — lists the roster with honest ready flags;
+  // choosing one saves it and takes effect immediately.
+  function loadVoicePicker() {
+    const sel = $('voiceProviderSel');
+    if (!sel) return;
+    fetch('/api/voice/roster').then((r) => r.json()).then((list) => {
+      sel.innerHTML = '';
+      for (const v of list) {
+        const o = document.createElement('option');
+        o.value = v.id;
+        o.textContent = `${v.label} · ${v.cost} · ${v.ssml ? 'SSML' : 'no SSML'}${v.ready ? '' : ' — needs key'}`;
+        o.disabled = !v.ready;
+        if (v.id === voiceProvider) o.selected = true;
+        sel.append(o);
+      }
+      const cur = list.find((v) => v.id === voiceProvider);
+      $('voiceProviderNote').textContent = cur ? cur.note : 'The browser voice always works, free.';
+    }).catch(() => {});
+    sel.onchange = () => {
+      voiceProvider = sel.value;
+      localStorage.setItem('atlanVoiceProvider', voiceProvider);
+      fetch('/api/voice/roster').then((r) => r.json()).then((list) => {
+        const cur = list.find((v) => v.id === voiceProvider);
+        if (cur) $('voiceProviderNote').textContent = cur.note;
+      }).catch(() => {});
+      if (lastReplyText) speak('Voice set.');
+    };
+  }
+  loadVoicePicker();
 
   // ── session controls (Doctor tab) ──
   $('logoutBtn').addEventListener('click', async () => {
@@ -1409,4 +1578,5 @@
 
   connect();
   greet();
+  initVoice();
 })();
