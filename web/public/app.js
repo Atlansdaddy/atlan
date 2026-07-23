@@ -60,6 +60,7 @@
     b.setAttribute('aria-current', 'page');
     document.querySelectorAll('.screen').forEach((s) => s.classList.remove('active'));
     $(b.dataset.s).classList.add('active');
+    send({ t: 'ui.tab', tab: b.dataset.s }); // keep Atlan's self-awareness in sync with the tab
     if (b.dataset.s === 's-term') initTerm();
     if (b.dataset.s === 's-editor') initEditor();
     if (b.dataset.s === 's-fleet') loadFleet();

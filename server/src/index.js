@@ -286,15 +286,32 @@ function fmtGap(ms) {
   const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
   return `${h ? h + 'h ' : ''}${m || h ? m + 'm ' : ''}${sec}s`;
 }
-function timeContext() {
+const TAB_NAMES = {
+  's-chat': 'Chat', 's-preview': 'Preview', 's-term': 'Terminal', 's-build': 'Build',
+  's-editor': 'Editor', 's-fleet': 'Fleet', 's-doctor': 'Doctor',
+};
+// Atlan's live self-awareness block — rides the uncached tail of each turn (like
+// the clock always did), so identity stays in the cached system prompt while the
+// model's sense of *now* is always fresh. Folds in time (John: "add time
+// awareness to this as well") + which tab he's on + the fleet running right now
+// + today's burn + the open project + a derived mood. Kept compact (~60 tokens)
+// and framed as telemetry so the model never mistakes it for the user's words.
+function cockpitContext(tab, cwd) {
   const now = new Date();
   const clock = now.toTimeString().slice(0, 8);
   const date = now.toISOString().slice(0, 10);
-  let line = `\n\n[Atlan clock — now ${date} ${clock}`;
-  if (lastActivityAt) line += `; last exchange ${lastActivityAt.toTimeString().slice(0, 8)}, ${fmtGap(now - lastActivityAt)} ago`;
-  line += `. You perceive elapsed time — factor it into how you greet and respond.]`;
+  const lines = [`time ${date} ${clock}` + (lastActivityAt ? ` (last exchange ${fmtGap(now - lastActivityAt)} ago)` : '')];
   lastActivityAt = now;
-  return line;
+  lines.push(`tab: ${TAB_NAMES[tab] || 'Chat'}`);
+  lines.push(`project: ${cwd || '/root'}`);
+  const running = listRuns().filter((r) => r.status === 'running');
+  const burn = todayBurn();
+  lines.push(running.length
+    ? `fleet: ${running.length} agent(s) working — ${running.map((r) => r.profile).join(', ')}`
+    : 'fleet: idle');
+  lines.push(`today's burn: ${burn.tokens.toLocaleString()} tokens`);
+  lines.push(`mood: ${running.length ? 'building' : 'calm'}`);
+  return `\n\n[Atlan cockpit — your live state right now; perceive it, don't recite it]\n` + lines.join('\n');
 }
 
 // Fleet events are server-global — every open cockpit sees the same runs.
@@ -316,6 +333,7 @@ wss.on('connection', (ws, req) => {
   if (!wsAuthed(req)) { ws.close(4001, 'auth required'); return; }
   const send = (obj) => { if (ws.readyState === 1) ws.send(JSON.stringify(obj)); };
   let claude = null;
+  let currentTab = 's-chat'; // last tab the client reported → feeds Atlan's self-awareness
   const brainHistory = new Map();
   const agentState = new Map();
   // Preview context that auto-attaches to the next turn: errors since last
@@ -344,8 +362,8 @@ wss.on('connection', (ws, req) => {
         }
         pending.errors = []; pending.snaps = (isClaude || isAgentCli) ? [] : pending.snaps;
 
-        // clock line rides in the uncached tail — always-fresh time awareness, ~0 token cost
-        text += timeContext();
+        // live self-awareness (incl. clock) rides the uncached tail — always fresh, ~0 token cost
+        text += cockpitContext(currentTab, (claude && claude.cwd) || m.cwd || '/root');
 
         if (isAgentCli) {
           const state = agentState.get(m.engine) ?? {};
@@ -353,9 +371,11 @@ wss.on('connection', (ws, req) => {
           agentTurn({ engine: m.engine, cwd: m.cwd || '/root', text, send, state });
         } else if (isClaude) {
           if (!claude || (m.cwd && claude.cwd !== m.cwd)) {
+            claude?.dispose(); // end the old warm session before replacing it (cwd changed)
             claude = new ClaudeSession({ cwd: m.cwd || '/root', model: m.model || 'claude-fable-5', send });
+          } else if (m.model) {
+            claude.setModel(m.model); // warm-session model switch — no respawn, keeps context
           }
-          if (m.model) claude.model = m.model;
           claude.prompt(text);
         } else {
           // Brains keep their own short history per connection+provider so a
@@ -372,6 +392,10 @@ wss.on('connection', (ws, req) => {
         }
         break;
       }
+      case 'ui.tab':
+        // client tells us which tab it's on → Atlan's self-awareness stays current
+        if (typeof m.tab === 'string') currentTab = m.tab;
+        break;
       case 'preview.log':
         if (m.level === 'error') {
           pending.errors.push(String(m.text).slice(0, 500));
