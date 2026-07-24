@@ -7,6 +7,28 @@ import { readFileSync } from 'node:fs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 import { PREVIEW_PORT } from './config.js';
+import { allowedOrigins } from './auth.js';
+
+// Anti-rebinding / cross-site gate for the preview proxy (peer-review finding:
+// :PREVIEW_PORT was an open, unauthenticated loopback — a DNS-rebinding page or
+// a cross-site fetch/WS in the browser could reach it). Two checks, no token:
+//   • Host — a rebinding attack arrives with a FOREIGN host (e.g. evil.com) that
+//     resolves to 127.0.0.1; a real preview load carries a loopback host. Reject
+//     anything that isn't loopback.
+//   • Origin — cross-site fetch/WS carries the attacker's origin. The preview's
+//     own subresources send the preview origin; the cockpit sends one of its
+//     allowed origins; a top-level iframe navigation sends none. Reject the rest.
+// Residual (documented, NOT closed): a NATIVE local app can forge these headers;
+// only a secret token stops that, which we deliberately avoid in the URL. This
+// shuts the browser-reachable vector, which is the realistic remote threat.
+function previewOriginOk(req) {
+  const name = String(req.headers.host || '').split(':')[0].replace(/^\[|\]$/g, '');
+  if (name !== '127.0.0.1' && name !== 'localhost' && name !== '::1') return false;
+  const o = req.headers.origin;
+  if (!o) return true; // top-level navigation / most subresources
+  const self = [`http://127.0.0.1:${PREVIEW_PORT}`, `http://localhost:${PREVIEW_PORT}`];
+  return self.includes(o) || allowedOrigins().includes(o);
+}
 
 let target = 'http://127.0.0.1:5173';
 export function setPreviewTarget(url) { target = url; }
@@ -52,6 +74,13 @@ const INJECT = `
 export function startPreviewProxy() {
   const app = express();
 
+  // Gate every request first: block DNS-rebinding (foreign Host) and cross-site
+  // access (foreign Origin) before anything is proxied or injected.
+  app.use((req, res, next) => {
+    if (!previewOriginOk(req)) return res.status(403).type('text/plain').send('bad origin');
+    next();
+  });
+
   app.get('/__atlan/inject.js', (_req, res) => res.type('application/javascript').send(INJECT));
   app.get('/__atlan/html2canvas.js', (_req, res) =>
     res.type('application/javascript').send(readFileSync(join(__dirname, 'vendor-html2canvas.js'))));
@@ -86,7 +115,12 @@ export function startPreviewProxy() {
 
   app.use('/', proxy);
   const server = createServer(app);
-  server.on('upgrade', proxy.upgrade);
+  server.on('upgrade', (req, socket, head) => {
+    // Same gate for WS upgrades (HMR sockets) — a rebinding/cross-site WS carries
+    // a foreign Origin/Host and is dropped before the proxy sees it.
+    if (!previewOriginOk(req)) { socket.destroy(); return; }
+    proxy.upgrade(req, socket, head);
+  });
   server.listen(PREVIEW_PORT, '127.0.0.1', () =>
     console.log(`preview proxy · http://127.0.0.1:${PREVIEW_PORT} → ${target}`));
   return server;
