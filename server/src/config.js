@@ -16,7 +16,7 @@ export const FLEET_DIR = process.env.ATLAN_FLEET_DIR ?? join(REPO, '.fleet');
 export const APP_ROOT = REPO; // where .auth-token, .snapshots, .keys.enc live
 
 // Where the user's code projects are scanned from + the default build target
-export const PROJECTS_DIR = pick('ATLAN_PROJECTS', 'projectsDir', '/root');
+export const PROJECTS_DIR = pick('ATLAN_PROJECTS', 'projectsDir', process.platform === 'win32' ? process.cwd() : '/root');
 export const DEFAULT_BUILD_PROJECT = pick('ATLAN_BUILD_PROJECT', 'defaultBuildProject', PROJECTS_DIR);
 
 // Ports
