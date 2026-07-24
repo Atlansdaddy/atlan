@@ -2,6 +2,8 @@
 
 *Four frontier models (ChatGPT, Claude, Gemini, Grok) reviewed Atlan on 2026-07-22 via `docs/REVIEW-FOR-AI.md`. Several found the SAME concrete bugs independently — that cross-validation is why they're treated as real. This tracks every finding and its status.*
 
+*Re-audited against live source 2026-07-24: all 8 code-level "Fixed" rows re-verified present (no regressions); 3 roadmapped items advanced by the durability batch (ReDoS, atomic writes, sandbox opt-in) and moved below; front-end monolith line count corrected (grew, not shrank).*
+
 ## ✅ Fixed (confirmed by ≥2 models, code-level, regression-tested)
 | Finding | Who | Fix |
 |---|---|---|
@@ -15,13 +17,19 @@
 | No `Secure` cookie flag (for tunneled use) | ChatGPT, Grok | via `ATLAN_SECURE_COOKIE` |
 | Doc/code drift: SECURITY.md said "auth doesn't exist"; "writes scoped to project" false for Bash; "no service worker" false | all | SECURITY.md rewritten honestly; profiles relabeled (only Scout is a wall); SW claim corrected |
 
+## ✅ Fixed since — durability batch (2026-07-24)
+| Finding | Who | Fix |
+|---|---|---|
+| regex checkers can ReDoS | ChatGPT, Claude, Grok | Rejected at **authoring** — `unsafeRegex` (`personas.js`) flags nested-quantifier / catastrophic-backtracking shapes so they can never be saved; `upsertCommand` throws. Runtime keeps a 10k input cap as a backstop. Unit regression added. RE2/engine-level timeout remains the ideal, but the ReDoS door is shut. |
+| Synchronous FS writes without atomic rename (sessions, personas, ledger) | ChatGPT, Grok | `atomicWrite` (temp sibling + `rename(2)`, preserves `0600`) across all 7 JSON stores (`fsutil.js`) — a crash/kill mid-write can no longer brick a store. SQLite migration still deferred (separate item below). |
+| Bash not OS-sandboxed (opt-in mechanism) | all | **Partial.** `ATLAN_SANDBOX=1` wires the SDK OS-confinement (bubblewrap + seccomp) into autonomous fleet Bash; Doctor surfaces whether it's ENFORCED / available-but-off / unavailable. Real confinement only on a native/WSL2 host — proot has no user namespaces, so on-phone it stays unconfined (and says so). The mechanism shipped; the environment is the remaining gap. |
+
 ## 🗺️ Roadmapped (real, bigger than a patch — acknowledged, not hidden)
 | Finding | Who | Plan |
 |---|---|---|
-| Bash not OS-sandboxed on proot = builder/verifier are full host execution | all | Now labeled honestly. Real fix = native sandboxed worker (worktree ≠ sandbox); the Bash-sandbox-alternative work (worktree isolation + native host). |
+| Bash native OS-sandbox on proot (real confinement, not opt-in) | all | Opt-in mechanism now shipped (see 2026-07-24 above); the *remaining* gap is proot itself having no user namespaces. Real fix = run the server on a native/WSL2 host, or a native sandboxed worker (worktree ≠ sandbox). |
 | Preview proxy (:4590) unauthenticated loopback | all | Add auth to the proxy, or gate it; on Android any app reaches it. |
 | Budgets are post-step, not stream-level (single turn can overshoot) | all | Reserve budget before each model call based on max-output; the aggregate cap now backstops the account. |
-| regex checkers can ReDoS | ChatGPT, Claude, Grok | Move to RE2 / pattern timeout. |
 | TOCTOU on path guards | Claude, ChatGPT | Low severity single-user; real fix needs openat2/dir-fd confinement. |
 | First-run `/api/auth/setup` race | ChatGPT, Grok | Narrow window; origin guard now blocks cross-origin claim. Consider a first-run local-only token. |
 | **Self-repair gates insufficient as specified** — worktree isn't an execution sandbox; gate code must be immutable *relative to what it gates*; human rubber-stamp under fatigue | all | Folded into `VAULT-DESIGN.md`: Stage 2 stays "AI-assisted patch proposal" (not autonomous) until it runs in a real sandbox with an external immutable test oracle + gate code the loop can't touch. Off by default. |

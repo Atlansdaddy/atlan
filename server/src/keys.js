@@ -1,5 +1,6 @@
 import { randomBytes, scryptSync, createCipheriv, createDecipheriv } from 'node:crypto';
 import { readFileSync, writeFileSync, existsSync, chmodSync } from 'node:fs';
+import { atomicWrite } from './fsutil.js';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -46,7 +47,7 @@ function save(obj) {
   const iv = randomBytes(12);
   const c = createCipheriv('aes-256-gcm', aesKey(), iv);
   const data = Buffer.concat([c.update(JSON.stringify(obj), 'utf8'), c.final()]);
-  writeFileSync(STORE_FILE, JSON.stringify({
+  atomicWrite(STORE_FILE, JSON.stringify({
     iv: iv.toString('base64'),
     tag: c.getAuthTag().toString('base64'),
     data: data.toString('base64'),

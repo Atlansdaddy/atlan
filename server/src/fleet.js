@@ -1,6 +1,7 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { randomUUID } from 'node:crypto';
-import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, readFileSync } from 'node:fs';
+import { atomicWrite } from './fsutil.js';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { dirname } from 'node:path';
@@ -84,7 +85,7 @@ function commitBurn(tokens, cost, cacheRead = 0) {
   const d = { tokens: 0, cost: 0, cacheRead: 0, ...b[dateKey()] };
   d.tokens += tokens; d.cost += cost; d.cacheRead += cacheRead;
   b[dateKey()] = d;
-  writeFileSync(BURN, JSON.stringify(b));
+  atomicWrite(BURN, JSON.stringify(b));
 }
 
 // ── runs ──

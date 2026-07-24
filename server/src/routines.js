@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync } from 'node:fs';
+import { atomicWrite } from './fsutil.js';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnRun, isActive } from './fleet.js';
@@ -14,7 +15,7 @@ mkdirSync(FLEET_DIR, { recursive: true });
 const FILE = join(FLEET_DIR, 'routines.json');
 
 let state = (() => { try { return JSON.parse(readFileSync(FILE, 'utf8')); } catch { return { routines: [], paused: false }; } })();
-const persist = () => writeFileSync(FILE, JSON.stringify(state, null, 1));
+const persist = () => atomicWrite(FILE, JSON.stringify(state, null, 1));
 
 let broadcast = () => {};
 let notify = async () => {};

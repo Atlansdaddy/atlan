@@ -1,5 +1,6 @@
 import { randomBytes, scryptSync, timingSafeEqual, createHash } from 'node:crypto';
 import { chmodSync, existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { atomicWrite } from './fsutil.js';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PORT } from './config.js';
@@ -42,7 +43,7 @@ export function setPassword(pw) {
   if (typeof pw !== 'string' || pw.length < 8) throw new Error('password must be at least 8 characters');
   const salt = randomBytes(16).toString('hex');
   const hash = scryptSync(pw, salt, 64).toString('hex');
-  writeFileSync(AUTH_FILE, JSON.stringify({ salt, hash }), { mode: 0o600 });
+  atomicWrite(AUTH_FILE, JSON.stringify({ salt, hash }), { mode: 0o600 });
   try { chmodSync(AUTH_FILE, 0o600); } catch { /* best effort */ }
 }
 export function checkPassword(pw) {
@@ -56,7 +57,7 @@ export function checkPassword(pw) {
 // ── sessions (persisted → survive restarts, so no re-login/lockout) ──
 const SESSION_TTL = 30 * 24 * 3600_000; // 30 days
 let sessions = loadJson(SESS_FILE, []).filter((s) => Date.now() - s.at < SESSION_TTL);
-const saveSessions = () => { try { writeFileSync(SESS_FILE, JSON.stringify(sessions), { mode: 0o600 }); } catch { /* */ } };
+const saveSessions = () => { try { atomicWrite(SESS_FILE, JSON.stringify(sessions), { mode: 0o600 }); } catch { /* */ } };
 saveSessions();
 // Session tokens are HASHED at rest (peer review, 2026-07-22): sessions.json
 // holds only sha256(token), so reading the file can't replay a session.

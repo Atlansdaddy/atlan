@@ -1,6 +1,7 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync } from 'node:fs';
+import { atomicWrite } from './fsutil.js';
 import { join } from 'node:path';
 import { FLEET_DIR } from './config.js';
 import { listCommands, listPersonas, compilePersona, compileCommand, templateSchema, runCheckers } from './personas.js';
@@ -35,7 +36,7 @@ export const tierList = Object.entries(TIERS).map(([id, t]) => ({ id, label: t.l
 
 // ── job store (authored plans persist; runs are in-memory + audit-logged) ──
 let jobs = loadJson(JOBS_FILE, []);
-const saveJobs = () => writeFileSync(JOBS_FILE, JSON.stringify(jobs, null, 1));
+const saveJobs = () => atomicWrite(JOBS_FILE, JSON.stringify(jobs, null, 1));
 export function listJobs() { return jobs.map(publicJob); }
 function publicJob(j) {
   return { id: j.id, title: j.title, humanGate: j.humanGate, maxEscalations: j.maxEscalations, budget: j.budget, links: j.links };

@@ -11,7 +11,7 @@ _Free suites only. The E2E suite (real Claude runs) is opt-in — `RUN_PAID=1 no
 
 | Suite | What it proves | Result |
 |---|---|---|
-| Unit | Pure functions in isolation: safe-arith evaluator, checker engine, Persona+ compilers, schema builders, scheduler math, token compare. | ✅ 35/35 |
+| Unit | Pure functions in isolation: safe-arith evaluator, checker engine, Persona+ compilers, schema builders, scheduler math, token compare. | ✅ 38/38 |
 | Function | Every HTTP endpoint contract + shape, plus data-store durability (corrupt/truncated JSON fails soft). (Spawns 1 tiny killed run.) | ✅ 25/25 |
 | Connection | Live WebSocket + PTY: authed connect, 4001 on bad token, malformed-frame survival, multi-client broadcast, tmux round-trip, reconnection. (Spawns 2 tiny killed runs.) | ✅ 6/6 |
 | Security/Penetration | Auth bypass, SSRF (preview + harness), secret exfiltration, path traversal, stored-XSS, oversized-body DoS, profile privilege-escalation. | ✅ 21/21 |
@@ -23,7 +23,7 @@ _Free suites only. The E2E suite (real Claude runs) is opt-in — `RUN_PAID=1 no
 | UI/UX | Headless Chromium drives the real cockpit: tabs, engine roster, doctor/preflight render, key entry no-leak, XSS-safe render. | ✅ 11/11 |
 | Tour/Onboarding | Drives all tour steps live — every step spotlights a real visible element; handbook opens/searches/relaunches. | ✅ 9/9 |
 
-**Total: 181 passed, 0 failed across 11 suites.**
+**Total: 184 passed, 0 failed across 11 suites.**
 
 ## Unit
 
@@ -65,10 +65,13 @@ UNIT SUITE
   ✓ a forged session token is invalid
   ✓ build guard — path outside PROJECTS_DIR is rejected (fails closed)
   ✓ build guard — shell-metacharacter path is rejected (RCE attempt fails closed)
+  ✓ unsafeRegex flags nested quantifiers (ReDoS shapes)
+  ✓ unsafeRegex allows normal patterns
+  ✓ a checker with a catastrophic regex is REFUSED at authoring (hard error)
   ✓ sandboxOption is undefined unless ATLAN_SANDBOX=1 (off by default)
   ✓ ATLAN_SANDBOX=1 yields an enabled, honest-degrade sandbox option
 
-35 passed, 0 failed
+38 passed, 0 failed
 ```
 
 ## Function

