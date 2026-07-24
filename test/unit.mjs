@@ -216,5 +216,24 @@ test('build guard — shell-metacharacter path is rejected (RCE attempt fails cl
   assert.ok(msgs.some((m) => m.t === 'build.err'), 'metachar path must be rejected, never spawned');
 });
 
+// ── OS-sandbox opt-in (ATLAN_SANDBOX) ──
+const { sandboxEnabled, sandboxOption } = await import('../server/src/config.js');
+test('sandboxOption is undefined unless ATLAN_SANDBOX=1 (off by default)', () => {
+  const prev = process.env.ATLAN_SANDBOX;
+  delete process.env.ATLAN_SANDBOX;
+  assert.equal(sandboxEnabled(), false);
+  assert.equal(sandboxOption(), undefined);
+  if (prev !== undefined) process.env.ATLAN_SANDBOX = prev;
+});
+test('ATLAN_SANDBOX=1 yields an enabled, honest-degrade sandbox option', () => {
+  const prev = process.env.ATLAN_SANDBOX;
+  process.env.ATLAN_SANDBOX = '1';
+  assert.equal(sandboxEnabled(), true);
+  // enabled + failIfUnavailable:false (degrade where bwrap can't start); NOT
+  // autoAllowBashIfSandboxed — sandboxed Bash must still hit canUseTool (budget/profile).
+  assert.deepEqual(sandboxOption(), { enabled: true, failIfUnavailable: false });
+  if (prev === undefined) delete process.env.ATLAN_SANDBOX; else process.env.ATLAN_SANDBOX = prev;
+});
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

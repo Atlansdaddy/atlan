@@ -1,7 +1,7 @@
 import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
 import { existsSync } from 'node:fs';
-import { PORT } from './config.js';
+import { PORT, sandboxEnabled } from './config.js';
 
 const sh = promisify(exec);
 
@@ -82,18 +82,25 @@ export async function runDoctor() {
       // `|| true` then grepped for known error words — an unrecognized failure
       // would slip through and falsely report the sandbox "available." Claiming
       // a boundary that isn't there is the exact thing the threat model forbids.
+      // Report ENFORCEMENT, not just availability, so the boundary is never
+      // overstated. The autonomous fleet OS-confines Bash only when ATLAN_SANDBOX=1
+      // AND bubblewrap can actually create namespaces here.
+      const on = sandboxEnabled();
+      let avail = false, notInstalled = false;
       try {
         await sh('bwrap --ro-bind / / --unshare-all true', { timeout: 5000 });
-        return { ok: true, detail: 'available — builder/verifier Bash can be OS-confined' };
+        avail = true;
       } catch (err) {
-        const notInstalled = /ENOENT|not found|command not found/i.test(String(err?.message ?? err));
-        return {
-          ok: false, warn: true,
-          detail: notInstalled
-            ? 'bubblewrap not installed (optional; only usable on a native host)'
-            : 'unavailable in proot (no namespaces) — profiles gate tools; native host gets full sandbox',
-        };
+        notInstalled = /ENOENT|not found|command not found/i.test(String(err?.message ?? err));
       }
+      if (avail && on) return { ok: true, detail: 'ENFORCED — autonomous (builder/verifier) Bash runs OS-confined via bubblewrap+seccomp (ATLAN_SANDBOX=1)' };
+      if (avail && !on) return { ok: false, warn: true, detail: 'available but OFF — set ATLAN_SANDBOX=1 to OS-confine autonomous Bash (interactive Chat stays permission-carded)' };
+      if (!avail && on) return { ok: false, warn: true, detail: notInstalled
+        ? 'ATLAN_SANDBOX=1 but bubblewrap not installed — `apt install bubblewrap` (Linux/WSL2); until then autonomous Bash runs UNSANDBOXED (failIfUnavailable=false keeps runs working)'
+        : 'ATLAN_SANDBOX=1 but no user namespaces here (proot) — autonomous Bash runs UNSANDBOXED; run the server on a Linux/WSL2/native host to actually confine it' };
+      return { ok: false, warn: true, detail: notInstalled
+        ? 'bubblewrap not installed (optional) — on a Linux/WSL2 host: `apt install bubblewrap` + ATLAN_SANDBOX=1 to confine autonomous Bash'
+        : 'unavailable in proot (no namespaces) — profiles gate tools; a native Linux/WSL2 host + ATLAN_SANDBOX=1 gives real OS confinement' };
     }),
     check('piper', 'Piper voice (local TTS)', async () => {
       // Optional "sounds good" local voice. Browser voice always works without

@@ -29,6 +29,19 @@ export const PREVIEW_PORT = Number(pick('ATLAN_PREVIEW_PORT', 'previewPort', 459
 export const DAILY_TOKEN_CAP = Number(pick('ATLAN_DAILY_TOKEN_CAP', 'dailyTokenCap', 5_000_000));
 export const MAX_CONCURRENT_RUNS = Number(pick('ATLAN_MAX_CONCURRENT_RUNS', 'maxConcurrentRuns', 6));
 
+// OS-level Bash sandbox for AUTONOMOUS fleet runs (builder/verifier). The Agent
+// SDK confines Bash via bubblewrap/seccomp when this is on AND the host provides
+// user namespaces (Linux / WSL2 / a home node). proot on the phone has none, so
+// failIfUnavailable stays false → it degrades to UNsandboxed there and the Doctor
+// says so honestly (never a lie about the boundary). Off by default; opt in with
+// ATLAN_SANDBOX=1 once the Doctor's bubblewrap check is green. Deliberately NOT
+// applied to interactive Chat — that's human card-gated; this confines the
+// autonomous fleet, which is exactly what the peer review flagged.
+export function sandboxEnabled() { return process.env.ATLAN_SANDBOX === '1'; }
+export function sandboxOption() {
+  return sandboxEnabled() ? { enabled: true, failIfUnavailable: false } : undefined;
+}
+
 // Branding / identity — neutral defaults; a fork sets its own (logo stays a file)
 export const BRAND = {
   name: file.brand?.name ?? 'Atlan',

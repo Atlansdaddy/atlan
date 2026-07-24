@@ -11,7 +11,7 @@ import { dirname } from 'node:path';
 //     off-profile tools are denied with a reason the agent can read.
 //  3. Idle = zero tokens — nothing runs unless spawned (or, M5c, scheduled).
 const __dirname = dirname(fileURLToPath(import.meta.url));
-import { FLEET_DIR, DAILY_TOKEN_CAP, MAX_CONCURRENT_RUNS } from './config.js';
+import { FLEET_DIR, DAILY_TOKEN_CAP, MAX_CONCURRENT_RUNS, sandboxOption } from './config.js';
 mkdirSync(FLEET_DIR, { recursive: true });
 const HISTORY = join(FLEET_DIR, 'history.jsonl');
 const BURN = join(FLEET_DIR, 'burn.json');
@@ -168,6 +168,12 @@ async function exec(run, prof) {
         // many short-lived runs, instead of each one paying a full ~35k write.
         systemPrompt: { type: 'preset', preset: 'claude_code', excludeDynamicSections: true },
         disallowedTools: prof.disallowed,
+        // OS-confine autonomous Bash (bubblewrap/seccomp) when ATLAN_SANDBOX=1 and
+        // the host supports it. Deliberately WITHOUT autoAllowBashIfSandboxed —
+        // sandboxed Bash still flows through canUseTool below, so the HARD budget
+        // halt and profile gating stay in force. On proot it degrades to
+        // unsandboxed (failIfUnavailable:false) and the Doctor reports it honestly.
+        ...(sandboxOption() ? { sandbox: sandboxOption() } : {}),
         ...(run.resume ? { resume: run.resume } : {}),
         canUseTool: async (tool, input) => {
           if (run.status !== 'running') return { behavior: 'deny', message: 'run is stopping' };
