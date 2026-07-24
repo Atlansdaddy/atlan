@@ -1,34 +1,16 @@
-import { readFileSync, writeFileSync, existsSync, statSync, readdirSync, mkdirSync, realpathSync } from 'node:fs';
-import { resolve, join, dirname, basename } from 'node:path';
-import { PROJECTS_DIR } from './config.js';
+import { readFileSync, writeFileSync, statSync, readdirSync, mkdirSync } from 'node:fs';
+import { join, dirname, basename } from 'node:path';
+import { APP_ROOT, PROJECTS_DIR } from './config.js';
+import { SENSITIVE, isUnder, guardPath } from './guards.js';
 
-// File read/write/list for the in-app code editor. Same guards as attachments:
-// everything stays under PROJECTS_DIR, and credential-shaped paths are refused.
-const SENSITIVE = /(^|\/)\.(ssh|aws|gnupg|gcloud|docker|kube)(\/|$)|(^|\/)(\.auth-token|\.keys\.enc|\.keysecret|id_rsa|id_ed25519)(\/|$)/;
+// File read/write/list for the in-app code editor. Path safety is the SHARED
+// guard in guards.js (the editor and attachments must use the SAME rules — they
+// drifted once, see guards.js). The editor additionally refuses Atlan's OWN repo
+// (blockAppRoot): it's a tool for your projects, not for editing the cockpit's
+// source or state. So `.fleet`/`.env`/keys AND server/src/*.js are all off-limits.
 const MAX = 2 * 1024 * 1024; // 2MB — don't load huge files into a browser editor
 
-function underRoot(p) {
-  const root = PROJECTS_DIR.endsWith('/') ? PROJECTS_DIR : PROJECTS_DIR + '/';
-  return p === PROJECTS_DIR || p.startsWith(root);
-}
-function guard(p, { mustExist = true } = {}) {
-  const abs = resolve(String(p || ''));
-  if (!underRoot(abs)) throw new Error(`path must be under ${PROJECTS_DIR}`);
-  if (SENSITIVE.test(abs)) throw new Error('that path looks like credentials/secrets — not editable here');
-  if (mustExist && !existsSync(abs)) throw new Error('no such path');
-  // Symlink guard. Original scout audit caught existing-file links; peer review
-  // (2026-07-22) caught the gap: a NEW file under a symlinked PARENT dir skipped
-  // the check (existsSync(abs) was false). So realpath the nearest EXISTING
-  // ancestor — for a new file that's the parent dir — and verify IT stays in root.
-  let anc = abs;
-  while (!existsSync(anc) && dirname(anc) !== anc) anc = dirname(anc);
-  if (existsSync(anc)) {
-    const real = realpathSync(anc);
-    if (!underRoot(real)) throw new Error('a symlinked path escapes the project root — refused');
-    if (SENSITIVE.test(real)) throw new Error('resolves to a credentials/secrets path — refused');
-  }
-  return abs;
-}
+const guard = (p, opts = {}) => guardPath(p, { blockAppRoot: true, verb: 'editable', ...opts });
 
 export function readFile(p) {
   const abs = guard(p);
@@ -56,6 +38,7 @@ export function listDir(p) {
     if (name === 'node_modules' || name === '.git') continue;
     const full = join(abs, name);
     if (SENSITIVE.test(full)) continue;
+    if (isUnder(full, APP_ROOT)) continue; // hide Atlan's own repo from the file tree
     let dir = false;
     try { dir = statSync(full).isDirectory(); } catch { continue; }
     entries.push({ name, path: full, dir });

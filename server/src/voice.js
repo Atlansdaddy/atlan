@@ -136,8 +136,10 @@ async function elevenlabs(text, mood, voice) {
 async function google(text, mood, voice) {
   const k = key('GOOGLE_TTS_API_KEY');
   if (!k) throw new Error('Google TTS needs GOOGLE_TTS_API_KEY (an API-key-enabled key; Doctor → Keys)');
-  const res = await fetch(`https://texttospeech.googleapis.com/v1/text:synthesize?key=${encodeURIComponent(k)}`, {
-    method: 'POST', headers: { 'content-type': 'application/json' },
+  // Key in a header, not the URL query — consistent with the project rule (no
+  // secret in a URL; URLs leak to logs/referer/history). Google TTS accepts X-Goog-Api-Key.
+  const res = await fetch('https://texttospeech.googleapis.com/v1/text:synthesize', {
+    method: 'POST', headers: { 'content-type': 'application/json', 'X-Goog-Api-Key': k },
     body: JSON.stringify({
       input: { ssml: ssmlWrap(text, mood) },
       voice: { languageCode: 'en-US', ...(voice ? { name: voice } : {}) },

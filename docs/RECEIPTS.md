@@ -18,12 +18,12 @@ _Free suites only. The E2E suite (real Claude runs) is opt-in — `RUN_PAID=1 no
 | Adversarial | Malformed/oversized/hostile input across all surfaces; profile tool-blocking; preflight honesty. | ✅ 29/29 |
 | Worker Hierarchy | Job = chain of checker-gated links; cheapest-tier-first, escalate-on-fail up the model ladder, blackboard wiring, human gate pause/resume, ladder-exhaustion error. Mock tier engines — no real spend. | ✅ 7/7 |
 | Attachments | Upload (image/file) + reference (file/folder) + path-traversal guard + oversize/empty reject + audio/video graceful degradation without a key. | ✅ 7/7 |
-| Code Editor | File read/write/tree scoped to the project, folders-first listing, noise-dir hiding, secrets + traversal + folder-as-file guards. | ✅ 10/10 |
+| Code Editor | File read/write/tree scoped to the project, folders-first listing, noise-dir hiding, secrets + traversal + folder-as-file guards. | ✅ 16/16 |
 | Voice & Providers | TTS roster honesty (readiness tracks keys, roadmap items never claim ready), TTS input validation + clean degradation, SSML XML-escaping (no injection), Polly SigV4 signer, and the 12-provider AI-model spread. | ✅ 15/15 |
 | UI/UX | Headless Chromium drives the real cockpit: tabs, engine roster, doctor/preflight render, key entry no-leak, XSS-safe render. | ✅ 11/11 |
 | Tour/Onboarding | Drives all tour steps live — every step spotlights a real visible element; handbook opens/searches/relaunches. | ✅ 9/9 |
 
-**Total: 173 passed, 0 failed across 11 suites.**
+**Total: 179 passed, 0 failed across 11 suites.**
 
 ## Unit
 
@@ -241,6 +241,12 @@ CODE EDITOR SUITE
   ✓ tree lists a directory, folders first
   ✓ write creates a new file and reads back
   ✓ reading a secrets path is refused
+  ✓ reading .env is refused (regex-drift regression)
+  ✓ reading a .fleet path is refused (regex-drift regression)
+  ✓ reading Atlan's own state (.fleet/auth.json) is refused
+  ✓ reading Atlan's own source (server/src/auth.js) is refused
+  ✓ overwriting Atlan's own source is refused (auth-rewrite → respawn vector)
+  ✓ the app repo is hidden from the file tree
   ✓ reading outside the project is refused
   ✓ writing outside the project is refused
   ✓ reading a folder as a file errors cleanly
@@ -248,7 +254,7 @@ CODE EDITOR SUITE
   ✓ write to a new file under a symlinked parent is refused
   ✓ cleanup
 
-10 passed, 0 failed
+16 passed, 0 failed
 ```
 
 ## Voice & Providers

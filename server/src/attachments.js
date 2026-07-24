@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdirSync, writeFileSync, existsSync, statSync, readFileSync, realpathSync } from 'node:fs';
 import { basename, join, resolve, extname } from 'node:path';
 import { APP_ROOT, PROJECTS_DIR } from './config.js';
+import { SENSITIVE } from './guards.js';
 import { getStoredKey } from './keys.js';
 
 // Attachments — images/audio/video/files/folders on a chat message. The routing
@@ -48,7 +49,8 @@ export async function saveUpload({ name, mime, data }) {
 // Reads it in place. Must live under PROJECTS_DIR (no traversal to /etc etc.).
 // Don't let an attachment reference trivially slurp credentials into a chat,
 // even within the project root (agent could Read them anyway, but not one-tap).
-const SENSITIVE = /(^|\/)\.(ssh|aws|gnupg|gcloud|docker|kube)(\/|$)|(^|\/)(\.auth-token|\.keys\.enc|\.keysecret|\.fleet|\.env|id_rsa|id_ed25519)(\/|$)/;
+// SENSITIVE is the SHARED regex from guards.js — the editor's copy once drifted
+// from this one and lost .fleet/.env, so there is now a single source of truth.
 export function saveRef({ path }) {
   const p = resolve(String(path || ''));
   const root = PROJECTS_DIR.endsWith('/') ? PROJECTS_DIR : PROJECTS_DIR + '/';
