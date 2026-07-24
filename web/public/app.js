@@ -67,6 +67,41 @@
     if (b.dataset.s === 's-doctor') { loadDoctor(); loadKeys(); loadPreflight(); loadLocalModels(); }
   }));
 
+  // ── theme ──
+  const themeBtn = $('themeBtn');
+  if (themeBtn) {
+    function applyTheme(t) {
+      document.documentElement.setAttribute('data-theme', t);
+      themeBtn.textContent = t === 'light' ? '🌙' : '☀️';
+      themeBtn.title = t === 'light' ? 'Switch to dark theme' : 'Switch to light theme';
+      localStorage.setItem('theme', t);
+    }
+    applyTheme(localStorage.getItem('theme') || 'dark');
+    themeBtn.addEventListener('click', () => {
+      const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+      applyTheme(isLight ? 'dark' : 'light');
+    });
+  }
+
+  // ── swipe to change tabs ──
+  let touchStartX = 0;
+  document.addEventListener('touchstart', e => touchStartX = e.changedTouches[0].screenX, {passive: true});
+  document.addEventListener('touchend', e => {
+    const touchEndX = e.changedTouches[0].screenX;
+    if (touchEndX < touchStartX - 80) swipeTab(1); // swipe left -> next
+    if (touchEndX > touchStartX + 80) swipeTab(-1); // swipe right -> prev
+  });
+  function swipeTab(dir) {
+    const visibleTabs = Array.from(tabs).filter(t => t.offsetParent !== null);
+    const activeIdx = visibleTabs.findIndex(t => t.classList.contains('active'));
+    if (activeIdx !== -1) {
+      let nextIdx = activeIdx + dir;
+      if (nextIdx < 0) nextIdx = 0;
+      if (nextIdx >= visibleTabs.length) nextIdx = visibleTabs.length - 1;
+      if (nextIdx !== activeIdx) visibleTabs[nextIdx].click();
+    }
+  }
+
   // ── Atlan alive: mood engine + halo canvas ──
   // Mood is real state, never decoration: calm=idle, building=agents/build
   // running, alarmed=doctor red/budget hot, proud=something surfaced.
@@ -296,6 +331,9 @@
   }
   function endWorking() {
     workingEl?.remove(); workingEl = null;
+    if (streamBubble && turnText) {
+      streamBubble.lastChild.replaceWith(formatMarkdown(turnText));
+    }
     streamBubble = null; thinkEl = null; thinkBody = null; // close the turn's live nodes
   }
   // keep the "working…" line pinned to the bottom; live nodes insert above it
@@ -337,6 +375,39 @@
     scroll();
   }
 
+  function formatMarkdown(text) {
+    const frag = document.createDocumentFragment();
+    const parts = text.split(/(```[\s\S]*?```)/g);
+    for (const part of parts) {
+      if (part.startsWith('```') && part.endsWith('```')) {
+        const pre = document.createElement('pre');
+        const code = document.createElement('code');
+        const lines = part.split('\n');
+        lines.shift(); // remove opening ```lang
+        if (lines[lines.length - 1] && lines[lines.length - 1].trim() === '```') lines.pop();
+        code.textContent = lines.join('\n');
+        
+        const btn = document.createElement('button');
+        btn.className = 'copy-btn';
+        btn.textContent = 'Copy';
+        btn.title = 'Copy code';
+        btn.onclick = () => { 
+          navigator.clipboard?.writeText(code.textContent); 
+          btn.textContent = 'Copied!'; 
+          setTimeout(() => btn.textContent = 'Copy', 2000); 
+        };
+        
+        pre.append(btn, code);
+        frag.append(pre);
+      } else if (part) {
+        frag.append(document.createTextNode(part));
+      }
+    }
+    const span = document.createElement('span');
+    span.append(frag);
+    return span;
+  }
+
   function addMsg(role, text, engineLabel) {
     const div = document.createElement('div');
     div.className = 'msg ' + (role === 'user' ? 'user' : role === 'err' ? 'err' : 'claude');
@@ -346,7 +417,7 @@
       who.textContent = role === 'brain' ? (engineLabel || 'brain') + ' · chat only' : (engineLabel || 'Claude');
       div.append(who);
     }
-    div.append(document.createTextNode(text));
+    div.append(formatMarkdown(text));
     // capture non-streamed assistant replies (brains, agent CLIs) for voice
     if ((role === 'claude' || role === 'brain') && !streamBubble) turnText = text;
     chatlog.append(div); scroll();
