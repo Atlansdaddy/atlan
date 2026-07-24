@@ -75,6 +75,12 @@ case "${1:-start}" in
   restart)    stop; sleep 1; start ;;
   status)     status ;;
   log)        tail -n "${2:-40}" "$LOG" 2>/dev/null || echo "(no log yet)" ;;
+  # Boot entrypoint (called from the Termux:Boot script after a reboot). Unlike
+  # `start`, this stays in the FOREGROUND so the proot session it runs in stays
+  # alive — inside proot, every process dies when the proot process exits, so the
+  # keeper must not detach. If a supervisor is somehow already up, just idle to
+  # hold proot open instead of fighting over the port.
+  boot)       if status >/dev/null 2>&1; then exec tail -f /dev/null; else supervise; fi ;;
   __supervise) supervise ;;
   *) echo "usage: $0 {start|stop|restart|status|log}"; exit 1 ;;
 esac
