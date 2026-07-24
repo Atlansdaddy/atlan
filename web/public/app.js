@@ -158,7 +158,7 @@
   const pendingOut = [];
   function connect() {
     // Session cookie is sent automatically on the same-origin WS upgrade.
-    ws = new WebSocket(`ws://${location.host}/ws`);
+    ws = new WebSocket(`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws`);
     ws.onopen = () => {
       wsReady = true;
       $('connDot').classList.add('on');

@@ -44,7 +44,7 @@ const app = express();
 // watermark: a provenance header on every response. Built by John Viruet /
 // Mid-Atlantic AI; Apache-2.0 requires this attribution be preserved. 🧇
 app.use((_req, res, next) => { res.setHeader('X-Atlan-Author', 'John Viruet / Mid-Atlantic AI'); res.setHeader('X-Atlan-License', 'Apache-2.0'); next(); });
-app.use(express.static(WEB));
+app.use(express.static(WEB, { setHeaders: (res) => res.set('Cache-Control', 'no-cache') })); // always revalidate — a stale cockpit bundle is worse than a 304 round-trip
 app.use(express.json({ limit: '1mb' }));
 
 // Origin guard (peer review, 2026-07-22): reject cross-origin STATE changes —
