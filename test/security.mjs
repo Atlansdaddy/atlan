@@ -39,9 +39,20 @@ const TEST_PW = 'atlan-test-pw-8x';
 // the bearer to set one up on a fresh instance (setup endpoint itself is open).
 async function ensurePassword() {
   const { configured } = await naked('/api/auth/status').then((r) => r.json());
-  if (!configured) await naked('/api/auth/setup', { method: 'POST', body: JSON.stringify({ password: TEST_PW }) });
+  // authed() carries the bearer — legit local ownership for the first-run gate.
+  if (!configured) await authed('/api/auth/setup', { method: 'POST', body: JSON.stringify({ password: TEST_PW }) });
   return configured; // true if a real (possibly different) password was already set
 }
+// ── first-run setup race: the one open write before a password exists must prove
+// local ownership (browser Origin or bearer). Runs BEFORE ensurePassword so the
+// instance is still fresh; a no-Origin/no-bearer claim must be refused. ──
+await test('first-run setup rejects a no-Origin, no-bearer claim (403)', async () => {
+  const { configured } = await naked('/api/auth/status').then((r) => r.json());
+  if (configured) return; // a prior run already set up — the race window is closed
+  const r = await naked('/api/auth/setup', { method: 'POST', body: JSON.stringify({ password: 'attacker-would-own-this' }) });
+  assert.equal(r.status, 403, 'no-Origin no-bearer setup was not blocked');
+  assert.equal((await naked('/api/auth/status').then((x) => x.json())).configured, false, 'a blocked claim must not have set a password');
+});
 await test('a valid session cookie authenticates; a forged one does not', async () => {
   const preexisting = await ensurePassword();
   const login = await naked('/api/auth/login', { method: 'POST', body: JSON.stringify({ password: TEST_PW }) });

@@ -111,6 +111,23 @@ export function originOk(req) {
   return ALLOWED_ORIGINS.has(o);
 }
 
+// First-run setup race (peer review): before a password exists, POST
+// /api/auth/setup is the one open write — whoever wins it owns the instance. The
+// Origin guard blocks a cross-origin BROWSER claim (rebinding), but a local
+// non-browser process sends no Origin and would slip through as "automation". So
+// first-run setup must additionally prove local ownership: a real allow-listed
+// browser Origin (John setting his password in the browser — sent on every POST,
+// zero friction), OR the automation bearer (.auth-token, 0600 — the "local-only
+// token" only the owner can read). Residual (documented, not closed): a NATIVE
+// local app can forge the Origin header; the bearer is the hard proof for the
+// scripted path, and a browser-side setup-token field is the eventual further
+// hardening (deferred while the front-end is being redesigned).
+export function setupAllowed(req) {
+  const o = req.headers?.origin;
+  if (o && ALLOWED_ORIGINS.has(o)) return true;
+  return bearerOk(req.get?.('x-atlan-token') ?? req.headers?.['x-atlan-token']);
+}
+
 // ── failed-login throttle (a password IS guessable, unlike the 256-bit
 // bearer, so this one matters). 10 bad passwords/min → cool down. ──
 let fails = [];

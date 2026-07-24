@@ -272,5 +272,20 @@ test('budgetExhausted halts with headroom left — overshoot is bounded, not pos
   assert.equal(FLEET.budgetExhausted(0, 150_000), false);
 });
 
+// ── first-run setup gate: only this device may claim setup (peer review) ──
+const { setupAllowed, authToken, allowedOrigins } = await import('../server/src/auth.js');
+test('setupAllowed: an allow-listed browser Origin passes (frictionless first run)', () => {
+  assert.equal(setupAllowed({ headers: { origin: allowedOrigins()[0] } }), true);
+});
+test('setupAllowed: the local bearer passes with no Origin (scripted path)', () => {
+  assert.equal(setupAllowed({ headers: { 'x-atlan-token': authToken() } }), true);
+});
+test('setupAllowed: no Origin + no bearer is REFUSED (the race vector we close)', () => {
+  assert.equal(setupAllowed({ headers: {} }), false);
+});
+test('setupAllowed: a foreign Origin with no bearer is refused', () => {
+  assert.equal(setupAllowed({ headers: { origin: 'http://evil.example' } }), false);
+});
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
