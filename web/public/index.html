@@ -307,6 +307,12 @@
         <select id="voiceProviderSel" aria-label="voice provider"></select>
       </div>
       <div class="hint" id="voiceProviderNote">The browser voice always works, free. Add a key above to unlock a nicer one.</div>
+      <div class="eyebrow" style="margin-top:6px" id="lmHead" hidden>Local brain — which model llama-server serves</div>
+      <div class="projbar" id="lmBar" hidden>
+        <select id="lmSel" aria-label="local model"></select>
+        <button class="btn hot" id="lmApply">Swap</button>
+      </div>
+      <div class="hint" id="lmNote" hidden></div>
       <div class="eyebrow" style="margin-top:6px">Doctor — the proot boundary, checked</div>
       <div id="doctorList" class="doctor-list"><div class="hint">running checks…</div></div>
       <button class="btn" id="doctorBtn">Run doctor again</button>

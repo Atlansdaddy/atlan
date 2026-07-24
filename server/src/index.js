@@ -14,6 +14,7 @@ import { runBuild, APK_DIR } from './build.js';
 import { keyStatus, setStoredKey } from './keys.js';
 import { runPreflight } from './preflight.js';
 import { agentStatus, agentTurn } from './agents.js';
+import { localModels, activateLocalModel } from './localmodels.js';
 import { initFleet, spawnRun, listRuns, killRun, killAll, todayBurn, profileList, historyTail, topUpRun } from './fleet.js';
 import { pushPublicKey, addSub, subCount, notifyAll } from './push.js';
 import {
@@ -105,6 +106,15 @@ app.get('/api/engines', async (_req, res) => {
   const brains = (await engineRoster()).map((e) => ({ ...e, group: e.id === 'local' ? 'local' : 'cloud' }));
   res.json([...agentStatus(), ...brains]);
 });
+// Local model picker — list is free; activation restarts llama-server and
+// blocks until /health answers (big models take a minute). Home node only;
+// `supported:false` elsewhere and the UI hides the card.
+app.get('/api/local/models', (_req, res) => res.json(localModels()));
+app.post('/api/local/models', async (req, res) => {
+  try { res.json(await activateLocalModel(String(req.body?.name ?? ''))); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+
 app.use('/apk', express.static(APK_DIR));
 
 app.get('/api/preflight', async (_req, res) => res.json(await runPreflight()));

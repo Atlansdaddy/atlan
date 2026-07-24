@@ -64,7 +64,7 @@
     if (b.dataset.s === 's-term') initTerm();
     if (b.dataset.s === 's-editor') initEditor();
     if (b.dataset.s === 's-fleet') loadFleet();
-    if (b.dataset.s === 's-doctor') { loadDoctor(); loadKeys(); loadPreflight(); }
+    if (b.dataset.s === 's-doctor') { loadDoctor(); loadKeys(); loadPreflight(); loadLocalModels(); }
   }));
 
   // ── Atlan alive: mood engine + halo canvas ──
@@ -918,6 +918,41 @@
 
   $('fleetKillAll').addEventListener('click', () => {
     fetch('/api/fleet/kill', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: 'all' }) });
+  });
+
+  // ── local model picker (home node only — the card stays hidden where the
+  // node doesn't manage llama-server, so it's never a broken button) ──
+  function loadLocalModels() {
+    fetch('/api/local/models').then((r) => r.json()).then((j) => {
+      if (!j.supported) return;
+      const sel = $('lmSel');
+      $('lmHead').hidden = $('lmBar').hidden = $('lmNote').hidden = false;
+      sel.innerHTML = '';
+      for (const m of j.models) {
+        const o = document.createElement('option');
+        o.value = m.name;
+        o.textContent = `${m.name} · ${m.gb}GB${m.args ? ' · ' + m.args : ''}${m.active ? ' — active' : ''}`;
+        o.selected = m.active;
+        sel.append(o);
+      }
+      $('lmNote').textContent = `Active: ${j.active}. Swapping restarts llama-server — big models take a minute to load.`;
+    }).catch(() => {});
+  }
+  $('lmApply')?.addEventListener('click', () => {
+    const name = $('lmSel').value;
+    if (!name) return;
+    $('lmApply').disabled = true;
+    $('lmNote').textContent = `Loading ${name} — the local brain is down until it answers…`;
+    fetch('/api/local/models', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name }),
+    }).then((r) => r.json()).then((j) => {
+      $('lmApply').disabled = false;
+      if (j.error) { $('lmNote').textContent = j.error; return; }
+      $('lmNote').textContent = `${j.active} is live.`;
+      loadLocalModels(); loadEngines();
+    }).catch((e) => { $('lmApply').disabled = false; $('lmNote').textContent = String(e); });
   });
 
   // ── engine keys ──

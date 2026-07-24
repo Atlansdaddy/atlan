@@ -124,6 +124,11 @@ export async function brainChat({ provider, model, history, send }) {
         model: model || p.defaultModel,
         messages: history,
         stream: false,
+        // qwen3.5/3.6 templates ignore llama-server's --reasoning-budget 0 and
+        // will happily burn the whole token budget "thinking"; this kwarg is
+        // the real off-switch. llama.cpp-only field — cloud providers reject
+        // unknown params, so local only. Templates without the flag ignore it.
+        ...(provider === 'local' ? { chat_template_kwargs: { enable_thinking: false } } : {}),
       }),
       signal: AbortSignal.timeout(120000),
     });
