@@ -253,5 +253,24 @@ test('ATLAN_SANDBOX=1 yields an enabled, honest-degrade sandbox option', () => {
   if (prev === undefined) delete process.env.ATLAN_SANDBOX; else process.env.ATLAN_SANDBOX = prev;
 });
 
+// ── budget reservation: stop BEFORE a turn can overshoot (peer review) ──
+const { _testInternals: FLEET } = await import('../server/src/fleet.js');
+test('reserveFor caps at TURN_RESERVE for a large budget', () => {
+  assert.equal(FLEET.reserveFor(150_000), FLEET.TURN_RESERVE); // 16k << 75k half
+});
+test('reserveFor never exceeds half the budget (small runs still work)', () => {
+  assert.equal(FLEET.reserveFor(20_000), 10_000); // half of 20k < 16k reserve
+  assert.equal(FLEET.reserveFor(1_000), 500);
+});
+test('budgetExhausted halts with headroom left — overshoot is bounded, not post-hoc', () => {
+  // 150k budget, 16k reserve → new turns stop at 134k, leaving 16k for the
+  // in-flight turn. The whole point: we halt BELOW the raw budget, so a single
+  // big generation can't blow past it before we count it.
+  assert.equal(FLEET.budgetExhausted(133_999, 150_000), false);
+  assert.equal(FLEET.budgetExhausted(134_000, 150_000), true);
+  assert.equal(FLEET.budgetExhausted(140_000, 150_000), true, 'still under raw budget but within reserve → must halt');
+  assert.equal(FLEET.budgetExhausted(0, 150_000), false);
+});
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

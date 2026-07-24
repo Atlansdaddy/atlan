@@ -11,7 +11,7 @@ _Free suites only. The E2E suite (real Claude runs) is opt-in — `RUN_PAID=1 no
 
 | Suite | What it proves | Result |
 |---|---|---|
-| Unit | Pure functions in isolation: safe-arith evaluator, checker engine, Persona+ compilers, schema builders, scheduler math, token compare. | ✅ 38/38 |
+| Unit | Pure functions in isolation: safe-arith evaluator, checker engine, Persona+ compilers, schema builders, scheduler math, token compare. | ✅ 41/41 |
 | Function | Every HTTP endpoint contract + shape, plus data-store durability (corrupt/truncated JSON fails soft). (Spawns 1 tiny killed run.) | ✅ 25/25 |
 | Connection | Live WebSocket + PTY: authed connect, 4001 on bad token, malformed-frame survival, multi-client broadcast, tmux round-trip, reconnection. (Spawns 2 tiny killed runs.) | ✅ 6/6 |
 | Security/Penetration | Auth bypass, SSRF (preview + harness), secret exfiltration, path traversal, stored-XSS, oversized-body DoS, profile privilege-escalation. | ✅ 24/24 |
@@ -23,7 +23,7 @@ _Free suites only. The E2E suite (real Claude runs) is opt-in — `RUN_PAID=1 no
 | UI/UX | Headless Chromium drives the real cockpit: tabs, engine roster, doctor/preflight render, key entry no-leak, XSS-safe render. | ✅ 11/11 |
 | Tour/Onboarding | Drives all tour steps live — every step spotlights a real visible element; handbook opens/searches/relaunches. | ✅ 9/9 |
 
-**Total: 187 passed, 0 failed across 11 suites.**
+**Total: 190 passed, 0 failed across 11 suites.**
 
 ## Unit
 
@@ -70,8 +70,11 @@ UNIT SUITE
   ✓ a checker with a catastrophic regex is REFUSED at authoring (hard error)
   ✓ sandboxOption is undefined unless ATLAN_SANDBOX=1 (off by default)
   ✓ ATLAN_SANDBOX=1 yields an enabled, honest-degrade sandbox option
+  ✓ reserveFor caps at TURN_RESERVE for a large budget
+  ✓ reserveFor never exceeds half the budget (small runs still work)
+  ✓ budgetExhausted halts with headroom left — overshoot is bounded, not post-hoc
 
-38 passed, 0 failed
+41 passed, 0 failed
 ```
 
 ## Function

@@ -29,7 +29,7 @@
 |---|---|---|
 | Bash native OS-sandbox on proot (real confinement, not opt-in) | all | Opt-in mechanism now shipped (see 2026-07-24 above); the *remaining* gap is proot itself having no user namespaces. Real fix = run the server on a native/WSL2 host, or a native sandboxed worker (worktree ≠ sandbox). |
 | Preview proxy (:4590) unauthenticated loopback | all | Add auth to the proxy, or gate it; on Android any app reaches it. |
-| Budgets are post-step, not stream-level (single turn can overshoot) | all | Reserve budget before each model call based on max-output; the aggregate cap now backstops the account. |
+| Budgets are post-step, not stream-level (single turn can overshoot) | all | **Mitigated (2026-07-24).** `canUseTool` now reserves `TURN_RESERVE` (default 16k, capped at ½ budget) so it stops authorizing new turns *below* the raw budget — overshoot is bounded to ~one in-flight turn instead of a whole generation. Unit-tested. Further tightening available via the SDK's `taskBudget`/`maxBudgetUsd` (model self-paces) — opt-in, pending a beta-support check on the proot stack. |
 | TOCTOU on path guards | Claude, ChatGPT | Low severity single-user; real fix needs openat2/dir-fd confinement. |
 | First-run `/api/auth/setup` race | ChatGPT, Grok | Narrow window; origin guard now blocks cross-origin claim. Consider a first-run local-only token. |
 | **Self-repair gates insufficient as specified** — worktree isn't an execution sandbox; gate code must be immutable *relative to what it gates*; human rubber-stamp under fatigue | all | Folded into `VAULT-DESIGN.md`: Stage 2 stays "AI-assisted patch proposal" (not autonomous) until it runs in a real sandbox with an external immutable test oracle + gate code the loop can't touch. Off by default. |

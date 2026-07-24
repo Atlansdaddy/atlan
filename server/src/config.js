@@ -29,6 +29,15 @@ export const PREVIEW_PORT = Number(pick('ATLAN_PREVIEW_PORT', 'previewPort', 459
 export const DAILY_TOKEN_CAP = Number(pick('ATLAN_DAILY_TOKEN_CAP', 'dailyTokenCap', 5_000_000));
 export const MAX_CONCURRENT_RUNS = Number(pick('ATLAN_MAX_CONCURRENT_RUNS', 'maxConcurrentRuns', 6));
 
+// Per-run budget reserve (peer review: budgets were checked POST-step, so one
+// big model turn could overshoot the cap before we counted it). We stop
+// authorizing new tool-driven turns once we're within this many fresh tokens of
+// the budget, leaving headroom for the in-flight turn to finish — bounding
+// overshoot to ~one turn instead of a whole generation. Capped at half the run's
+// budget so a small run still does real work. A conservative single-turn
+// output+input estimate; tune with ATLAN_TURN_RESERVE.
+export const TURN_RESERVE = Number(pick('ATLAN_TURN_RESERVE', 'turnReserve', 16_000));
+
 // OS-level Bash sandbox for AUTONOMOUS fleet runs (builder/verifier). The Agent
 // SDK confines Bash via bubblewrap/seccomp when this is on AND the host provides
 // user namespaces (Linux / WSL2 / a home node). proot on the phone has none, so
