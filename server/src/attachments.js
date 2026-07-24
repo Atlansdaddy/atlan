@@ -93,8 +93,10 @@ async function geminiDescribe(path, mime, kind, key) {
   const prompt = kind === 'audio'
     ? 'Transcribe this audio verbatim. If there is non-speech content, briefly note it.'
     : 'Describe this video for another AI to act on: what happens, any on-screen text, and transcribe any speech.';
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`, {
-    method: 'POST', headers: { 'content-type': 'application/json' },
+  // Key in a header, not the URL query (the project's no-secret-in-a-URL rule —
+  // URLs leak to logs/referer/history). Gemini accepts x-goog-api-key.
+  const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent', {
+    method: 'POST', headers: { 'content-type': 'application/json', 'x-goog-api-key': key },
     body: JSON.stringify({ contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: mime || 'application/octet-stream', data } }] }] }),
     signal: AbortSignal.timeout(120000),
   });
