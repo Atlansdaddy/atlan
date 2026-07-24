@@ -63,8 +63,10 @@ The Node server needs a Linux userland; on Android that's Termux + proot. **The 
 iOS cannot run a shell or background server at all, and not every Android phone is worth setting up. In those cases run the **server once on a PC / home node / cloud VM**, and connect the phone as a plain browser client:
 
 1. Install and run Atlan on the PC/node (PC steps above).
-2. Expose it to the phone **safely** — do **not** open a bare port. Use **Cloudflare Tunnel + Access** (see `docs/SECURITY.md`) or a private VPN/Tailscale to the host.
-3. On the phone, open the tunnel URL. Add to home screen for an app-like PWA. It's the full cockpit; only the *server* lives on the PC.
+2. Expose it to the phone **safely** — do **not** open a bare port. Two good options:
+   - **Tailscale (recommended, free):** put both devices on your tailnet, then on the host run `tailscale serve --bg 4589` — this proxies loopback over the tailnet via HTTPS, reachable only by your own devices. Atlan **auto-allows its own tailnet origin at startup**, so there's no `ATLAN_ORIGIN` to set; just add `ATLAN_SECURE_COOKIE=1` for the Secure cookie over TLS. The Doctor tab shows the exact reach URL and confirms the origin guard will allow it. **Never `tailscale funnel`** — that's public-internet exposure.
+   - **Cloudflare Tunnel + Access** (see `docs/SECURITY.md`) if you want an org-gated public hostname.
+3. On the phone, open the tailnet/tunnel URL. Add to home screen for an app-like PWA. It's the full cockpit; only the *server* lives on the PC.
 
 This is the "semi-local closed loop" — the broadly-shareable path, and the only path on iPhone.
 

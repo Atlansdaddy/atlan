@@ -98,6 +98,12 @@ const ALLOWED_ORIGINS = new Set([
   `http://127.0.0.1:${PORT}`, `http://localhost:${PORT}`,
   ...(process.env.ATLAN_ORIGIN ? [process.env.ATLAN_ORIGIN] : []),
 ]);
+// Add a legitimate origin at runtime — used to auto-allow this host's own tailnet
+// name (see tailnet.js) so reaching the cockpit from your phone over Tailscale
+// needs no manual ATLAN_ORIGIN. Safe: only origins WE derive from the machine's
+// own identity get added; a rebinding/cross-site page still sends a foreign origin.
+export function allowOrigin(o) { if (o) ALLOWED_ORIGINS.add(o); }
+export function allowedOrigins() { return [...ALLOWED_ORIGINS]; }
 export function originOk(req) {
   const o = req.headers?.origin;
   if (!o) return true; // non-browser (automation) — bearer-gated

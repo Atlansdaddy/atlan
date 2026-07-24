@@ -19,8 +19,9 @@ import { pushPublicKey, addSub, subCount, notifyAll } from './push.js';
 import {
   authMiddleware, wsAuthed, isConfigured, setPassword, checkPassword,
   newSession, dropSession, cookieHeader, COOKIE, originOk, revokeAllSessions,
-  loginThrottled, recordLoginFail, clearLoginFails,
+  loginThrottled, recordLoginFail, clearLoginFails, allowOrigin,
 } from './auth.js';
+import { tailnetHost, tailnetOrigin } from './tailnet.js';
 import { listRoutines, upsertRoutine, deleteRoutine, setPaused, fireRoutine, startScheduler } from './routines.js';
 import { initHierarchy, listJobs, upsertJob, deleteJob, startJob, listRuns as listHierarchyRuns, getRun as getHierarchyRun, resolveGate, tierList } from './hierarchy.js';
 import { saveUpload, saveRef, turnContext } from './attachments.js';
@@ -442,4 +443,14 @@ server.listen(PORT, '127.0.0.1', () => {
   console.log(`║  ${isConfigured() ? 'Enter your password.' : 'First run — set a password.'}`);
   console.log('║  Built by John Viruet · Mid-Atlantic AI · Apache-2.0');
   console.log('╚════════════════════════════════════════════════════════════\n');
+  // Reach-from-your-phone, zero friction: if this host is on a tailnet, auto-allow
+  // its own tailnet origin so the origin guard won't 400 browser requests coming
+  // in over `tailscale serve` — no manual ATLAN_ORIGIN needed.
+  tailnetHost().then((host) => {
+    const origin = tailnetOrigin(host);
+    if (!origin) return;
+    allowOrigin(origin);
+    console.log(`   ↳ tailnet detected: reach this cockpit from another device at ${origin}`);
+    console.log(`     (run \`tailscale serve --bg ${PORT}\` on this host; set ATLAN_SECURE_COOKIE=1 for the Secure cookie)`);
+  }).catch(() => {});
 });

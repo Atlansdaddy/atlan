@@ -1,6 +1,7 @@
 import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
 import { existsSync } from 'node:fs';
+import { PORT } from './config.js';
 
 const sh = promisify(exec);
 
@@ -106,6 +107,29 @@ export async function runDoctor() {
       const model = process.env.PIPER_MODEL || (await import('./keys.js')).getStoredKey('PIPER_MODEL');
       const hasModel = !!model && existsSync(model);
       return { ok: hasModel, warn: !hasModel, detail: hasModel ? `installed · ${model.split('/').pop()}` : 'installed, but PIPER_MODEL unset/missing — set a .onnx voice path in Keys' };
+    }),
+    check('tailnet', 'Tailscale reach (phone ↔ this host)', async () => {
+      // Optional. The cockpit binds loopback-only; to reach it from another device
+      // you proxy it over your tailnet with `tailscale serve`. The one thing that
+      // silently breaks that is the origin guard — so this check surfaces the reach
+      // URL and confirms the guard will allow it (Atlan auto-allows the tailnet
+      // origin at boot, so this is normally green with no config).
+      const { tailnetHost, tailnetOrigin } = await import('./tailnet.js');
+      const host = await tailnetHost();
+      if (!host) {
+        return { ok: false, warn: true, detail: `Tailscale not detected here — cockpit is loopback-only (fine for local use). To reach it from your phone: run \`tailscale serve --bg ${PORT}\` on this host + set ATLAN_SECURE_COOKIE=1 (see docs/SETUP.md).` };
+      }
+      const origin = tailnetOrigin(host);
+      const { allowedOrigins } = await import('./auth.js');
+      const allowed = allowedOrigins().includes(origin);
+      const secure = !!process.env.ATLAN_SECURE_COOKIE;
+      return {
+        ok: allowed,
+        warn: !allowed || !secure,
+        detail: `reach at ${origin} — origin guard ${allowed ? 'ALLOWS it (auto)' : 'will BLOCK it (set ATLAN_ORIGIN=' + origin + ')'}; `
+          + `cookie ${secure ? 'Secure ✓' : 'not Secure (set ATLAN_SECURE_COOKIE=1 for TLS)'}. `
+          + `Expose with \`tailscale serve --bg ${PORT}\` — never \`funnel\` (that's public).`,
+      };
     }),
     check('llama', 'llama-server :8080', async () => {
       try {
