@@ -4,7 +4,7 @@
 
 Built by John Viruet / Mid-Atlantic AI. Licensed **Apache-2.0** — free to use and fork; keep the attribution. Its resident AI, **Atlan**, is the cockpit's living mascot — a calm presence that reacts to what's actually happening as you build.
 
-> **Status (2026-07-22):** M1–M6 plus streaming, password auth, worker hierarchy, attachments, a code editor, and voice I/O (12 AI-model + 9 voice providers, all BYO-key) shipped. **171 automated tests green across 11 suites** (see `docs/RECEIPTS.md`). Runs loopback-only by design; the Preflight security gate goes green once you've set a password (it's part of first-run).
+> **Status (2026-07-23):** M1–M6 plus streaming chat on a **warm, fast session** (the CLI is spawned once and kept alive — no ~3.7s cold-start per turn; measured ~1.3s to first token warm vs ~7s cold), **live self-awareness** (Atlan perceives the current time, your active tab, running agents, today's token burn, and the open project), **visible reasoning** (summarized thinking streams to a panel), password auth, worker hierarchy, attachments, a code editor, voice I/O (**12 AI-model + 10 voice providers** — browser voice free by default, the rest BYO-key, OpenAI-Realtime honestly marked roadmap), and a **durable auto-respawning server** (`bin/atlan-serve.sh`) with optional Termux:Boot reboot-autostart. **173 automated tests green across 11 suites** (see `docs/RECEIPTS.md`). Runs loopback-only by design; the Preflight security gate goes green once you've set a password (it's part of first-run).
 
 ---
 
@@ -14,11 +14,28 @@ Building on a phone normally means a cramped terminal and no feedback loop. Atla
 
 ---
 
+## Platform support (honest)
+
+Atlan is a Node server you drive from a browser. Where the **server** can run decides how you use it:
+
+| Platform | On-device (local) server | How you actually run it |
+|---|---|---|
+| **PC — Linux / macOS / Windows** | ✅ easiest | Just Node. `git clone && npm install && node server`. The most portable target. |
+| **Android (capable phone)** | ✅ | Termux (from **F-Droid**) → `proot-distro install ubuntu` → Node → clone → run. A power-user setup, not a tap-to-install app. Aggressive-OEM phones (Samsung/Xiaomi battery/phantom killers) and low-RAM devices may fight it. |
+| **iPhone / iPad** | ❌ impossible | iOS forbids a shell or background server outright. **Cloud-client mode only** (below). |
+| **Any phone, incl. iPhone** | ✅ as a *client* | **Cloud-client mode:** run the server once on a PC / home node / cloud VM, connect the phone as a plain PWA browser client. No Termux on the phone. |
+
+**The APK does not remove the Termux requirement on Android** — the one-button APK is a *wrapper/client*; the server still runs in Termux/proot, because the Node server needs a Linux userland and Termux/proot *is* that userland. The broadly-shareable path is **cloud-client mode** (host the server once, connect any phone); the phone-local Termux route is the privacy / power-user mode. See `docs/SETUP.md` for both.
+
+**You also need an engine.** Atlan is a cockpit that drives models — it needs at least one: a Claude subscription/API key (full agent, "has hands"), *or* a free cloud key like Gemini/Groq (chat brains, no hands), *or* a local `llama-server` model (free, if the hardware can run it). With none configured, the app runs but the agent has no brain.
+
+---
+
 ## The seven tabs, function by function
 
 ### ◆ Chat — talk to any engine
 - **Project picker** — every folder in your projects directory (configurable, defaults to `/root`) with a `.git` or `package.json`. Everything else (fleet, build, terminal, editor) acts inside the picked project.
-- **Streaming + thinking** — replies stream token-by-token; a collapsible panel shows the model's thinking live; a "working…" indicator fires the instant you send.
+- **Streaming + thinking + self-aware** — replies stream token-by-token on a **warm session** (the agent CLI is spawned once and kept alive, so there's no cold-start wait per turn); a collapsible panel shows the model's **summarized reasoning** live; a "working…" indicator fires the instant you send. Atlan is **self-aware of live state** — each turn quietly carries the current time, your active tab, running fleet agents, today's token burn, and the open project, so it genuinely knows what's happening as you work.
 - **Attachments** — 📎 images/audio/video/files/folders (drag, paste, or reference a path). Images go to vision, files/folders become path references the agent reads, audio/video are routed to a multimodal model (Gemini/OpenAI) and folded into the turn as text.
 - **Engine switcher**, four honest groups:
   - **Claude Code (agent)** — `fable-5`, `opus-4.8`, `sonnet-5`, `haiku-4.5`. Real hands: reads/edits files, runs tools, builds. Permission-carded.
@@ -89,7 +106,7 @@ Browser PWA (127.0.0.1:4589, password + httpOnly session cookie)
 atlan-server (Node 22)
   config.js     env > atlan.config.json > defaults (paths, ports, branding)
   auth.js       password (scrypt) + httpOnly session cookie on /api, /apk, WS; bearer header for automation
-  claudeEngine  Claude Agent SDK: streaming + thinking, perms→cards, resume-id handoff
+  claudeEngine  Claude Agent SDK, WARM persistent session (CLI spawned once, kept alive across turns): streaming text + summarized thinking, Atlan identity + live self-awareness (cockpitContext), perms→cards, warm setModel() switch, resume-id handoff
   agents.js     Codex + Gemini CLI headless (JSONL → chat events)
   brains.js     one OpenAI-compat adapter, 12 providers (local / Gemini / OpenAI / DeepSeek / Kimi / Grok / Mistral / Groq / Together / OpenRouter / Fireworks / Cohere)
   voice.js      TTS registry: browser / Piper / ElevenLabs / Cartesia / Deepgram / OpenAI / Google / Azure / Polly (SigV4), honest readiness + caps
@@ -111,9 +128,12 @@ Front-end is deliberately **no-build vanilla** (no vite/bundler process). There 
 
 ```bash
 npm install
-node server/src/index.js          # http://127.0.0.1:4589 (loopback)
+bin/atlan-serve.sh start          # durable: detached, auto-respawns, survives a dropped session
+# (or plain foreground: node server/src/index.js)
 ```
-On first load you **set a password** (8+ chars); a long-lived httpOnly session cookie keeps you logged in across restarts. Take the guided tour (the `?` button reopens it and the searchable handbook any time). See `docs/SETUP.md` for the full clone-and-run guide.
+`bin/atlan-serve.sh {start|stop|restart|status|log}` runs the server under a **detached supervisor** that respawns it if it ever exits and is reparented off your shell, so a dropped terminal/session no longer takes the server down. On a phone it also holds a Termux wake-lock and wires the local Piper voice. For survival across a **reboot**, the Termux:Boot script (`bin/termux-boot.sh`, installed to `~/.termux/boot/`) restarts it on device boot — one-time setup in `docs/SETUP.md`.
+
+Then open `http://127.0.0.1:4589`. On first load you **set a password** (8+ chars); a long-lived httpOnly session cookie keeps you logged in across restarts. Take the guided tour (the `?` button reopens it and the searchable handbook any time). See `docs/SETUP.md` for the full clone-and-run guide.
 
 ## Test it
 

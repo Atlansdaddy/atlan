@@ -14,28 +14,31 @@ One sentence: **Claude Code in a phone IDE with a live preview sandbox, Mid-Atla
 │ sessions/   tmux-backed PTYs (node-pty) — every engine CLI  │
 │             runs inside tmux ⇒ attachable from Termux ANY   │
 │             time; xterm.js renders the same tmux session    │
-│ engines/    claude.ts   → @anthropic-ai/claude-agent-sdk    │
-│                           (structured: perms→cards, usage,  │
-│                            subagents, hooks; resume-id      │
-│                            handoff to `claude --resume`)    │
-│             codex.ts    → Codex CLI headless (research TBD) │
-│             gemini.ts   → Gemini CLI headless (research TBD)│
-│             openaiCompat.ts → ONE adapter, base-URL swap:   │
-│                           llama-server :8080 · x.ai ·       │
-│                           deepseek · mistral · moonshot ·   │
-│                           dashscope (+ ollama if ever)      │
-│ preview/    proxy target dev server into sandboxed iframe;  │
+│ claudeEngine.js → Agent SDK, WARM persistent session        │
+│             (spawned once, kept alive): streaming text +     │
+│             summarized thinking, Atlan identity + live       │
+│             self-awareness (cockpitContext), perms→cards,    │
+│             warm setModel(), resume-id handoff to --resume   │
+│ agents.js   → Codex + Gemini CLIs headless (JSONL→events)   │
+│ brains.js   → ONE OpenAI-compat adapter, base-URL swap, 12  │
+│             providers: local · gemini · openai · deepseek · │
+│             kimi · grok · mistral · groq · together ·        │
+│             openrouter · fireworks · cohere                 │
+│ voice.js    → TTS registry: browser/Piper/ElevenLabs/       │
+│             Cartesia/Deepgram/OpenAI/Google/Azure/Polly     │
+│ preview.js  proxy dev server (loopback-only) into iframe;   │
 │             inject console/error hook → WS → engine context │
 │             snapshot endpoint (iframe PNG → session image)  │
-│ build/      APK pipeline runner (proven recipe: env.sh,     │
-│             qemu-aapt2, CAP_BUILD=1, unique filename,       │
-│             build stamp) + http.server install link         │
-│ doctor/     boundary checks (JDK, SDK, aapt2 daemon probe,  │
-│             claude symlink, tmux, disk, keys) — ALL         │
-│             proot-fragile logic lives here, nowhere else    │
-│ mcp/        atlan MCP server exposing preview/build/doctor  │
-│             tools → works in EVERY engine (MCP is the       │
-│             cross-engine standard now)                      │
+│ build.js    APK pipeline (env.sh, qemu-aapt2, CAP_BUILD=1,  │
+│             unique filename, build stamp) served at /apk    │
+│ fleet/hierarchy/routines/personas.js → orchestration        │
+│             (hard budgets, model tiers, deterministic       │
+│             checkers, scheduler)                            │
+│ auth.js     password (scrypt) + httpOnly session cookie     │
+│ doctor.js/preflight.js  boundary checks (JDK, SDK, aapt2,   │
+│             claude, tmux, disk, keys, Piper) + expose gate  │
+│ (roadmap)   MCP server for preview/build/doctor tools —     │
+│             designed, not built                             │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -45,7 +48,7 @@ One sentence: **Claude Code in a phone IDE with a live preview sandbox, Mid-Atla
 
 ## Engine roster (docs/engines/*.md for verified facts)
 - Claude Code (agent, primary) · Codex CLI (agent) · Gemini CLI (agent) · Qwen Code / Vibe / Kimi Code (agent CLIs, later)
-- API brains: OpenAI, Gemini, Grok, DeepSeek, Mistral, Kimi — one OpenAI-compat adapter
+- API brains (12): local (llama-server) · gemini · openai · deepseek · kimi · grok · mistral · groq · together · openrouter · fireworks · cohere — one OpenAI-compat adapter
 - Local free: llama-server (Qwen3.5-2B upgrade path), LiteRT Gemma 4 E2B app-side later
 
 ## Identity
@@ -69,8 +72,8 @@ One sentence: **Claude Code in a phone IDE with a live preview sandbox, Mid-Atla
 - **M5c routines** ✓ in-server scheduler, missed-run flags (never auto-fire late), pause, run-late
 - **M5d Persona+ builder** ✓ persona + structured-command builders, deterministic checker engine, compile viewer, test harness with escalation ladder
 - **M6 atlan-alive** ✓ mood engine on real state (halo canvas, orbiting agents), time greetings, night dimming
-- **Auth layer** ✓ token-gated /api + /apk + WS (timing-safe, throttled); preflight blocker cleared — 0 blockers
-- **Onboarding** ✓ 27-step in-app spotlight tour + searchable handbook + `docs/HANDOFF.md`
+- **Auth layer** ✓ password (scrypt) + httpOnly `SameSite=Strict` session cookie on /api + /apk + WS (timing-safe, throttled, sessions hashed at rest, revoked on password change); bearer header for automation only; preflight blocker cleared — 0 blockers
+- **Onboarding** ✓ 28-step in-app spotlight tour + searchable handbook + `docs/HANDOFF.md`
 - **Test campaign** ✓ 151 tests / 10 suites green; `docs/RECEIPTS.md` auto-generated
 - **Post-M6** ✓ chat streaming + live thinking; password auth + sessions; forkable config layer; worker hierarchy (engine + UI); message attachments; live code editor; UI/a11y pass; Apache-2.0 + watermark
 

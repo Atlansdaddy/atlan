@@ -31,7 +31,7 @@ const CATALOG = [
   { id: 'browser', label: 'Browser voice', tier: 'free', cost: 'free', latency: 'instant', ssml: false,
     note: 'runs in your browser, no key, works offline — quality varies by device', ready: async () => true },
   { id: 'piper', label: 'Piper (local)', tier: 'free', cost: 'free', latency: 'fast (on-device)', ssml: true,
-    note: 'pip install piper-tts + set PIPER_MODEL to a .onnx voice — private, offline, real SSML',
+    note: 'prebuilt piper binary on PATH + set PIPER_MODEL to a .onnx voice (pip install piper-tts only builds on Python ≤3.12) — private, offline, real SSML',
     ready: async () => (await hasPiper()) && !!piperModel() },
   { id: 'elevenlabs', label: 'ElevenLabs', tier: 'byok', cost: '$$$ (~$100/M chars, HD)', latency: '~75ms', ssml: false,
     note: 'best-in-class natural voices + cloning; set ELEVENLABS_API_KEY', ready: async () => !!key('ELEVENLABS_API_KEY') },
@@ -93,7 +93,7 @@ const SYNTH = {
 
 // ── Piper: local binary, SSML in → raw PCM/wav out (stdin/stdout) ──
 async function piper(text, mood) {
-  if (!(await hasPiper())) throw new Error('piper not installed (pip install piper-tts + a voice model)');
+  if (!(await hasPiper())) throw new Error('piper not installed (prebuilt piper binary on PATH + a .onnx voice model)');
   const model = piperModel();
   if (!model) throw new Error('set PIPER_MODEL to a .onnx voice path (Doctor → Keys)');
   const ssml = ssmlWrap(text, mood);

@@ -9,11 +9,11 @@ He named: e2e, unit, function, ui/ux, connection, db, security, edge, adversaria
 - **Accessibility** — not named; deferred. The tour/UI suites assert visibility and interaction, not WCAG. *Backlog.*
 
 ## Product decisions where the brief was silent
-- **Auth mechanism** — chose a single bearer token (file `.auth-token`, 0600) over multi-user accounts. It's a personal single-user tool; a password system would be theater. Timing-safe compare + brute throttle included.
+- **Auth mechanism** — ⚠️ **SUPERSEDED (see "Reverted earlier: token-in-URL login" below).** *Originally:* a single bearer token (`.auth-token`, 0600). *Now:* a **password (scrypt) + httpOnly `SameSite=Strict` session cookie** is the human login; `.auth-token` is the automation bearer only (header, never a URL). The original "a password would be theater" reasoning was reversed once the token-in-URL leak risk was understood.
 - **Routine "missed run" behavior** — chose **flag-and-wait** (never auto-fire late). A phone that was off all night must not wake and spend a night's worth of token budget at once. He can tap "run late" per routine.
 - **Persona+ builder scope** — built persona + structured-command + checker + harness + escalation, wired into fleet and routines. **Not** wired into Chat yet (a persona as a chat system-prompt) — logged in SPEC backlog. The harness escalation uses the `scout` profile by default (read-only is the safe default for an auto-escalation).
 - **Checker `arith`** — implemented a hand-written safe expression parser (no `eval`, no `Function`) so a formula from the UI can never execute code. Verified by injection tests.
-- **Tutorial format** — chose an in-app spotlight tour (27 steps, every control) + a searchable handbook + a markdown handoff, over a video or external doc. Everything stays on the phone, offline, reopenable via `?`.
+- **Tutorial format** — chose an in-app spotlight tour (28 steps, every control) + a searchable handbook + a markdown handoff, over a video or external doc. Everything stays on the phone, offline, reopenable via `?`.
 - **Night dimming hours** — 22:00–06:30, matching the Habitat day/night pattern he liked. Cosmetic; easy to change.
 
 ## Adversarial pass — what the contextless agents found (and what I did)

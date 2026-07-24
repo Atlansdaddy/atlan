@@ -102,7 +102,7 @@ export async function runDoctor() {
       // "piper" from an error message (which a `--version` grep would falsely match).
       const { stdout } = await sh('command -v piper 2>/dev/null || true', { timeout: 3000 });
       const hasBin = !!stdout.trim();
-      if (!hasBin) return { ok: false, warn: true, detail: 'not installed (optional) — pip install piper-tts; browser/BYO-key voices still work' };
+      if (!hasBin) return { ok: false, warn: true, detail: 'not installed (optional) — prebuilt piper binary + a .onnx voice (pip install piper-tts only works on Python ≤3.12); browser/BYO-key voices still work' };
       const model = process.env.PIPER_MODEL || (await import('./keys.js')).getStoredKey('PIPER_MODEL');
       const hasModel = !!model && existsSync(model);
       return { ok: hasModel, warn: !hasModel, detail: hasModel ? `installed · ${model.split('/').pop()}` : 'installed, but PIPER_MODEL unset/missing — set a .onnx voice path in Keys' };
