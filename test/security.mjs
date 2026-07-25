@@ -184,7 +184,7 @@ await test('static server does not serve files outside web root', async () => {
 await test('editor /api/file refuses agent-CLI credential stores', async () => {
   const home = process.env.HOME ?? '/root';
   for (const p of ['.copilot/config.json', '.codex/auth.json', '.grok/auth.json',
-    '.gemini/antigravity-cli/oauth_creds.json', '.claude/.credentials.json']) {
+    '.gemini/antigravity-cli/oauth_creds.json', '.claude/.credentials.json', '.config/gh/hosts.yml']) {
     const r = await authed('/api/file?path=' + encodeURIComponent(`${home}/${p}`));
     assert.equal(r.status, 400, `${p} was not refused (status ${r.status})`);
     assert.ok(/credentials|secrets/i.test(await r.text()), `${p} refusal message unexpected`);

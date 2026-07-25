@@ -20,7 +20,7 @@ import { APP_ROOT, PROJECTS_DIR } from './config.js';
 // holds a PLAINTEXT subscription token; without this the editor's /api/file
 // would read them straight out over the tunnel. The SDK/CLIs read their own
 // stores directly (not via guardPath), so blocking the editor path is safe.
-export const SENSITIVE = /(^|\/)\.(ssh|aws|gnupg|gcloud|docker|kube|copilot|codex|grok|gemini|claude)(\/|$)|(^|\/)(\.auth-token|\.keys\.enc|\.keysecret|\.fleet|\.env|id_rsa|id_ed25519)(\/|$)/;
+export const SENSITIVE = /(^|\/)\.(ssh|aws|gnupg|gcloud|docker|kube|copilot|codex|grok|gemini|claude)(\/|$)|(^|\/)\.config\/(gh|github-copilot)(\/|$)|(^|\/)(\.auth-token|\.keys\.enc|\.keysecret|\.fleet|\.env|id_rsa|id_ed25519)(\/|$)/;
 
 export function isUnder(p, root) {
   const r = root.endsWith('/') ? root : root + '/';
