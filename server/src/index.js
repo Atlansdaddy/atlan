@@ -2,7 +2,7 @@ import express from 'express';
 import { createServer } from 'node:http';
 import { WebSocketServer } from 'ws';
 import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { readdirSync, statSync } from 'node:fs';
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { ClaudeSession } from './claudeEngine.js';
@@ -13,6 +13,8 @@ import { engineRoster, brainChat } from './brains.js';
 import { runBuild, APK_DIR } from './build.js';
 import { keyStatus, setStoredKey } from './keys.js';
 import { runPreflight } from './preflight.js';
+import { scanProject } from './preflight/scanProject.mjs';
+import { isUnder } from './guards.js';
 import { agentStatus, agentTurn } from './agents.js';
 import { localModels, activateLocalModel } from './localmodels.js';
 import { initFleet, spawnRun, listRuns, killRun, killAll, todayBurn, profileList, historyTail, topUpRun } from './fleet.js';
@@ -120,6 +122,20 @@ app.post('/api/local/models', async (req, res) => {
 app.use('/apk', express.static(APK_DIR));
 
 app.get('/api/preflight', async (_req, res) => res.json(await runPreflight()));
+
+// SAST scan of a project with the vendored PreFlight engine (server/src/preflight).
+// Path is validated under PROJECTS_DIR; defaults to the whole projects dir.
+app.get('/api/scan', (req, res) => {
+  try {
+    const target = req.query.path ? resolve(String(req.query.path)) : PROJECTS_DIR;
+    if (target !== PROJECTS_DIR && !isUnder(target, PROJECTS_DIR)) {
+      return res.status(400).json({ error: 'scan path must be under the projects directory' });
+    }
+    res.json(scanProject(target));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
 
 app.get('/api/fleet', (_req, res) => res.json({ runs: listRuns(), history: historyTail(30), today: todayBurn(), profiles: profileList, pushSubs: subCount() }));
 app.post('/api/fleet/topup', (req, res) => {

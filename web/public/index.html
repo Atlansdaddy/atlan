@@ -337,6 +337,13 @@
       <div class="eyebrow" style="margin-top:6px">Preflight — must be green before any deploy or tunnel</div>
       <div id="preflightList" class="doctor-list"></div>
       <div class="hint" id="preflightVerdict"></div>
+      <div class="eyebrow" style="margin-top:6px">Scan — SAST audit of a project</div>
+      <div class="projbar">
+        <select id="scanProjSel" aria-label="project to scan"></select>
+        <button class="btn hot" id="scanBtn">Run scan</button>
+      </div>
+      <div class="hint" id="scanMeta">Static analysis with the PreFlight engine. Nothing leaves the machine — findings tap to open in the editor.</div>
+      <div id="scanList" class="doctor-list"></div>
       <div class="lore">ATLAN · your cockpit in the deep<br><span>“a steady light while you build.”</span></div>
     </section>
   </div>

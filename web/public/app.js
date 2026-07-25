@@ -64,7 +64,7 @@
     if (b.dataset.s === 's-term') initTerm();
     if (b.dataset.s === 's-editor') initEditor();
     if (b.dataset.s === 's-fleet') loadFleet();
-    if (b.dataset.s === 's-doctor') { loadDoctor(); loadKeys(); loadPreflight(); loadLocalModels(); }
+    if (b.dataset.s === 's-doctor') { loadDoctor(); loadKeys(); loadPreflight(); loadLocalModels(); loadScan(); }
   }));
 
   // ── Atlan alive: mood engine + halo canvas ──
@@ -1191,6 +1191,64 @@
       $('preflightVerdict').textContent = p.ready
         ? '✓ preflight green — safe to consider exposure (tunnel + Access, never a bare port)'
         : `✗ ${p.blockers} blocker${p.blockers > 1 ? 's' : ''} — Atlan stays loopback-only until these are green`;
+    }).catch(() => {});
+  }
+
+  // ── Scan surface: run the vendored PreFlight SAST engine on a project ──
+  let scanPopulated = false;
+  function loadScan() {
+    if (scanPopulated) return;
+    scanPopulated = true;
+    fetch('/api/projects').then((r) => r.json()).then((list) => {
+      const sel = $('scanProjSel');
+      for (const p of list) { const o = document.createElement('option'); o.value = p.path; o.textContent = p.name; sel.append(o); }
+      if ($('projSel').value) sel.value = $('projSel').value; // default to the picked project
+    }).catch(() => {});
+  }
+  const SEV_UI = ['critical', 'high', 'medium', 'low', 'info'];
+  $('scanBtn')?.addEventListener('click', () => {
+    const root = $('scanProjSel').value;
+    if (!root) return;
+    $('scanBtn').disabled = true;
+    $('scanMeta').textContent = 'scanning ' + (root.split('/').pop() || root) + ' …';
+    $('scanList').innerHTML = '';
+    fetch('/api/scan?path=' + encodeURIComponent(root)).then((r) => r.json()).then((res) => {
+      $('scanBtn').disabled = false;
+      if (res.error) { $('scanMeta').textContent = res.error; return; }
+      const counts = {};
+      for (const f of res.findings) counts[f.severity] = (counts[f.severity] || 0) + 1;
+      $('scanMeta').textContent = `score ${res.score}/100 · ${res.filesCollected} files · `
+        + (SEV_UI.filter((s) => counts[s]).map((s) => `${counts[s]} ${s}`).join(' · ') || 'clean');
+      const list = $('scanList');
+      for (const sev of SEV_UI) {
+        const fs = res.findings.filter((f) => f.severity === sev);
+        for (const f of fs.slice(0, 60)) {
+          const row = document.createElement('button');
+          row.className = 'scanrow sev-' + sev;
+          row.innerHTML = `<span class="sbadge"></span><span class="stext"></span><span class="sloc"></span>`;
+          row.querySelector('.sbadge').textContent = sev;
+          row.querySelector('.stext').textContent = `[${f.probe}] ${f.title || f.message || ''}`;
+          row.querySelector('.sloc').textContent = `${f.file}:${f.line || '?'}`;
+          row.addEventListener('click', () => openScanFinding(root, f.file, f.line));
+          list.append(row);
+        }
+        if (fs.length > 60) { const m = document.createElement('div'); m.className = 'hint'; m.textContent = `… +${fs.length - 60} more ${sev}`; list.append(m); }
+      }
+      if (!res.findings.length) list.innerHTML = '<div class="hint">clean — no findings 🎉</div>';
+    }).catch((e) => { $('scanBtn').disabled = false; $('scanMeta').textContent = String(e); });
+  });
+  // open a finding's file in the editor at its line (findings are relative to the scan root)
+  function openScanFinding(root, relFile, line) {
+    const abs = root.replace(/\/$/, '') + '/' + relFile;
+    document.querySelector('nav button[data-s="s-editor"]')?.click();
+    fetch('/api/file?path=' + encodeURIComponent(abs)).then((r) => r.json()).then((f) => {
+      if (f.error) return addMsg('err', f.error);
+      initEditor();
+      cmEditor.setValue(f.content); edClean = f.content; edCurrentPath = f.path;
+      $('edName').textContent = f.name; $('edPath').value = f.path; $('edDirty').textContent = '';
+      edMode(f.name);
+      if (line) { const ln = Math.max(0, line - 1); cmEditor.setCursor({ line: ln, ch: 0 }); cmEditor.scrollIntoView({ line: ln, ch: 0 }, 120); }
+      cmEditor.refresh(); cmEditor.focus();
     }).catch(() => {});
   }
 
