@@ -361,6 +361,9 @@ export async function harnessRun({ commandId, vars = {}, engine = 'local', model
       // json_schema constrained decoding where supported (llama-server, OpenAI,
       // DeepSeek); engines that ignore it still get the prompt-level contract.
       response_format: { type: 'json_schema', json_schema: { name: 'template', schema, strict: true } },
+      // qwen3.5/3.6 thinking off-switch (--reasoning-budget 0 is a no-op for
+      // them); llama.cpp-only field, so local engines only.
+      ...(engine === 'local' ? { chat_template_kwargs: { enable_thinking: false } } : {}),
     }),
     signal: AbortSignal.timeout(120000),
   });

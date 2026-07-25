@@ -263,6 +263,10 @@ async function callTier(tierId, cmd, vars, run) {
     body: JSON.stringify({
       model: tier.model, messages, temperature: 0.1, stream: false,
       response_format: { type: 'json_schema', json_schema: { name: 'template', schema: templateSchema(cmd), strict: true } },
+      // qwen3.5/3.6 ignore --reasoning-budget 0 and think themselves past any
+      // token budget before the grammar ever fires; this kwarg is the real
+      // off-switch. llama.cpp-only field — local tier only.
+      ...(tierId === 'local' ? { chat_template_kwargs: { enable_thinking: false } } : {}),
     }),
     signal: AbortSignal.timeout(120000),
   });
