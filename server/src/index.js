@@ -367,7 +367,7 @@ wss.on('connection', (ws, req) => {
             + pending.errors.slice(-12).map((e) => `• ${e}`).join('\n');
         }
         const isClaude = !m.engine || m.engine === 'claude';
-        const isAgentCli = m.engine === 'codex' || m.engine === 'gemini-cli';
+        const isAgentCli = m.engine === 'codex' || m.engine === 'antigravity';
         if (isClaude || isAgentCli) {
           for (const p of pending.snaps) {
             text += `\n\n[Atlan preview snapshot saved at ${p} — Read/view that image file to SEE the current preview.]`;

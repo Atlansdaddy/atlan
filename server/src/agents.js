@@ -19,21 +19,32 @@ export function agentStatus() {
       needs: 'run: codex login --device-auth (Term tab)',
     },
     {
-      id: 'gemini-cli',
-      label: 'Gemini CLI — agent, full-auto',
-      model: 'gemini-cli',
+      id: 'antigravity',
+      label: 'Antigravity (Gemini) — agent, full-auto',
+      model: 'antigravity',
       group: 'agent',
-      ready: geminiOauth() || !!(process.env.GEMINI_API_KEY || getStoredKey('GEMINI_API_KEY')),
-      needs: 'Google login (gemini in Term tab) or GEMINI_API_KEY',
+      ready: !!agyBin() && (agyAuthed() || !!(process.env.ANTIGRAVITY_API_KEY || getStoredKey('ANTIGRAVITY_API_KEY'))),
+      needs: agyBin() ? 'run: agy (Term tab) → Sign in with Google' : 'install: curl -fsSL https://antigravity.google/cli/install.sh | bash',
     },
   ];
 }
 
-function geminiOauth() {
-  return existsSync(`${process.env.HOME ?? '/root'}/.gemini/oauth_creds.json`);
+// Antigravity CLI (agy) — Gemini CLI's successor (Google retired the gemini
+// command for individuals 2026-06-18; subscription OAuth works again here).
+// Auth = browser sign-in on first interactive run (token lands in the system
+// keyring; the config dir appears then), or ANTIGRAVITY_API_KEY. Headless =
+// `agy -p` — plain text out, no stream-json in 1.x; `-c` continues the most
+// recent conversation, which is how a chat thread persists across turns.
+function agyBin() {
+  const home = process.env.HOME ?? '/root';
+  if (existsSync(`${home}/.local/bin/agy`)) return `${home}/.local/bin/agy`;
+  return existsSync('/usr/local/bin/agy') ? '/usr/local/bin/agy' : null;
+}
+function agyAuthed() {
+  return existsSync(`${process.env.HOME ?? '/root'}/.gemini/antigravity-cli`);
 }
 
-export function agentTurn({ engine, cwd, text, send, state, forceKey = false }) {
+export function agentTurn({ engine, cwd, text, send, state }) {
   if (state.running) {
     send({ t: 'chat.err', msg: 'agent is mid-turn — wait for it to finish' });
     return;
@@ -47,16 +58,11 @@ export function agentTurn({ engine, cwd, text, send, state, forceKey = false }) 
     args = state.codexThread
       ? ['exec', 'resume', state.codexThread, '--json', '--dangerously-bypass-approvals-and-sandbox', text]
       : ['exec', '--json', '--dangerously-bypass-approvals-and-sandbox', '--skip-git-repo-check', text];
-  } else if (engine === 'gemini-cli') {
-    cmd = 'gemini';
-    args = ['-p', text, '-o', 'stream-json', '--approval-mode', 'yolo'];
-    env.GEMINI_CLI_TRUST_WORKSPACE = 'true';
-    // Auth reality (empirical 2026-07-16): John's Google OAuth authenticates but
-    // the free individual CLI backend is gone (owIneligibleOrProjectIdError), so
-    // ~/.gemini/settings.json is pinned to gemini-api-key and the stored key is
-    // always provided. If Google restores individual OAuth: flip settings back.
-    const gkey = process.env.GEMINI_API_KEY || getStoredKey('GEMINI_API_KEY');
-    if (gkey) env.GEMINI_API_KEY = gkey;
+  } else if (engine === 'antigravity') {
+    cmd = agyBin() ?? 'agy';
+    args = [...(state.agyStarted ? ['-c'] : []), '--dangerously-skip-permissions', '-p', text];
+    const akey = process.env.ANTIGRAVITY_API_KEY || getStoredKey('ANTIGRAVITY_API_KEY');
+    if (akey) env.ANTIGRAVITY_API_KEY = akey;
   } else {
     state.running = false;
     return send({ t: 'chat.err', msg: `unknown agent: ${engine}` });
@@ -104,6 +110,9 @@ export function agentTurn({ engine, cwd, text, send, state, forceKey = false }) 
   };
 
   child.stdout.on('data', (chunk) => {
+    // agy prints a plain-text response (no event stream) — collect it whole
+    // and flush as ONE bubble at close instead of a bubble per line.
+    if (engine === 'antigravity') { geminiText += chunk.toString(); return; }
     buf += chunk.toString();
     let nl;
     while ((nl = buf.indexOf('\n')) >= 0) {
@@ -134,15 +143,17 @@ export function agentTurn({ engine, cwd, text, send, state, forceKey = false }) 
       return;
     }
     if (code !== 0) {
-      const ineligible = engine === 'gemini-cli' && /Ineligible|ProjectId/i.test(stderrTail);
-      const backupKey = process.env.GEMINI_API_KEY || getStoredKey('GEMINI_API_KEY');
-      if (ineligible && !forceKey && backupKey) {
-        send({ t: 'tool.use', name: 'auth', input: 'Google login ineligible for free CLI backend — retrying with your stored API key' });
-        agentTurn({ engine, cwd, text, send, state, forceKey: true });
-        return;
-      }
       send({ t: 'chat.err', msg: `${engineLabel(engine)} exited ${code}: ${stderrTail.trim().slice(-300) || 'no error output'}` });
       send({ t: 'atlan.mood', mood: 'alarmed' });
+      return;
+    }
+    if (engine === 'antigravity') {
+      state.agyStarted = true; // future turns use -c to continue the conversation
+      const out = geminiText.trim();
+      geminiText = '';
+      if (out) { sawText = true; send({ t: 'chat.msg', role: 'claude', engine: engineLabel(engine), text: out }); }
+      send({ t: 'chat.result', subtype: 'success', brain: engine, tokens: null });
+      send({ t: 'atlan.mood', mood: 'proud' });
       return;
     }
     if (!sawText) send({ t: 'chat.result', subtype: 'success', brain: engine, tokens: null });
@@ -151,5 +162,5 @@ export function agentTurn({ engine, cwd, text, send, state, forceKey = false }) 
 }
 
 function engineLabel(engine) {
-  return engine === 'codex' ? 'Codex · full-auto' : 'Gemini CLI · full-auto';
+  return engine === 'codex' ? 'Codex · full-auto' : 'Antigravity · full-auto';
 }
