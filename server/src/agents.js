@@ -14,6 +14,9 @@ export function agentStatus() {
       id: 'codex',
       label: 'Codex (GPT-5.6) — agent, full-auto',
       model: 'codex',
+      // No model tiers: with ChatGPT-subscription auth codex rejects ANY
+      // explicit -m ("model is not supported when using Codex with a ChatGPT
+      // account", 400 — verified 2026-07-25). The CLI picks its own model.
       group: 'agent',
       ready: existsSync(`${home}/.codex/auth.json`) || !!process.env.CODEX_API_KEY,
       needs: 'run: codex login --device-auth (Term tab)',
@@ -22,11 +25,38 @@ export function agentStatus() {
       id: 'antigravity',
       label: 'Antigravity (Gemini) — agent, full-auto',
       model: 'antigravity',
+      // from `agy models` (1.1.7) — Antigravity serves a multi-vendor roster
+      models: ['default', 'gemini-3.6-flash-high', 'gemini-3.6-flash-medium', 'gemini-3.6-flash-low',
+        'gemini-3.5-flash-high', 'gemini-3.5-flash-medium', 'gemini-3.5-flash-low',
+        'gemini-3.1-pro-high', 'gemini-3.1-pro-low', 'claude-sonnet-4-6', 'claude-opus-4-6-thinking', 'gpt-oss-120b-medium'],
       group: 'agent',
       ready: !!agyBin() && (agyAuthed() || !!(process.env.ANTIGRAVITY_API_KEY || getStoredKey('ANTIGRAVITY_API_KEY'))),
       needs: agyBin() ? 'run: agy (Term tab) → Sign in with Google' : 'install: curl -fsSL https://antigravity.google/cli/install.sh | bash',
     },
+    {
+      id: 'grok',
+      label: 'Grok Build (xAI) — agent, full-auto',
+      model: 'grok',
+      models: ['default', 'grok-4.5'], // from `grok models` — expands with the plan
+      group: 'agent',
+      ready: !!grokBin() && (grokAuthed() || !!(process.env.XAI_API_KEY || getStoredKey('XAI_API_KEY'))),
+      needs: grokBin() ? 'run: grok login (Term tab)' : 'install: npm i -g @xai-official/grok',
+    },
   ];
+}
+
+// Grok Build (xAI's official CLI, open to SuperGrok / X Premium+ since
+// 2026-05-25). `grok login` = browser OAuth → ~/.grok/auth.json; XAI_API_KEY
+// is the metered fallback. Headless = `-p` (plain text; --output-format
+// json/streaming-json exists but its event schema is unversioned — plain +
+// one-bubble flush until we pin it), `-c` continues the most recent session
+// in this cwd, `--always-approve` = full-auto, --no-auto-update for automation.
+function grokBin() {
+  if (existsSync('/usr/bin/grok')) return '/usr/bin/grok';
+  return existsSync('/usr/local/bin/grok') ? '/usr/local/bin/grok' : null;
+}
+function grokAuthed() {
+  return existsSync(`${process.env.HOME ?? '/root'}/.grok/auth.json`);
 }
 
 // Antigravity CLI (agy) — Gemini CLI's successor (Google retired the gemini
@@ -44,7 +74,7 @@ function agyAuthed() {
   return existsSync(`${process.env.HOME ?? '/root'}/.gemini/antigravity-cli`);
 }
 
-export function agentTurn({ engine, cwd, text, send, state }) {
+export function agentTurn({ engine, cwd, text, send, state, model = null }) {
   if (state.running) {
     send({ t: 'chat.err', msg: 'agent is mid-turn — wait for it to finish' });
     return;
@@ -52,17 +82,25 @@ export function agentTurn({ engine, cwd, text, send, state }) {
   state.running = true;
   send({ t: 'atlan.mood', mood: 'building' });
 
+  // picker sends `default` (or the engine id itself) to mean "CLI's choice"
+  const pickedModel = model && model !== 'default' && model !== engine ? model : null;
   let cmd, args, env = { ...process.env };
   if (engine === 'codex') {
     cmd = 'codex';
     args = state.codexThread
       ? ['exec', 'resume', state.codexThread, '--json', '--dangerously-bypass-approvals-and-sandbox', text]
       : ['exec', '--json', '--dangerously-bypass-approvals-and-sandbox', '--skip-git-repo-check', text];
+    if (pickedModel) args.splice(1, 0, '-m', pickedModel);
   } else if (engine === 'antigravity') {
     cmd = agyBin() ?? 'agy';
-    args = [...(state.agyStarted ? ['-c'] : []), '--dangerously-skip-permissions', '-p', text];
+    args = [...(state.agyStarted ? ['-c'] : []), ...(pickedModel ? ['--model', pickedModel] : []), '--dangerously-skip-permissions', '-p', text];
     const akey = process.env.ANTIGRAVITY_API_KEY || getStoredKey('ANTIGRAVITY_API_KEY');
     if (akey) env.ANTIGRAVITY_API_KEY = akey;
+  } else if (engine === 'grok') {
+    cmd = grokBin() ?? 'grok';
+    args = ['--no-auto-update', ...(state.grokStarted ? ['-c'] : []), ...(pickedModel ? ['-m', pickedModel] : []), '--always-approve', '-p', text];
+    const xkey = process.env.XAI_API_KEY || getStoredKey('XAI_API_KEY');
+    if (xkey) env.XAI_API_KEY = xkey;
   } else {
     state.running = false;
     return send({ t: 'chat.err', msg: `unknown agent: ${engine}` });
@@ -110,9 +148,9 @@ export function agentTurn({ engine, cwd, text, send, state }) {
   };
 
   child.stdout.on('data', (chunk) => {
-    // agy prints a plain-text response (no event stream) — collect it whole
-    // and flush as ONE bubble at close instead of a bubble per line.
-    if (engine === 'antigravity') { geminiText += chunk.toString(); return; }
+    // agy and grok print a plain-text response (no event stream we trust yet) —
+    // collect it whole and flush as ONE bubble at close, not a bubble per line.
+    if (engine === 'antigravity' || engine === 'grok') { geminiText += chunk.toString(); return; }
     buf += chunk.toString();
     let nl;
     while ((nl = buf.indexOf('\n')) >= 0) {
@@ -147,8 +185,9 @@ export function agentTurn({ engine, cwd, text, send, state }) {
       send({ t: 'atlan.mood', mood: 'alarmed' });
       return;
     }
-    if (engine === 'antigravity') {
-      state.agyStarted = true; // future turns use -c to continue the conversation
+    if (engine === 'antigravity' || engine === 'grok') {
+      // future turns use -c to continue the conversation
+      if (engine === 'antigravity') state.agyStarted = true; else state.grokStarted = true;
       const out = geminiText.trim();
       geminiText = '';
       if (out) { sawText = true; send({ t: 'chat.msg', role: 'claude', engine: engineLabel(engine), text: out }); }
@@ -162,5 +201,5 @@ export function agentTurn({ engine, cwd, text, send, state }) {
 }
 
 function engineLabel(engine) {
-  return engine === 'codex' ? 'Codex · full-auto' : 'Antigravity · full-auto';
+  return { codex: 'Codex · full-auto', antigravity: 'Antigravity · full-auto', grok: 'Grok Build · full-auto' }[engine] ?? `${engine} · full-auto`;
 }

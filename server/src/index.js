@@ -367,7 +367,7 @@ wss.on('connection', (ws, req) => {
             + pending.errors.slice(-12).map((e) => `• ${e}`).join('\n');
         }
         const isClaude = !m.engine || m.engine === 'claude';
-        const isAgentCli = m.engine === 'codex' || m.engine === 'antigravity';
+        const isAgentCli = m.engine === 'codex' || m.engine === 'antigravity' || m.engine === 'grok';
         if (isClaude || isAgentCli) {
           for (const p of pending.snaps) {
             text += `\n\n[Atlan preview snapshot saved at ${p} — Read/view that image file to SEE the current preview.]`;
@@ -381,7 +381,7 @@ wss.on('connection', (ws, req) => {
         if (isAgentCli) {
           const state = agentState.get(m.engine) ?? {};
           agentState.set(m.engine, state);
-          agentTurn({ engine: m.engine, cwd: m.cwd || '/root', text, send, state });
+          agentTurn({ engine: m.engine, cwd: m.cwd || '/root', text, send, state, model: m.model });
         } else if (isClaude) {
           if (!claude || (m.cwd && claude.cwd !== m.cwd)) {
             claude?.dispose(); // end the old warm session before replacing it (cwd changed)

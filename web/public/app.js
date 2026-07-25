@@ -358,11 +358,18 @@
       const groups = { agent: $('ogAgents'), local: $('ogLocal'), cloud: $('ogCloud') };
       for (const g of Object.values(groups)) g.innerHTML = '';
       for (const e of roster) {
-        const o = document.createElement('option');
-        o.value = `${e.id}|${e.model}`;
-        o.textContent = e.label + (e.ready ? '' : ` — needs: ${e.needs}`);
-        o.disabled = !e.ready;
-        (groups[e.group] ?? groups.cloud).append(o);
+        // agent engines expose model tiers — one option per tier so hard tasks
+        // can pick a heavier model and quick ones a lighter, per turn
+        const models = Array.isArray(e.models) && e.models.length ? e.models : [e.model];
+        const short = e.label.split(' — ')[0];
+        for (const m of models) {
+          const o = document.createElement('option');
+          o.value = `${e.id}|${m}`;
+          o.textContent = (models.length > 1 ? `${short} · ${m}` : e.label) + (e.ready ? '' : ` — needs: ${e.needs}`);
+          o.disabled = !e.ready;
+          (groups[e.group] ?? groups.cloud).append(o);
+          if (!e.ready) break; // one disabled hint row is enough
+        }
       }
     }).catch(() => {});
   }
