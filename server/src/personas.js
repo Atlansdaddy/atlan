@@ -322,9 +322,9 @@ export function toolSchema(cmd) {
 // ── harness: run a command against an OpenAI-compat engine, checker-gated ──
 const HARNESS_PROVIDERS = {
   local: { base: 'http://127.0.0.1:8080/v1', keyEnv: null, model: 'local' },
-  gemini: { base: 'https://generativelanguage.googleapis.com/v1beta/openai', keyEnv: 'GEMINI_API_KEY', model: 'gemini-3-flash-preview' },
+  gemini: { base: 'https://generativelanguage.googleapis.com/v1beta/openai', keyEnv: 'GEMINI_API_KEY', model: 'gemini-3.6-flash' },
   openai: { base: 'https://api.openai.com/v1', keyEnv: 'OPENAI_API_KEY', model: 'gpt-5.6-luna' },
-  deepseek: { base: 'https://api.deepseek.com/v1', keyEnv: 'DEEPSEEK_API_KEY', model: 'deepseek-chat' },
+  deepseek: { base: 'https://api.deepseek.com/v1', keyEnv: 'DEEPSEEK_API_KEY', model: 'deepseek-v4-flash' }, // deepseek-chat retired 2026-07-24
 };
 
 const LOOPBACK = new Set(['127.0.0.1', 'localhost', '[::1]', '::1']);
