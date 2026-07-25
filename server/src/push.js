@@ -1,5 +1,6 @@
 import webpush from 'web-push';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync } from 'node:fs';
+import { atomicWrite } from './fsutil.js';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -17,12 +18,12 @@ function loadJson(p, fallback) { try { return JSON.parse(readFileSync(p, 'utf8')
 let vapid = loadJson(VAPID_FILE, null);
 if (!vapid) {
   vapid = webpush.generateVAPIDKeys();
-  writeFileSync(VAPID_FILE, JSON.stringify(vapid), { mode: 0o600 });
+  atomicWrite(VAPID_FILE, JSON.stringify(vapid), { mode: 0o600 });
 }
 webpush.setVapidDetails(`mailto:${BRAND.contactEmail}`, vapid.publicKey, vapid.privateKey);
 
 let subs = loadJson(SUBS_FILE, []);
-const saveSubs = () => writeFileSync(SUBS_FILE, JSON.stringify(subs), { mode: 0o600 });
+const saveSubs = () => atomicWrite(SUBS_FILE, JSON.stringify(subs), { mode: 0o600 });
 
 export function pushPublicKey() { return vapid.publicKey; }
 

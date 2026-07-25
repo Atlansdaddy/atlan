@@ -11,6 +11,16 @@ const authed = (path, opts = {}) => fetch(BASE + path, { ...opts, headers: { 'co
 const naked = (path, opts = {}) => fetch(BASE + path, { ...opts, headers: { 'content-type': 'application/json', ...(opts.headers ?? {}) } });
 const j = async (r) => ({ status: r.status, body: await r.json().catch(() => ({})) });
 
+// Raw request so we can forge Host/Origin (fetch forbids those headers). Used to
+// prove the preview-proxy anti-rebinding gate.
+import http from 'node:http';
+const PREVIEW_PORT = Number(process.env.ATLAN_PREVIEW_PORT ?? 4590);
+const rawStatus = (port, headers) => new Promise((resolve) => {
+  const req = http.request({ host: '127.0.0.1', port, path: '/', method: 'GET', headers }, (res) => { res.resume(); resolve(res.statusCode); });
+  req.on('error', () => resolve(0));
+  req.end();
+});
+
 let pass = 0, fail = 0;
 async function test(name, fn) {
   try { await fn(); pass++; console.log(`  ✓ ${name}`); }
@@ -29,9 +39,20 @@ const TEST_PW = 'atlan-test-pw-8x';
 // the bearer to set one up on a fresh instance (setup endpoint itself is open).
 async function ensurePassword() {
   const { configured } = await naked('/api/auth/status').then((r) => r.json());
-  if (!configured) await naked('/api/auth/setup', { method: 'POST', body: JSON.stringify({ password: TEST_PW }) });
+  // authed() carries the bearer — legit local ownership for the first-run gate.
+  if (!configured) await authed('/api/auth/setup', { method: 'POST', body: JSON.stringify({ password: TEST_PW }) });
   return configured; // true if a real (possibly different) password was already set
 }
+// ── first-run setup race: the one open write before a password exists must prove
+// local ownership (browser Origin or bearer). Runs BEFORE ensurePassword so the
+// instance is still fresh; a no-Origin/no-bearer claim must be refused. ──
+await test('first-run setup rejects a no-Origin, no-bearer claim (403)', async () => {
+  const { configured } = await naked('/api/auth/status').then((r) => r.json());
+  if (configured) return; // a prior run already set up — the race window is closed
+  const r = await naked('/api/auth/setup', { method: 'POST', body: JSON.stringify({ password: 'attacker-would-own-this' }) });
+  assert.equal(r.status, 403, 'no-Origin no-bearer setup was not blocked');
+  assert.equal((await naked('/api/auth/status').then((x) => x.json())).configured, false, 'a blocked claim must not have set a password');
+});
 await test('a valid session cookie authenticates; a forged one does not', async () => {
   const preexisting = await ensurePassword();
   const login = await naked('/api/auth/login', { method: 'POST', body: JSON.stringify({ password: TEST_PW }) });
@@ -105,6 +126,21 @@ await test('preview target refuses non-http schemes', async () => {
 await test('preview target ACCEPTS a genuine loopback url', async () => {
   const { status } = await j(await authed('/api/preview/target', { method: 'POST', body: JSON.stringify({ url: 'http://127.0.0.1:5173' }) }));
   assert.equal(status, 200);
+});
+
+// ── preview proxy anti-rebinding gate (:PREVIEW_PORT was open loopback) ──
+await test('preview proxy rejects a cross-site Origin (403)', async () => {
+  assert.equal(await rawStatus(PREVIEW_PORT, { origin: 'http://evil.example' }), 403, 'cross-site Origin not blocked at preview proxy');
+});
+await test('preview proxy rejects a DNS-rebinding Host (403)', async () => {
+  assert.equal(await rawStatus(PREVIEW_PORT, { Host: 'evil.com' }), 403, 'foreign Host (rebinding) not blocked at preview proxy');
+});
+await test('preview proxy lets a same-origin/no-Origin request through the gate', async () => {
+  // No dev server is running under the test → the request passes the gate and the
+  // proxy fails to reach a target (502). The point: it is NOT 403 (gate allowed it).
+  const s = await rawStatus(PREVIEW_PORT, {});
+  assert.notEqual(s, 403, 'legit loopback request wrongly blocked by the gate');
+  assert.notEqual(s, 0, 'preview proxy not reachable at all');
 });
 
 // ── SSRF: harness base override must stay loopback ──

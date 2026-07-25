@@ -1,6 +1,7 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { randomUUID } from 'node:crypto';
-import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, readFileSync } from 'node:fs';
+import { atomicWrite } from './fsutil.js';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { dirname } from 'node:path';
@@ -11,7 +12,17 @@ import { dirname } from 'node:path';
 //     off-profile tools are denied with a reason the agent can read.
 //  3. Idle = zero tokens — nothing runs unless spawned (or, M5c, scheduled).
 const __dirname = dirname(fileURLToPath(import.meta.url));
-import { FLEET_DIR, DAILY_TOKEN_CAP, MAX_CONCURRENT_RUNS, sandboxOption } from './config.js';
+import { FLEET_DIR, DAILY_TOKEN_CAP, MAX_CONCURRENT_RUNS, TURN_RESERVE, sandboxOption } from './config.js';
+
+// Budget reservation (peer review): reserve headroom for the current in-flight
+// turn so a single big generation can't overshoot the cap before we count it.
+// Never reserve more than half the budget, so a small run still gets to work.
+const reserveFor = (budget) => Math.min(TURN_RESERVE, Math.floor(budget / 2));
+// True once we're within the reserve of the budget → stop authorizing new
+// tool-driven turns (the current turn still finishes; the post-message halt is
+// the hard backstop if it exceeds the raw budget).
+const budgetExhausted = (tokens, budget) => tokens + reserveFor(budget) >= budget;
+export const _testInternals = { reserveFor, budgetExhausted, TURN_RESERVE };
 mkdirSync(FLEET_DIR, { recursive: true });
 const HISTORY = join(FLEET_DIR, 'history.jsonl');
 const BURN = join(FLEET_DIR, 'burn.json');
@@ -84,7 +95,7 @@ function commitBurn(tokens, cost, cacheRead = 0) {
   const d = { tokens: 0, cost: 0, cacheRead: 0, ...b[dateKey()] };
   d.tokens += tokens; d.cost += cost; d.cacheRead += cacheRead;
   b[dateKey()] = d;
-  writeFileSync(BURN, JSON.stringify(b));
+  atomicWrite(BURN, JSON.stringify(b));
 }
 
 // ── runs ──
@@ -177,9 +188,9 @@ async function exec(run, prof) {
         ...(run.resume ? { resume: run.resume } : {}),
         canUseTool: async (tool, input) => {
           if (run.status !== 'running') return { behavior: 'deny', message: 'run is stopping' };
-          if (run.tokens >= run.budget) {
+          if (budgetExhausted(run.tokens, run.budget)) {
             halt(run, q);
-            return { behavior: 'deny', message: `HARD BUDGET (${run.budget} tok) reached — Atlan halted this run.` };
+            return { behavior: 'deny', message: `HARD BUDGET (${run.budget} tok, ${run.tokens} used + ${reserveFor(run.budget)} reserved for the in-flight turn) reached — Atlan halted this run.` };
           }
           const gate = prof.check(tool, input, run.cwd);
           if (!gate.ok) {

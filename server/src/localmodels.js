@@ -43,6 +43,11 @@ export async function activateLocalModel(name) {
   const file = join(MODELS_DIR, name);
   if (!existsSync(file)) throw new Error(`no such model: ${name}`);
   const extra = loadArgs()[name] ?? '';
+  // models.json is editable (it's a project file), so treat `extra` as untrusted:
+  // it gets written into /etc/default/llama-server as LLAMA_EXTRA_ARGS="...", which
+  // systemd sources. A newline would inject an arbitrary env line (e.g. LD_PRELOAD
+  // → code exec on restart); a quote would break out. Refuse both.
+  if (/[\r\n"]/.test(extra)) throw new Error(`unsafe extra args for ${name} in models.json — no newlines or double-quotes allowed`);
   // Order matters: defaults file, then symlink (atomic rename), then restart —
   // dying mid-way leaves a coherent old-or-new pair, never a silent mismatch.
   let d = '';

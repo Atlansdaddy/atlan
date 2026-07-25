@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync } from 'node:fs';
+import { atomicWrite } from './fsutil.js';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getStoredKey } from './keys.js';
@@ -20,7 +21,7 @@ const PERSONAS = join(FLEET_DIR, 'personas.json');
 const COMMANDS = join(FLEET_DIR, 'commands.json');
 
 const load = (p) => { try { return JSON.parse(readFileSync(p, 'utf8')); } catch { return []; } };
-const save = (p, v) => writeFileSync(p, JSON.stringify(v, null, 1));
+const save = (p, v) => atomicWrite(p, JSON.stringify(v, null, 1));
 
 let personas = load(PERSONAS);
 let commands = load(COMMANDS);
@@ -95,6 +96,34 @@ export function deleteCommand(id) {
 // nobody would know. So an invalid checker is a hard error (caught live by an
 // adversarial agent 2026-07-20), never a silent drop.
 const CHECKER_KINDS = new Set(['enum', 'range', 'regex', 'subset-of-var', 'not-empty', 'max-length', 'arith']);
+
+// Reject catastrophic-backtracking ("ReDoS") patterns at AUTHORING time: a
+// quantifier applied to a group that itself contains an unbounded quantifier —
+// (a+)+, (a*)*, ((ab)+)* and kin. If a dangerous regex can't be SAVED, it can
+// never hang the checker harness at run time (peer review: user regexes had no
+// ReDoS guard). Conservative group-aware scan; a real RE2 engine would be the
+// full belt-and-suspenders, but authoring-time rejection closes the practical hole.
+export function unsafeRegex(src) {
+  const s = String(src);
+  const stack = []; // per open group: has it seen an unbounded quantifier inside?
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (ch === '\\') { i++; continue; }                 // skip escaped char
+    if (ch === '[') { i++; while (i < s.length && s[i] !== ']') { if (s[i] === '\\') i++; i++; } continue; } // skip char class
+    if (ch === '(') { stack.push(false); continue; }
+    if (ch === ')') {
+      const innerHadQuant = stack.pop();
+      const q = s[i + 1];
+      const quantified = q === '*' || q === '+' || (q === '{' && /^\{\d*,\d*\}/.test(s.slice(i + 1)));
+      if (innerHadQuant && quantified) return true;      // quantified group containing a quantifier → catastrophic shape
+      if (quantified && stack.length) stack[stack.length - 1] = true; // this group counts as a quantifier for its parent
+      continue;
+    }
+    if (ch === '*' || ch === '+') { if (stack.length) stack[stack.length - 1] = true; continue; }
+    if (ch === '{' && /^\{\d*,\d*\}/.test(s.slice(i)) && stack.length) stack[stack.length - 1] = true;
+  }
+  return false;
+}
 function sanitizeCheckers(list, fields, vars) {
   const fieldNames = new Set(fields.map((f) => f.name));
   const varNames = new Set(vars.map((v) => v.name));
@@ -115,6 +144,7 @@ function sanitizeCheckers(list, fields, vars) {
       out.push({ ...base, min, max });
     } else if (k.kind === 'regex') {
       try { new RegExp(k.pattern); } catch { errs.push(`${where}: invalid regex /${k.pattern}/`); return; }
+      if (unsafeRegex(k.pattern)) { errs.push(`${where}: regex has nested quantifiers (ReDoS risk) — simplify /${k.pattern}/`); return; }
       out.push({ ...base, pattern: S(k.pattern, 200) });
     } else if (k.kind === 'subset-of-var') {
       if (!varNames.has(k.ofVar)) { errs.push(`${where}: no VARIABLE named "${k.ofVar}" to be a subset of`); return; }
@@ -180,7 +210,7 @@ export function runCheckers(cmd, output, vars = {}) {
       if (k.kind === 'not-empty') ok = Array.isArray(v) ? v.length > 0 : String(v ?? '').trim().length > 0;
       else if (k.kind === 'enum') ok = k.values.includes(String(v));
       else if (k.kind === 'range') ok = typeof v === 'number' && v >= k.min && v <= k.max;
-      else if (k.kind === 'regex') ok = new RegExp(k.pattern).test(String(v ?? ''));
+      else if (k.kind === 'regex') ok = new RegExp(k.pattern).test(String(v ?? '').slice(0, 10000)); // input cap: backstop even though unsafe patterns can't be saved
       else if (k.kind === 'max-length') ok = String(v ?? '').length <= k.max;
       else if (k.kind === 'subset-of-var') {
         // EXACT membership, not substring (peer review, 2026-07-22): the old

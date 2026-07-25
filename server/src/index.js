@@ -19,7 +19,7 @@ import { initFleet, spawnRun, listRuns, killRun, killAll, todayBurn, profileList
 import { pushPublicKey, addSub, subCount, notifyAll } from './push.js';
 import {
   authMiddleware, wsAuthed, isConfigured, setPassword, checkPassword,
-  newSession, dropSession, cookieHeader, COOKIE, originOk, revokeAllSessions,
+  newSession, dropSession, cookieHeader, COOKIE, originOk, setupAllowed, revokeAllSessions,
   loginThrottled, recordLoginFail, clearLoginFails, allowOrigin,
 } from './auth.js';
 import { tailnetHost, tailnetOrigin } from './tailnet.js';
@@ -61,6 +61,8 @@ app.use((req, res, next) => {
 app.get('/api/auth/status', (_req, res) => res.json({ configured: isConfigured() }));
 app.post('/api/auth/setup', (req, res) => {
   if (isConfigured()) return res.status(400).json({ error: 'already set up — log in instead' });
+  // First-run race: only this device may claim setup (browser Origin or bearer).
+  if (!setupAllowed(req)) return res.status(403).json({ error: 'first-run setup must come from this device' });
   try {
     setPassword(String(req.body?.password ?? ''));
     res.setHeader('Set-Cookie', cookieHeader(newSession()));

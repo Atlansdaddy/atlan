@@ -5,7 +5,7 @@
 import assert from 'node:assert';
 import {
   safeArith, runCheckers, upsertPersona, upsertCommand, compilePersona,
-  compileCommand, templateSchema, toolSchema, listPersonas, deletePersona,
+  compileCommand, templateSchema, toolSchema, listPersonas, deletePersona, unsafeRegex,
 } from '../server/src/personas.js';
 import { _testInternals as ROUT } from '../server/src/routines.js';
 import { _testInternals as AUTH } from '../server/src/auth.js';
@@ -216,6 +216,24 @@ test('build guard — shell-metacharacter path is rejected (RCE attempt fails cl
   assert.ok(msgs.some((m) => m.t === 'build.err'), 'metachar path must be rejected, never spawned');
 });
 
+// ── ReDoS guard: catastrophic-backtracking regexes are rejected at authoring ──
+test('unsafeRegex flags nested quantifiers (ReDoS shapes)', () => {
+  for (const bad of ['(a+)+', '(a*)*', '(a+)*$', '((ab)+)+', '(\\d+)+', '(a+)+b']) {
+    assert.equal(unsafeRegex(bad), true, `should flag ${bad}`);
+  }
+});
+test('unsafeRegex allows normal patterns', () => {
+  for (const ok of ['^\\d{3}-\\d{4}$', 'foo|bar', 'a+b*c?', '[a-z]+@[a-z]+', '(abc)+', '^v\\d+$']) {
+    assert.equal(unsafeRegex(ok), false, `should allow ${ok}`);
+  }
+});
+test('a checker with a catastrophic regex is REFUSED at authoring (hard error)', () => {
+  assert.throws(() => upsertCommand({
+    name: 'REDOS_TEST', fields: [{ name: 'f', type: 'string' }],
+    checkers: [{ kind: 'regex', field: 'f', pattern: '(a+)+$' }],
+  }), /ReDoS|nested quantifier|invalid checker/i);
+});
+
 // ── OS-sandbox opt-in (ATLAN_SANDBOX) ──
 const { sandboxEnabled, sandboxOption } = await import('../server/src/config.js');
 test('sandboxOption is undefined unless ATLAN_SANDBOX=1 (off by default)', () => {
@@ -233,6 +251,40 @@ test('ATLAN_SANDBOX=1 yields an enabled, honest-degrade sandbox option', () => {
   // autoAllowBashIfSandboxed — sandboxed Bash must still hit canUseTool (budget/profile).
   assert.deepEqual(sandboxOption(), { enabled: true, failIfUnavailable: false });
   if (prev === undefined) delete process.env.ATLAN_SANDBOX; else process.env.ATLAN_SANDBOX = prev;
+});
+
+// ── budget reservation: stop BEFORE a turn can overshoot (peer review) ──
+const { _testInternals: FLEET } = await import('../server/src/fleet.js');
+test('reserveFor caps at TURN_RESERVE for a large budget', () => {
+  assert.equal(FLEET.reserveFor(150_000), FLEET.TURN_RESERVE); // 16k << 75k half
+});
+test('reserveFor never exceeds half the budget (small runs still work)', () => {
+  assert.equal(FLEET.reserveFor(20_000), 10_000); // half of 20k < 16k reserve
+  assert.equal(FLEET.reserveFor(1_000), 500);
+});
+test('budgetExhausted halts with headroom left — overshoot is bounded, not post-hoc', () => {
+  // 150k budget, 16k reserve → new turns stop at 134k, leaving 16k for the
+  // in-flight turn. The whole point: we halt BELOW the raw budget, so a single
+  // big generation can't blow past it before we count it.
+  assert.equal(FLEET.budgetExhausted(133_999, 150_000), false);
+  assert.equal(FLEET.budgetExhausted(134_000, 150_000), true);
+  assert.equal(FLEET.budgetExhausted(140_000, 150_000), true, 'still under raw budget but within reserve → must halt');
+  assert.equal(FLEET.budgetExhausted(0, 150_000), false);
+});
+
+// ── first-run setup gate: only this device may claim setup (peer review) ──
+const { setupAllowed, authToken, allowedOrigins } = await import('../server/src/auth.js');
+test('setupAllowed: an allow-listed browser Origin passes (frictionless first run)', () => {
+  assert.equal(setupAllowed({ headers: { origin: allowedOrigins()[0] } }), true);
+});
+test('setupAllowed: the local bearer passes with no Origin (scripted path)', () => {
+  assert.equal(setupAllowed({ headers: { 'x-atlan-token': authToken() } }), true);
+});
+test('setupAllowed: no Origin + no bearer is REFUSED (the race vector we close)', () => {
+  assert.equal(setupAllowed({ headers: {} }), false);
+});
+test('setupAllowed: a foreign Origin with no bearer is refused', () => {
+  assert.equal(setupAllowed({ headers: { origin: 'http://evil.example' } }), false);
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);
