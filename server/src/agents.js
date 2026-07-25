@@ -42,7 +42,31 @@ export function agentStatus() {
       ready: !!grokBin() && (grokAuthed() || !!(process.env.XAI_API_KEY || getStoredKey('XAI_API_KEY'))),
       needs: grokBin() ? 'run: grok login (Term tab)' : 'install: npm i -g @xai-official/grok',
     },
+    {
+      id: 'copilot',
+      label: 'GitHub Copilot — agent, full-auto',
+      model: 'copilot',
+      // Copilot supports --model (default Claude Sonnet 4.5; also Sonnet 4, GPT-5)
+      // but the exact --model ids aren't confirmed until login; single option for
+      // now, tiers added once `copilot` /model is inspected on an authed box.
+      group: 'agent',
+      ready: !!copilotBin() && (copilotAuthed() || !!(process.env.GH_COPILOT_TOKEN || process.env.GITHUB_TOKEN)),
+      needs: copilotBin() ? 'run: copilot login (Term tab)' : 'install: npm i -g @github/copilot',
+    },
   ];
+}
+
+// GitHub Copilot CLI (GA 2026-02, `copilot` binary). Requires an active Copilot
+// subscription: `copilot login` → ~/.copilot. Headless = `-p` (default text
+// output; --output-format json exists, schema unversioned → plain + one-bubble
+// flush), `--continue` resumes the most recent session, `--allow-all` is the
+// full-auto belt (files + shell + urls), `--model` picks the model.
+function copilotBin() {
+  if (existsSync('/usr/bin/copilot')) return '/usr/bin/copilot';
+  return existsSync('/usr/local/bin/copilot') ? '/usr/local/bin/copilot' : null;
+}
+function copilotAuthed() {
+  return existsSync(`${process.env.HOME ?? '/root'}/.copilot`);
 }
 
 // Grok Build (xAI's official CLI, open to SuperGrok / X Premium+ since
@@ -101,6 +125,9 @@ export function agentTurn({ engine, cwd, text, send, state, model = null }) {
     args = ['--no-auto-update', ...(state.grokStarted ? ['-c'] : []), ...(pickedModel ? ['-m', pickedModel] : []), '--always-approve', '-p', text];
     const xkey = process.env.XAI_API_KEY || getStoredKey('XAI_API_KEY');
     if (xkey) env.XAI_API_KEY = xkey;
+  } else if (engine === 'copilot') {
+    cmd = copilotBin() ?? 'copilot';
+    args = [...(state.copilotStarted ? ['--continue'] : []), ...(pickedModel ? ['--model', pickedModel] : []), '--allow-all', '-p', text];
   } else {
     state.running = false;
     return send({ t: 'chat.err', msg: `unknown agent: ${engine}` });
@@ -150,7 +177,7 @@ export function agentTurn({ engine, cwd, text, send, state, model = null }) {
   child.stdout.on('data', (chunk) => {
     // agy and grok print a plain-text response (no event stream we trust yet) —
     // collect it whole and flush as ONE bubble at close, not a bubble per line.
-    if (engine === 'antigravity' || engine === 'grok') { geminiText += chunk.toString(); return; }
+    if (engine === 'antigravity' || engine === 'grok' || engine === 'copilot') { geminiText += chunk.toString(); return; }
     buf += chunk.toString();
     let nl;
     while ((nl = buf.indexOf('\n')) >= 0) {
@@ -185,9 +212,11 @@ export function agentTurn({ engine, cwd, text, send, state, model = null }) {
       send({ t: 'atlan.mood', mood: 'alarmed' });
       return;
     }
-    if (engine === 'antigravity' || engine === 'grok') {
-      // future turns use -c to continue the conversation
-      if (engine === 'antigravity') state.agyStarted = true; else state.grokStarted = true;
+    if (engine === 'antigravity' || engine === 'grok' || engine === 'copilot') {
+      // future turns continue the conversation (agy/grok use -c, copilot --continue)
+      if (engine === 'antigravity') state.agyStarted = true;
+      else if (engine === 'grok') state.grokStarted = true;
+      else state.copilotStarted = true;
       const out = geminiText.trim();
       geminiText = '';
       if (out) { sawText = true; send({ t: 'chat.msg', role: 'claude', engine: engineLabel(engine), text: out }); }
@@ -201,5 +230,5 @@ export function agentTurn({ engine, cwd, text, send, state, model = null }) {
 }
 
 function engineLabel(engine) {
-  return { codex: 'Codex · full-auto', antigravity: 'Antigravity · full-auto', grok: 'Grok Build · full-auto' }[engine] ?? `${engine} · full-auto`;
+  return { codex: 'Codex · full-auto', antigravity: 'Antigravity · full-auto', grok: 'Grok Build · full-auto', copilot: 'Copilot · full-auto' }[engine] ?? `${engine} · full-auto`;
 }
