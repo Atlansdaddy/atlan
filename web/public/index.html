@@ -11,6 +11,13 @@
 <link rel="stylesheet" href="vendor/cm/codemirror.css">
 <link rel="stylesheet" href="vendor/cm/material-darker.css">
 <link rel="stylesheet" href="style.css?v=20260724">
+<link rel="stylesheet" href="midatlantic.css?v=20260725">
+<script>
+  /* Apply the saved visual template before first paint — no flash of the wrong
+     skin. Templates are variable-override sets keyed on data-template; the
+     default (no attribute) is Atlan Classic. */
+  try { var t = localStorage.getItem('atlanTemplate'); if (t) document.documentElement.setAttribute('data-template', t); } catch (e) {}
+</script>
 </head>
 <body>
 <div class="authoverlay" id="authOverlay">
@@ -305,6 +312,14 @@
       <div class="eyebrow" style="margin-top:6px">Engine keys — encrypted at rest, never shown back</div>
       <div class="hint">Each row links out to where you get the key. Everything works without any of these — they just unlock more models &amp; voices.</div>
       <div id="keysList" class="doctor-list"></div>
+      <div class="eyebrow" style="margin-top:6px">Look — pick a visual template</div>
+      <div class="projbar">
+        <select id="templateSel" aria-label="visual template">
+          <option value="">Atlan Classic</option>
+          <option value="midatlantic">MidAtlantic AI</option>
+        </select>
+      </div>
+      <div class="hint">Changes colors, type, and chrome instantly. More templates arrive as they're built — your pick is remembered per device.</div>
       <div class="eyebrow" style="margin-top:6px">Voice — pick who speaks back</div>
       <div class="projbar">
         <select id="voiceProviderSel" aria-label="voice provider"></select>

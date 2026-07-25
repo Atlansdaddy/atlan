@@ -927,6 +927,19 @@
     fetch('/api/fleet/kill', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: 'all' }) });
   });
 
+  // ── visual template picker — a variable-override skin chosen per device.
+  // Default (empty value) is Atlan Classic; the pre-paint head script already
+  // applied the saved one, so here we just sync the <select> and handle change.
+  const templateSel = $('templateSel');
+  if (templateSel) {
+    templateSel.value = localStorage.getItem('atlanTemplate') || '';
+    templateSel.addEventListener('change', () => {
+      const t = templateSel.value;
+      if (t) { document.documentElement.setAttribute('data-template', t); localStorage.setItem('atlanTemplate', t); }
+      else { document.documentElement.removeAttribute('data-template'); localStorage.removeItem('atlanTemplate'); }
+    });
+  }
+
   // ── local model picker (home node only — the card stays hidden where the
   // node doesn't manage llama-server, so it's never a broken button) ──
   function loadLocalModels() {
