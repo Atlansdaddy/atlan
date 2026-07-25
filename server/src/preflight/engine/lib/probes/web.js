@@ -16,6 +16,7 @@ import {
   URL_PLACEHOLDER_IP_RE,
   URL_RAW_IP_RE,
   URL_SUSPICIOUS_TLD_RE,
+  URL_KNOWN_GOOD_HOST_RE,
   URL_SHORTENERS,
   isHostInSafeList,
   AI_CRAWLER_BOTS,
@@ -184,7 +185,14 @@ export function probeExternalURLs(files) {
     const isIP = URL_RAW_IP_RE.test(host);
     // Depth round 3: RFC 1918 private-IP range distinct from generic raw-IP.
     const isPrivateIP = /^(?:10\.|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.)/.test(host);
-    const sketchyTLD = URL_SUSPICIOUS_TLD_RE.test(host);
+    // A suspicious TLD is a weak signal on its own, and several established
+    // developer platforms live on one. Real-scan finding 2026-07 (Atlan
+    // cockpit): api.together.xyz, a mainstream model-inference API, was
+    // reported as a suspicious host. Telling someone their own AI provider is
+    // sketchy is the kind of finding that gets a scanner closed and not
+    // reopened. Known-good hosts on flagged TLDs are exempt; the TLD heuristic
+    // still covers everything else.
+    const sketchyTLD = URL_SUSPICIOUS_TLD_RE.test(host) && !URL_KNOWN_GOOD_HOST_RE.test(host);
     const isShortener = URL_SHORTENERS.has(host);
     const httpOnly = info.allHttp;
     // Depth round 3: IDN / punycode (homoglyph attack indicator).

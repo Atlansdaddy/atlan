@@ -59,7 +59,9 @@ export function scan(files, opts = {}) {
     try {
       const content = fileMap.get(f.file);
       if (content && f.line) f.snippet = buildSnippet(content, f.line, 5);
-    } catch { /* snippet is best-effort, never fatal */ }
+    } catch {
+      /* snippet is best-effort, never fatal */
+    }
   }
 
   // 4) stable ids (NOTE: 2-arg — hashes probe+file+context from the FILES) + probe meta.

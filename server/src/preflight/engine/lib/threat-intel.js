@@ -345,6 +345,18 @@ export const URL_SAFE_HOSTS = new Set([
 ]);
 export const URL_SUSPICIOUS_TLD_RE =
   /\.(tk|ml|ga|cf|gq|top|xyz|click|loan|work|men|surf|cyou|rest|zip|mov|wang|country|kim|science|date|stream)$/i;
+// Established developer and infrastructure platforms that happen to sit on a
+// TLD in the list above. The TLD heuristic is a weak signal by itself, and
+// firing it on somebody's model-inference provider or package host is the kind
+// of finding that gets a scanner dismissed wholesale. Real-scan finding
+// 2026-07: api.together.xyz reported as a suspicious host.
+//
+// Entries are anchored to the registrable domain and allow subdomains. Keep
+// this list short and specific: it is an exemption from a security check, so
+// every addition should be a platform a developer would knowingly depend on.
+export const URL_KNOWN_GOOD_HOST_RE =
+  /(?:^|\.)(?:together\.xyz|nomic\.xyz|ethers\.xyz|opensea\.xyz|hf\.co|jsdelivr\.xyz|nx\.dev|blob\.vercel-storage\.com|r2\.cloudflarestorage\.xyz)$/i;
+
 export const URL_RAW_IP_RE = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/;
 export const URL_SHORTENERS = new Set([
   'bit.ly',

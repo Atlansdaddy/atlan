@@ -287,6 +287,24 @@ const GLOBALS = new Set([
   'SharedWorkerGlobalScope',
   // Deno runtime
   'Deno',
+  // Speech, audio and error-reporting globals. Real-scan finding 2026-07
+  // (Atlan cockpit): a voice UI reported speechSynthesis and friends as
+  // undeclared identifiers, which is the probe's worst failure mode — a
+  // confident correctness claim about code that is correct.
+  'speechSynthesis',
+  'SpeechSynthesisUtterance',
+  'SpeechSynthesisVoice',
+  'SpeechRecognition',
+  'webkitSpeechRecognition',
+  'SpeechGrammarList',
+  'webkitSpeechGrammarList',
+  'AudioContext',
+  'webkitAudioContext',
+  'OfflineAudioContext',
+  'AudioWorkletNode',
+  'AnalyserNode',
+  'GainNode',
+  'reportError',
   // Modern browser APIs the original allowlist didn't cover
   'Intl',
   'WebAssembly',

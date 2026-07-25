@@ -25,7 +25,14 @@ const FN_TYPES = new Set(['FunctionDeclaration', 'FunctionExpression', 'ArrowFun
 
 // Thresholds. Named so the Learn page and the tests read from one place.
 export const BLOAT_FN_LINES = 100;
-export const BLOAT_CYCLOMATIC = 10;
+// Raised from 10 and moved off the medium band. Real-scan finding 2026-07
+// (Atlan cockpit): the complexity check alone produced 47 medium findings and
+// was the single largest contributor to that band, on code the author
+// considered deliberate. Complexity is a judgement call, not a defect, and a
+// judgement call does not belong in the same severity band as a missing auth
+// check. 10 is the textbook number for "needs a second look"; for an unasked
+// opinion delivered in bulk, the useful line is higher.
+export const BLOAT_CYCLOMATIC = 15;
 export const BLOAT_IMPORT_COUNT = 20;
 export const BLOAT_COMMENTED_CODE_LINES = 10;
 export const BLOAT_MAGIC_STRING_REPEATS = 3;
@@ -354,7 +361,7 @@ export function probeAICodegenBloat(files) {
           finding({
             id: `bloat-cyclomatic-${file.path}-${startLine}`,
             title: `Function "${name}" has cyclomatic complexity ${cc}`,
-            severity: 'medium',
+            severity: 'low',
             cwe: 'CWE-1121',
             file: file.path,
             line: startLine ?? 1,

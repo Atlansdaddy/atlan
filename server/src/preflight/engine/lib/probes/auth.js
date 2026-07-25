@@ -9,6 +9,7 @@
 // every probe function from its new family file.
 
 import { isTestFile, isScannerSelfSource } from '../file-filter.js';
+import { collectSafeBindings, resolvesToConstant } from './_internal/const-eval.js';
 import {
   SECRET_VALUE_PLACEHOLDER_RE,
   isMatchInPlaceholderNamedAssignment,
@@ -36,6 +37,49 @@ function stripLineComments(line) {
     }
   }
   return s;
+}
+
+// Known HTML sanitizers. A value wrapped in one of these has been through the
+// escaping step the finding would have asked for, so flagging it is telling the
+// author to do what they already did.
+const HTML_SANITIZER_RE =
+  /\b(?:DOMPurify\s*\.\s*sanitize|sanitizeHtml|sanitize_html|xss|he\s*\.\s*encode|escapeHtml|escape_html|validator\s*\.\s*escape|purify\s*\.\s*sanitize)\s*\(/;
+
+// Pull the expression assigned to __html, following up to three lines so the
+// common prettier-wrapped form is covered:
+//   dangerouslySetInnerHTML={{
+//     __html: value,
+//   }}
+// Returns null when no __html key is present on the line or its continuation.
+function extractHtmlValue(line, lines, idx) {
+  const span = lines
+    .slice(idx, Math.min(lines.length, idx + 3))
+    .join('\n')
+    .replace(/\n\s*/g, ' ');
+  const m = span.match(/__html\s*:\s*([\s\S]*?)(?:,\s*\}|\}\s*\}|\s*\}\s*$)/);
+  if (!m) return null;
+  return m[1].trim();
+}
+
+// True when the value could carry attacker-controlled HTML. A literal the
+// author typed cannot; anything computed might.
+//
+// `bindings` is the same-file constant map from collectSafeBindings. Real-scan
+// finding 2026-07 (Atlan cockpit): without it, every one of a 22-finding XSS
+// report was a false positive, because the classifier could see that a value
+// was an expression but not that the expression resolves to a constant.
+function isTaintableHtmlValue(value, bindings) {
+  if (!value) return false;
+  // Sanitized at the sink by a well-known library.
+  if (HTML_SANITIZER_RE.test(value)) return false;
+  // A plain string literal with no interpolation. Empty string included.
+  if (/^'[^']*'$/.test(value) || /^"[^"]*"$/.test(value)) return false;
+  // A template literal with no ${} substitution is still a constant.
+  if (/^`[^`]*`$/.test(value) && !/\$\{/.test(value)) return false;
+  // Resolves to something the author wrote: a const literal, a numeric value,
+  // the author's own escaper, or a function that only returns literals.
+  if (resolvesToConstant(value, bindings)) return false;
+  return true;
 }
 
 export function probeAuthWeakness(files) {
@@ -91,6 +135,9 @@ export function probeAuthWeakness(files) {
     // literals. Single/double-quoted string content stays visible so the
     // regexes can still see real auth-token-name string literals.
     const maskedContent = maskBlockCommentsAndTemplateLiterals(file.content);
+    // Same-file constants, numeric bindings, local escapers and literal-only
+    // functions, resolved once per file for the HTML sink classifier below.
+    const safeBindings = collectSafeBindings(file.content);
     const maskedLines = maskedContent.split('\n');
     const originalLines = file.content.split('\n');
     maskedLines.forEach((rawLine, i) => {
@@ -139,19 +186,33 @@ export function probeAuthWeakness(files) {
           remediation: `eval() executes arbitrary code. If the input is ever user-controlled, this is RCE. Replace with safe alternatives: JSON.parse for data, a real expression parser, or a switch statement for known operations.`,
         });
       }
+      // dangerouslySetInnerHTML: fire on the VALUE, not on the mention.
+      //
+      // Adversarial round 2026-07: this used to fire on any line containing the
+      // identifier, which flagged `__html: ""`, `__html: "<b>ok</b>"` and
+      // `__html: DOMPurify.sanitize(x)`. The last one is the worst: our own
+      // remediation text tells people to sanitize with DOMPurify, and then we
+      // flagged them for having done it. That is the single largest
+      // false-positive class this probe produced.
+      //
+      // A constant cannot carry an injection. Only a value the author did not
+      // fully write is a sink.
       if (/dangerouslySetInnerHTML/.test(line)) {
-        findings.push({
-          id: `code-dsih-${file.path}-${i}`,
-          probe: 'Code Injection',
-          title: 'dangerouslySetInnerHTML used',
-          severity: 'medium',
-          category: 'Code Injection',
-          cwe: 'CWE-79',
-          file: file.path,
-          line: i + 1,
-          evidence: realLine.trim().slice(0, 200),
-          remediation: `dangerouslySetInnerHTML bypasses React's XSS protection. Confirm the input is sanitized with DOMPurify or similar. If the content is from user input or a third party, you have an XSS risk.`,
-        });
+        const htmlValue = extractHtmlValue(realLine, originalLines, i);
+        if (htmlValue !== null && isTaintableHtmlValue(htmlValue, safeBindings)) {
+          findings.push({
+            id: `code-dsih-${file.path}-${i}`,
+            probe: 'Code Injection',
+            title: 'dangerouslySetInnerHTML receives a non-constant value',
+            severity: 'medium',
+            category: 'Code Injection',
+            cwe: 'CWE-79',
+            file: file.path,
+            line: i + 1,
+            evidence: realLine.trim().slice(0, 200),
+            remediation: `dangerouslySetInnerHTML bypasses React's escaping and parses its input as HTML. The value here is computed rather than written literally, so whether this is XSS depends entirely on where it came from. Sanitize at the boundary with DOMPurify.sanitize(value), or render the text through normal JSX so React escapes it. A string literal written in the source is not flagged, because a constant cannot carry an injection.`,
+          });
+        }
       }
       // XSS depth round 2 (2026-06-05): the original probe knew one sink. Real
       // XSS surface is 25+ sinks across DOM, framework HTML bypasses, and
@@ -168,8 +229,27 @@ export function probeAuthWeakness(files) {
         // javascript: URL assignment.
         const xssDomRe =
           /\.\s*insertAdjacentHTML\s*\(|\bdocument\s*\.\s*write(?:ln)?\s*\(|\.\s*setHTMLUnsafe\s*\(|\b(?:Document|Element)\s*\.\s*parseHTMLUnsafe\s*\(|\.\s*createContextualFragment\s*\(|\$\([^)]*\)\s*\.\s*html\s*\(|\$\s*\.\s*parseHTML\s*\(/;
-        const xssInnerHTMLAssign =
-          /\b(?:innerHTML|outerHTML)\s*\+?=\s*(?!['"`][^'"`]{0,80}['"`]\s*[;,)\]]?\s*$)/;
+        // innerHTML/outerHTML assignment. Capture the right-hand side and
+        // classify it, rather than guarding with a negative lookahead.
+        //
+        // Adversarial round 2026-07: the old guard was
+        //   /...\s*\+?=\s*(?!['"`][^'"`]{0,80}['"`]\s*[;,)\]]?\s*$)/
+        // and it inverted. The `\s*` before the lookahead can backtrack to
+        // zero width, which evaluates the lookahead against the SPACE after
+        // `=` instead of the quote. The quote test then fails, so the negative
+        // lookahead succeeds, so `el.innerHTML = "static"` matched. The guard
+        // was there the whole time and had never worked.
+        // Detect on the MASKED line so an assignment quoted inside a block
+        // comment or a doc template literal still cannot fire. Classify the
+        // value from the ORIGINAL line, because the mask blanks template
+        // literal contents, which turns `<p>${x}</p>` into a substitution-free
+        // string and would read a tainted interpolation as a constant.
+        const INNER_HTML_ASSIGN = /\b(?:innerHTML|outerHTML)\s*\+?=\s*([\s\S]+?)\s*;?\s*$/;
+        const innerHtmlAssignMatch = line.match(INNER_HTML_ASSIGN);
+        const innerHtmlRealMatch = realLine.match(INNER_HTML_ASSIGN);
+        const xssInnerHTMLAssignHit =
+          innerHtmlAssignMatch !== null &&
+          isTaintableHtmlValue((innerHtmlRealMatch || innerHtmlAssignMatch)[1], safeBindings);
         const xssFrameworkRe =
           /\bv-html\s*=\s*["']|\{@html\s+|<\w[^>]*\sinnerHTML\s*=\s*\{|\[\s*innerHTML\s*\]\s*=\s*["']|\.\s*bypassSecurityTrust(?:Html|Script|Style|Url|ResourceUrl)\s*\(|\bng-bind-html\s*=\s*["']|\$sce\s*\.\s*trustAs(?:Html|Js|Css|Url|ResourceUrl)\s*\(|\bunsafe(?:HTML|SVG|Static)\s*\(|\{\{\{[^}]+\}\}\}/;
         const xssJsUrlRe =
@@ -177,7 +257,7 @@ export function probeAuthWeakness(files) {
         const xssTrustedTypesBypassRe = /trustedTypes\s*\.\s*createPolicy\s*\(\s*['"]default['"]/;
         if (
           xssDomRe.test(line) ||
-          xssInnerHTMLAssign.test(line) ||
+          xssInnerHTMLAssignHit ||
           xssFrameworkRe.test(line) ||
           xssJsUrlRe.test(line) ||
           xssTrustedTypesBypassRe.test(line)

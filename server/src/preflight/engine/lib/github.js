@@ -121,6 +121,46 @@ export function saveGitHubPAT(pat) {
   }
 }
 
+// Token shape advisor. Pure, so the guidance UI and its tests share one source
+// of truth about what a token is and what to say about it.
+//
+// GitHub prefixes are documented and stable: `github_pat_` is a fine-grained
+// token (per-repository, per-permission, expiry required), while `ghp_`, `gho_`,
+// `ghu_`, `ghs_` and `ghr_` are the classic family, which is account-wide and
+// can be issued with no expiry at all.
+//
+// This exists because the blast radius of a stored token is set at creation
+// time, not at storage time. Nothing the browser does afterwards can shrink a
+// classic no-expiry `repo` token, and localStorage cannot be meaningfully
+// encrypted (any key that could decrypt it has to live where the same
+// JavaScript can read it). Choosing a narrower token is the mitigation.
+export function classifyGitHubToken(pat) {
+  const t = typeof pat === 'string' ? pat.trim() : '';
+  if (!t) return { kind: 'empty', tone: 'info', advice: '' };
+  if (/^github_pat_/.test(t)) {
+    return {
+      kind: 'fine-grained',
+      tone: 'ok',
+      advice:
+        'Fine-grained token. Keep it scoped to just the repositories you plan to scan, with Contents set to read-only, and let it expire.',
+    };
+  }
+  if (/^gh[pousr]_/.test(t)) {
+    return {
+      kind: 'classic',
+      tone: 'warn',
+      advice:
+        'Classic token. These reach every repository your account can see, and can be created with no expiry. A fine-grained token scoped to the repos you actually scan, Contents read-only, does the same job here with a much smaller blast radius.',
+    };
+  }
+  return {
+    kind: 'unknown',
+    tone: 'info',
+    advice:
+      'This does not look like a GitHub token prefix (github_pat_ for fine-grained, ghp_ for classic). Test it before saving, in case it was pasted from the wrong place.',
+  };
+}
+
 export function clearGitHubPAT() {
   try {
     localStorage.removeItem(GITHUB_PAT_KEY);

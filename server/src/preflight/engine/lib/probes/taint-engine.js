@@ -208,8 +208,10 @@ const SINKS = [
     title: 'Shell command built from user-controlled value (taint flow)',
     matches(node) {
       if (node.type !== 'CallExpression') return null;
-      if (node.callee.type !== 'MemberExpression') return null;
-      const name = readDottedName(node.callee);
+      // Resolve through import/require aliases so the destructured and
+      // namespaced spellings match, not just a literal `child_process.exec`.
+      const name = resolveDottedName(node.callee);
+      if (!name) return null;
       if (/^child_process\.(?:exec|execSync|execFile|execFileSync|spawn|spawnSync)$/.test(name)) {
         return { detail: name };
       }
@@ -217,6 +219,43 @@ const SINKS = [
     },
     remediation:
       'A request-derived value reaches a shell-spawning call. exec/spawn pass through the shell when given a string — switch to execFile with an arg array, validate the value against an allowlist, or use a non-shell API.',
+  },
+  {
+    id: 'ssrf-outbound',
+    cwe: 'CWE-918',
+    severity: 'high',
+    title: 'Outbound request built from user-controlled URL (taint flow)',
+    // Verified round 2026-07: the engine had no outbound-request sink at all,
+    // so `const u = req.query.url; fetch(u)` produced nothing. The regex SSRF
+    // probe only sees a single line, so the moment the URL passes through a
+    // variable the flow was invisible to both.
+    matches(node) {
+      if (node.type !== 'CallExpression') return null;
+      // Global fetch, and any local binding aliased to a fetch implementation.
+      if (node.callee?.type === 'Identifier') {
+        const n = node.callee.name;
+        if (n === 'fetch') return { detail: 'fetch' };
+        const aliased = currentAliases.get(n);
+        if (aliased && /^(?:node-fetch|axios|got|superagent|undici|request)$/.test(aliased)) {
+          return { detail: `${n} (${aliased})` };
+        }
+        return null;
+      }
+      const name = resolveDottedName(node.callee);
+      if (!name) return null;
+      if (
+        /^(?:axios|got|superagent|needle|undici)\.(?:get|post|put|patch|delete|head|request|fetch)$/.test(
+          name
+        ) ||
+        /^https?\.(?:get|request)$/.test(name) ||
+        /^undici\.fetch$/.test(name)
+      ) {
+        return { detail: name };
+      }
+      return null;
+    },
+    remediation:
+      'A request-derived value becomes the URL of an outbound request, which is server-side request forgery: the caller chooses what your server connects to, including cloud metadata endpoints and internal hosts. Resolve the value against an allowlist of permitted hosts before the call, reject non-http(s) schemes, and block link-local and private address ranges.',
   },
 ];
 
@@ -288,6 +327,80 @@ function readDottedName(node) {
     cur = cur.object;
   }
   return parts.length ? parts.join('.') : null;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MODULE ALIAS RESOLUTION
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Sinks are written against canonical module paths (`child_process.exec`), but
+// almost nobody writes that. They write one of:
+//
+//   const cp = require('child_process');        cp.exec(x)
+//   const { exec } = require('child_process');  exec(x)
+//   import { exec } from 'node:child_process';  exec(x)
+//   import cp from 'child_process';             cp.exec(x)
+//
+// Verified round 2026-07: none of those were detected, because the sink
+// matched on the literal dotted text. The engine had the taint propagation
+// right and was simply looking for a spelling that real code does not use.
+//
+// The map is rebuilt per file and consulted when resolving a callee's name.
+let currentAliases = new Map();
+
+// `node:child_process` and `child_process` are the same module.
+const stripNodePrefix = (m) => String(m || '').replace(/^node:/, '');
+
+function collectModuleAliases(ast) {
+  const map = new Map();
+  const add = (local, canonical) => {
+    if (local && canonical) map.set(local, canonical);
+  };
+  for (const node of ast.body || []) {
+    // ESM: import cp from 'x' / import * as cp from 'x' / import { exec } from 'x'
+    if (node.type === 'ImportDeclaration' && typeof node.source?.value === 'string') {
+      const mod = stripNodePrefix(node.source.value);
+      for (const spec of node.specifiers || []) {
+        if (spec.type === 'ImportDefaultSpecifier' || spec.type === 'ImportNamespaceSpecifier') {
+          add(spec.local?.name, mod);
+        } else if (spec.type === 'ImportSpecifier') {
+          add(spec.local?.name, `${mod}.${spec.imported?.name || spec.local?.name}`);
+        }
+      }
+      continue;
+    }
+    // CJS: const cp = require('x') / const { exec } = require('x')
+    if (node.type !== 'VariableDeclaration') continue;
+    for (const d of node.declarations || []) {
+      const init = d.init;
+      if (init?.type !== 'CallExpression') continue;
+      if (init.callee?.type !== 'Identifier' || init.callee.name !== 'require') continue;
+      const mod = init.arguments?.[0]?.value;
+      if (typeof mod !== 'string') continue;
+      const canonical = stripNodePrefix(mod);
+      if (d.id?.type === 'Identifier') {
+        add(d.id.name, canonical);
+      } else if (d.id?.type === 'ObjectPattern') {
+        for (const p of d.id.properties || []) {
+          if (p.type !== 'Property' || p.key?.type !== 'Identifier') continue;
+          const localName = p.value?.type === 'Identifier' ? p.value.name : p.key.name;
+          add(localName, `${canonical}.${p.key.name}`);
+        }
+      }
+    }
+  }
+  return map;
+}
+
+// Dotted name with the head segment rewritten through the alias map, so a sink
+// written as `child_process.exec` matches however the author imported it.
+function resolveDottedName(node) {
+  const raw = readDottedName(node);
+  if (!raw) return raw;
+  const parts = raw.split('.');
+  const mapped = currentAliases.get(parts[0]);
+  if (!mapped) return raw;
+  return [mapped, ...parts.slice(1)].join('.');
 }
 
 // Evaluate an expression node and decide whether it is tainted.
@@ -499,6 +612,8 @@ export function probeTaintFlow(files) {
     if (!/\.[jt]sx?$/.test(file.path)) continue;
     const ast = parseFile(file.content, file.path.match(/\.[jt]sx?$/)?.[0] || '.js');
     if (!ast) continue;
+    // Rebuilt per file; sinks resolve callee names through it.
+    currentAliases = collectModuleAliases(ast);
     // Top-level: still apply the analyzer (CommonJS scripts and Node entry
     // points often run handler code at module scope before defining a
     // function).

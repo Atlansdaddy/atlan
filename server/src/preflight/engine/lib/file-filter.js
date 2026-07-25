@@ -46,7 +46,35 @@ export function isDocumentationMarkdownFile(path) {
 // every pattern-matching probe finds itself in src/lib/probes.js and in the production
 // bundle (dist/) which inlines probes.js. These aren't real vulnerabilities; they're the
 // scanner's definitions of what real vulnerabilities look like.
+// --- Self-scan mode: OFF by default, and that default is the whole point ---
+//
+// The exclusions below are a list of PreFlight's OWN paths. They exist so that
+// when PreFlight scans itself, pattern-matching probes do not flag the scanner's
+// own regex literals and IOC strings as if they were real vulnerabilities.
+//
+// Until 2026-07 this was applied unconditionally, on path alone, to every scan.
+// That silently blinded USER scans too: any project with `src/components/settings/`,
+// `src/learn/`, `src/lib/probes/`, or a built `dist/` had those files skipped by
+// the Secret Scanner, Auth Weakness, Client Auth Storage and every other
+// pattern probe. A settings directory is exactly where API keys and auth config
+// live, so this was a false negative in one of the highest-value places in a
+// typical app, reported to the user as silence.
+//
+// The exclusion is now identity-based: it applies only when the caller declares
+// that this scan is PreFlight scanning itself. The browser never sets it. The
+// dogfood and self-audit runs do.
+let selfScanMode = false;
+
+export function setSelfScanMode(on) {
+  selfScanMode = Boolean(on);
+}
+
+export function isSelfScanMode() {
+  return selfScanMode;
+}
+
 export function isScannerSelfSource(path) {
+  if (!selfScanMode) return false;
   if (!path) return false;
   // The scanner's own probe modules + the threat-intel manifests + the file/suppression
   // helpers ALL contain pattern literals and IOC strings that pattern-matching probes
