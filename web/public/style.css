@@ -391,6 +391,15 @@ a{color:var(--accent)}
   .projbar select{font-size:11px}
 }
 
+/* Chat code blocks — the pseudo-assistant's reviewable proposals. The bar's
+   "→ Editor" drops the code into the review canvas; nothing writes to disk. */
+.codeblock{margin:8px 0;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--ground)}
+.codebar{display:flex;justify-content:flex-end;align-items:center;gap:6px;padding:5px 8px;background:var(--surface2);border-bottom:1px solid var(--line)}
+.codelang{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-right:auto}
+.codebar .btn{padding:2px 9px;font-size:11px;min-height:0}
+.codeblock pre{margin:0;padding:10px 12px;overflow-x:auto;white-space:pre;font-family:var(--mono);font-size:12px;line-height:1.5}
+.codeblock pre code{color:var(--ink);background:none;padding:0;font-size:inherit}
+
 /* Respect reduced-motion everywhere (WCAG 2.3.3) */
 @media (prefers-reduced-motion:reduce){
   *{animation-duration:.001ms !important;animation-iteration-count:1 !important;transition-duration:.001ms !important}

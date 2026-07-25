@@ -346,10 +346,47 @@
       who.textContent = role === 'brain' ? (engineLabel || 'brain') + ' · chat only' : (engineLabel || 'Claude');
       div.append(who);
     }
-    div.append(document.createTextNode(text));
+    // brains + agent CLIs: render prose + fenced code blocks, each code block
+    // gets a "→ Editor" action so a chat becomes a propose-into-canvas builder
+    // (the pseudo-assistant — you review in the editor; nothing auto-writes).
+    if (role === 'claude' || role === 'brain') renderRichMessage(div, text);
+    else div.append(document.createTextNode(text));
     // capture non-streamed assistant replies (brains, agent CLIs) for voice
     if ((role === 'claude' || role === 'brain') && !streamBubble) turnText = text;
     chatlog.append(div); scroll();
+  }
+
+  // Render an assistant message: prose as text, ```fenced``` blocks as reviewable
+  // code cards. XSS-safe — every node is createElement/textContent, no innerHTML.
+  function renderRichMessage(container, text) {
+    const parts = String(text).split('```');
+    parts.forEach((part, i) => {
+      if (i % 2 === 0) { if (part) container.appendChild(document.createTextNode(part)); return; }
+      let lang = '', code = part;
+      const nl = part.indexOf('\n');
+      if (nl >= 0) {
+        const first = part.slice(0, nl).trim();
+        if (/^[\w+.-]{1,24}$/.test(first)) { lang = first; code = part.slice(nl + 1); }
+      }
+      container.appendChild(buildCodeBlock(code.replace(/\n$/, ''), lang));
+    });
+  }
+  function buildCodeBlock(code, lang) {
+    const wrap = document.createElement('div'); wrap.className = 'codeblock';
+    const bar = document.createElement('div'); bar.className = 'codebar';
+    if (lang) { const t = document.createElement('span'); t.className = 'codelang'; t.textContent = lang; bar.append(t); }
+    const toEd = document.createElement('button');
+    toEd.className = 'btn ghost'; toEd.textContent = '→ Editor';
+    toEd.title = 'Open this code in the Editor to review — then set a path and Save. Nothing writes until you do.';
+    toEd.addEventListener('click', () => sendToEditor(code, lang));
+    const cp = document.createElement('button');
+    cp.className = 'btn ghost'; cp.textContent = 'Copy';
+    cp.addEventListener('click', () => { if (navigator.clipboard) { navigator.clipboard.writeText(code); cp.textContent = 'Copied'; setTimeout(() => { cp.textContent = 'Copy'; }, 1200); } });
+    bar.append(toEd, cp);
+    const pre = document.createElement('pre'); const codeEl = document.createElement('code');
+    codeEl.textContent = code; pre.append(codeEl);
+    wrap.append(bar, pre);
+    return wrap;
   }
 
   // engine roster → fill the switcher's local/cloud groups
@@ -643,6 +680,28 @@
       $('edName').textContent = f.name; $('edPath').value = f.path; $('edDirty').textContent = '';
       edMode(f.name);
     });
+  }
+  // Chat → review canvas: drop proposed code into the editor for review. Clears
+  // the path so Save is a conscious choice of where it lands — the code is a
+  // proposal until you Save it, and Preview can run it before you do.
+  const LANG_EXT = { javascript: 'js', js: 'js', typescript: 'ts', ts: 'ts', jsx: 'jsx', tsx: 'tsx', python: 'py', py: 'py', html: 'html', css: 'css', json: 'json', bash: 'sh', sh: 'sh', shell: 'sh', go: 'go', rust: 'rs', rs: 'rs', java: 'java', c: 'c', cpp: 'cpp', ruby: 'rb', php: 'php', sql: 'sql', yaml: 'yml', md: 'md', markdown: 'md' };
+  function sendToEditor(code, langHint) {
+    const btn = document.querySelector('nav button[data-s="s-editor"]');
+    if (btn) btn.click(); // switch to the Editor tab (also runs initEditor)
+    initEditor();
+    cmEditor.setValue(code);
+    edClean = ''; edCurrentPath = null;            // it's a proposal until saved
+    $('edName').textContent = 'from chat · review, then Save';
+    $('edPath').value = '';
+    $('edPath').placeholder = langHint && LANG_EXT[langHint.toLowerCase()]
+      ? 'untitled.' + LANG_EXT[langHint.toLowerCase()] + ' — set a path to save'
+      : 'set a path to save';
+    $('edDirty').textContent = '● unsaved';
+    if (langHint && window.CodeMirror && CodeMirror.findModeByName) {
+      const info = CodeMirror.findModeByName(langHint.toLowerCase());
+      if (info) { cmEditor.setOption('mode', info.mime); CodeMirror.autoLoadMode(cmEditor, info.mode); $('edLang').textContent = info.name; }
+    }
+    cmEditor.refresh(); cmEditor.focus();
   }
   $('edOpen').addEventListener('click', () => openFile($('edPath').value.trim()));
   $('edPath').addEventListener('keydown', (e) => { if (e.key === 'Enter') openFile($('edPath').value.trim()); });
