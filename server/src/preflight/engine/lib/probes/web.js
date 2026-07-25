@@ -825,7 +825,23 @@ export function probeA11yLandmarks(files) {
         }
       });
       // Skip-link presence (a11y best practice — visible-on-focus link at top of <body>)
-      const hasSkipLink = /<a\s[^>]*href=["']#(main|content)[^>]*>(skip|jump)/i.test(content);
+      // Recognise a skip link by what it DOES, not by one exact spelling.
+      //
+      // Real-scan finding 2026-07: a cockpit added a working skip link and the
+      // probe still reported it missing. The old pattern required the href to
+      // be exactly `#main` or `#content` AND the link text to begin
+      // immediately after `>` with "skip" or "jump", so it failed on
+      // `href="#main-content"`, on `href="#app"`, on any markup where the text
+      // sat on the next line, and on `<a href="#main"><span>Skip…</span></a>`.
+      // Telling someone their working accessibility feature does not exist is
+      // how a probe gets ignored.
+      //
+      // Accepted now: any in-page anchor whose text or accessible name says
+      // skip/jump, or which carries a conventional skip-link class.
+      const hasSkipLink =
+        /<a\s[^>]*href=["']#[\w-]+["'][^>]*>[\s\S]{0,120}?\b(?:skip|jump)\b/i.test(content) ||
+        /<a\s[^>]*class=["'][^"']*\bskip[-_]?(?:link|nav|to[-_]?content)\b/i.test(content) ||
+        /<a\s[^>]*aria-label=["'][^"']*\b(?:skip|jump)\b/i.test(content);
       if (!isFragment && !hasSkipLink && /<body[^>]*>/i.test(content)) {
         findings.push({
           id: `a11y-no-skip-link-${file.path}`,

@@ -814,7 +814,14 @@ export function probeNpmrcHygiene(files) {
     });
     return findings;
   }
-  if (!/min-release-age/.test(npmrc.content)) {
+  // The control is "do not install a version published minutes ago". npm
+  // spells that `min-release-age`; it is also achievable with `before=`, which
+  // pins resolution to packages published before a fixed date, and pnpm calls
+  // it `minimumReleaseAge`. Real-scan finding 2026-07: a repo that had
+  // hardened its install still got told it had not.
+  const hasReleaseCooldown =
+    /min-release-age|minimum-?release-?age|minimumReleaseAge|^\s*before\s*=/im.test(npmrc.content);
+  if (!hasReleaseCooldown) {
     findings.push({
       id: `npmrc-cooldown-${npmrc.path}`,
       probe: 'Package Manager Hardening',

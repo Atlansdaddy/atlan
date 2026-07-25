@@ -169,10 +169,28 @@ export function probeIframeSandbox(files) {
         const lineNum = content.slice(0, ml.index).split('\n').length;
         // Look at the next ~30 lines for an origin check.
         const after = content.slice(ml.index, ml.index + 1500);
+        // Accept any control that establishes who sent the message, not just
+        // the one spelling the remediation happens to suggest.
+        //
+        // Real-scan finding 2026-07: a cockpit guarded its handler with
+        // `if (e.source !== window.parent) return`, and this probe reported it
+        // as unvalidated. Comparing `event.source` is a reference check against
+        // an actual window object, which cannot be forged the way a string can,
+        // so it is at least as strong as an origin string comparison. Flagging
+        // it pushes an author toward a weaker control to satisfy the scanner,
+        // which is worse than not having the probe.
+        //
+        // Belt-and-braces (origin AND source) is still the ideal, and the
+        // remediation says so. But a handler with either one is not a finding.
         const checksOrigin =
           /\.origin\s*(?:===|!==|==|!=)|origin\s*===|expectedOrigin|trustedOrigins|allowedOrigins|window\.location\.origin/.test(
             after
           );
+        const checksSource =
+          /\.source\s*(?:===|!==|==|!=)|\.source\s*\)|expectedSource|trustedSource|allowedSources/.test(
+            after
+          );
+        if (checksSource) continue;
         // Skip if it's actually a MessageChannel port (port.onmessage), which
         // is origin-bound by construction.
         if (checksOrigin) continue;
@@ -190,7 +208,7 @@ export function probeIframeSandbox(files) {
             .replace(/\s+/g, ' ')
             .slice(0, 200),
           remediation:
-            'Without an event.origin check, any window (iframe, popup, parent) can send messages to your handler. Verify origin against an allowlist at the top of the handler: if (event.origin !== "https://trusted.example") return.',
+            'Without a sender check, any window (iframe, popup, parent) can send messages to your handler. Verify the origin against an allowlist at the top of the handler: if (event.origin !== "https://trusted.example") return. Comparing event.source against the specific window you expect (event.source !== iframe.contentWindow) is also accepted and is not forgeable; checking both is stronger still.',
         });
       }
     }
