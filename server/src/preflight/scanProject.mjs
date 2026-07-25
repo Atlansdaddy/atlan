@@ -9,6 +9,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 import { scan } from './engine/lib/cockpit-scan.js';
 import { shouldScanFile } from './engine/lib/file-filter.js';
+import { computeScores } from './engine/lib/scoring.js';
 
 const MAX_BYTES = 500_000; // PreFlight's per-file cap
 // Never scan these — machinery, deps, or the vendored engine itself (that's
@@ -50,5 +51,8 @@ export function collectFiles(rootDir) {
 export function scanProject(rootDir) {
   const files = collectFiles(rootDir);
   const result = scan(files);
-  return { ...result, filesCollected: files.length };
+  // score (headline) is security-only; scores gives all four axes so a private
+  // cockpit's SEO/complexity findings read against health/discoverability, not
+  // "is it safe to ship".
+  return { ...result, scores: computeScores(result.findings), filesCollected: files.length };
 }

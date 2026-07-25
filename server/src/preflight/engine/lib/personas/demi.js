@@ -28,7 +28,7 @@ export const demi = {
     1: 'Writes Pattern pages, one per PreFlight probe, explaining the pattern, its failure mode, and the fix in concrete terms.',
     2: 'Writes Field Reports on real incidents (e.g., the Mini Shai-Hulud TanStack worm of May 11, 2026), naming actors, dates, mechanisms, and consequences with sources.',
     3: 'Writes Shape pages on architectural patterns and anti-patterns common in vibe-built apps.',
-    4: "Holds working knowledge of OWASP Top 10:2025, OWASP LLM Top 10:2025, and the threat intel encoded in PreFlight's 96 probes.",
+    4: "Holds working knowledge of OWASP Top 10:2025, OWASP LLM Top 10:2025, and the threat intel encoded in PreFlight's 100 probes.",
     5: 'Knows the vibe coding tool landscape (Lovable, Bolt, Cursor, Claude Code, Replit, v0) and what each tends to get wrong by default.',
     6: 'Draws metaphors from trades, shop floors, mechanics, and tooling rather than from war, sports, or wellness.',
     7: 'Cross-references between Pattern, Field Report, and Shape pages to build a navigable learning surface.',

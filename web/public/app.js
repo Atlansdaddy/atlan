@@ -1217,8 +1217,24 @@
       if (res.error) { $('scanMeta').textContent = res.error; return; }
       const counts = {};
       for (const f of res.findings) counts[f.severity] = (counts[f.severity] || 0) + 1;
-      $('scanMeta').textContent = `score ${res.score}/100 · ${res.filesCollected} files · `
+      // four axes, not one scary number: the headline is Security ("safe to
+      // ship"); health/a11y/discoverability are separate so a private cockpit's
+      // SEO/complexity findings don't read as risk.
+      const ax = res.scores || {};
+      const AX = { security: '🛡 Security', health: '🩺 Health', accessibility: '♿ A11y', discoverability: '🔎 Reach' };
+      $('scanMeta').innerHTML = '';
+      const axRow = document.createElement('div'); axRow.className = 'axisrow';
+      for (const a of ['security', 'health', 'accessibility', 'discoverability']) {
+        if (!ax[a]) continue;
+        const chip = document.createElement('span');
+        chip.className = 'axis ' + (ax[a].score >= 90 ? 'ok' : ax[a].score >= 70 ? 'warn' : 'bad');
+        chip.textContent = `${AX[a]} ${ax[a].score}`;
+        axRow.append(chip);
+      }
+      const sub = document.createElement('div'); sub.className = 'axissub';
+      sub.textContent = `${res.filesCollected} files · `
         + (SEV_UI.filter((s) => counts[s]).map((s) => `${counts[s]} ${s}`).join(' · ') || 'clean');
+      $('scanMeta').append(axRow, sub);
       const list = $('scanList');
       for (const sev of SEV_UI) {
         const fs = res.findings.filter((f) => f.severity === sev);
