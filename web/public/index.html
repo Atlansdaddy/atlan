@@ -26,7 +26,7 @@
     <div class="wordmark">At<em>la</em>n</div>
     <div id="authTitle" class="authtitle">Welcome</div>
     <p id="authHint">Enter your password to unlock Atlan.</p>
-    <input id="authInput" type="password" placeholder="password" autocomplete="current-password">
+    <input id="authInput" type="password" placeholder="password" aria-label="password" autocomplete="current-password">
     <button class="btn hot" id="authSave">Log in</button>
     <div id="authErr" class="autherr"></div>
   </div>
@@ -164,7 +164,7 @@
           <input id="routName" placeholder="routine name — e.g. nightly repo scan">
           <div class="projbar">
             <select id="routKind"><option value="every">every N minutes</option><option value="daily">daily at HH:MM</option></select>
-            <input id="routEvery" type="number" min="5" value="360" placeholder="minutes">
+            <input id="routEvery" type="number" min="5" value="360" placeholder="minutes" aria-label="routine interval in minutes">
             <input id="routAt" type="time" value="07:00" style="display:none">
           </div>
           <textarea id="routPrompt" rows="3" placeholder="What should it do each time? It reports to the inbox like any run."></textarea>
@@ -304,8 +304,8 @@
         <button class="btn ghost" id="changePwBtn">change password</button>
       </div>
       <div id="pwForm" class="bform" style="display:none">
-        <input id="pwCurrent" type="password" placeholder="current password" autocomplete="current-password">
-        <input id="pwNext" type="password" placeholder="new password (8+ chars)" autocomplete="new-password">
+        <input id="pwCurrent" type="password" placeholder="current password" aria-label="current password" autocomplete="current-password">
+        <input id="pwNext" type="password" placeholder="new password (8+ chars)" aria-label="new password" autocomplete="new-password">
         <div class="projbar"><button class="btn hot" id="pwSave">Save new password</button></div>
         <div id="pwMsg" class="hint"></div>
       </div>

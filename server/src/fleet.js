@@ -252,7 +252,7 @@ function finish(run) {
   active.delete(run.id);
   if (!run.endedAt) run.endedAt = Date.now();
   commitBurn(run.tokens, run.cost, run.cacheRead);
-  try { appendFileSync(HISTORY, JSON.stringify({ ...publicRun(run), prompt: run.prompt }) + '\n'); } catch {}
+  try { appendFileSync(HISTORY, JSON.stringify({ ...publicRun(run), prompt: run.prompt }) + '\n'); } catch { /* best-effort: history append is non-critical, a disk error here must not fail the run */ }
   broadcast({ t: 'fleet.done', run: publicRun(run), today: todayBurn() });
   broadcast({
     t: 'atlan.mood',
