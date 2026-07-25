@@ -346,10 +346,13 @@
       who.textContent = role === 'brain' ? (engineLabel || 'brain') + ' · chat only' : (engineLabel || 'Claude');
       div.append(who);
     }
-    // brains + agent CLIs: render prose + fenced code blocks, each code block
-    // gets a "→ Editor" action so a chat becomes a propose-into-canvas builder
-    // (the pseudo-assistant — you review in the editor; nothing auto-writes).
-    if (role === 'claude' || role === 'brain') renderRichMessage(div, text);
+    // Only CHAT brains get the propose-into-canvas treatment: they have no
+    // hands, so their code needs a destination (the review editor). The
+    // autonomous coding agents (Claude / Codex / Antigravity / Grok) already
+    // act on disk like their CLIs — routing their large diffs through manual
+    // review would be pure fatigue, and the Editor tab is right there when you
+    // do want to look. So agents render plain; brains get the code cards.
+    if (role === 'brain') renderRichMessage(div, text);
     else div.append(document.createTextNode(text));
     // capture non-streamed assistant replies (brains, agent CLIs) for voice
     if ((role === 'claude' || role === 'brain') && !streamBubble) turnText = text;
