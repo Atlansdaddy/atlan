@@ -244,9 +244,9 @@
         say(`${m.name} surfaced — ${m.mb} MB of us, ${m.secs}s under.`);
         addBuildLine(`surfaced in ${m.secs}s`, 'bl-ok');
         $('apkCard').innerHTML = `<div class="apkcard">
-          <div class="top"><span class="fn"></span><span class="stamp">${m.stamp}</span></div>
-          <div class="meta">${m.mb} MB · ${m.secs}s · unique filename (stale-cache dodge)</div>
-          <a class="btn hot" href="${m.url}" download>Install — download & open</a></div>`;
+          <div class="top"><span class="fn"></span><span class="stamp">${escapeHtml(m.stamp)}</span></div>
+          <div class="meta">${escapeHtml(m.mb)} MB · ${escapeHtml(m.secs)}s · unique filename (stale-cache dodge)</div>
+          <a class="btn hot" href="${escapeHtml(m.url)}" download>Install — download & open</a></div>`;
         $('apkCard').querySelector('.fn').textContent = m.name;
         break;
       }
@@ -439,7 +439,7 @@
     chatlog.append(div); scroll();
   }
   function scroll() { chatlog.scrollTop = chatlog.scrollHeight; }
-  function escapeHtml(s) { return s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`); }
+  function escapeHtml(s) { return String(s).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`); }
 
   // ── attachments ──
   let attachments = []; // {id, kind, name, path, note}
@@ -1080,7 +1080,7 @@
         const row = document.createElement('div');
         row.className = 'keyrow';
         const help = KEY_HELP[k.env];
-        row.innerHTML = `<span class="kname"></span><input type="password" placeholder="${k.set ? 'saved ' + k.hint + ' — paste to replace' : 'paste key'}" autocomplete="off">
+        row.innerHTML = `<span class="kname"></span><input type="password" placeholder="${k.set ? 'saved ' + escapeHtml(k.hint) + ' — paste to replace' : 'paste key'}" autocomplete="off">
           <span class="kset">${k.set ? '● ' + (k.source === 'env' ? 'env' : 'set') : ''}</span><button class="btn">Save</button>`;
         row.querySelector('.kname').textContent = KEY_LABELS[k.env] ?? k.env;
         if (help) {
@@ -1571,7 +1571,7 @@
       const row = document.createElement('div');
       row.className = 'rowedit';
       row.innerHTML = `<label class="vlabel"></label>` + (v.type === 'enum'
-        ? `<select data-v="${v.name}">${(v.values ?? []).map((x) => `<option>${x}</option>`).join('')}</select>`
+        ? `<select data-v="${escapeHtml(v.name)}">${(v.values ?? []).map((x) => `<option>${escapeHtml(x)}</option>`).join('')}</select>`
         : `<input data-v="${v.name}" placeholder="${v.type}${v.required ? ' · required' : ''}">`);
       row.querySelector('.vlabel').textContent = v.name;
       box.append(row);
@@ -1660,13 +1660,13 @@
     }
   }
   const LINK_ROW = () => {
-    const cmdOpts = hierCommands.map((c) => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
+    const cmdOpts = hierCommands.map((c) => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.name)}</option>`).join('');
     const tierChecks = hierTiers.map((t) => `<label class="ck"><input type="checkbox" data-tier="${t.id}" checked>${t.id}</label>`).join('');
     return `<div class="linkedit">
       <input data-k="id" placeholder="link id (e.g. extract)">
       <select data-k="commandId">${cmdOpts}</select>
       <input data-k="inputsFrom" placeholder="inputs from (comma: job.input, extract.field)">
-      <div class="tierrow">start:<select data-k="startTier">${hierTiers.map((t) => `<option value="${t.id}">${t.id}</option>`).join('')}</select>
+      <div class="tierrow">start:<select data-k="startTier">${hierTiers.map((t) => `<option value="${escapeHtml(t.id)}">${escapeHtml(t.id)}</option>`).join('')}</select>
         ladder: ${tierChecks}
         <select data-k="onCheckerFail"><option value="escalate">escalate</option><option value="human">ask me</option><option value="halt">halt</option></select></div>
       <button class="btn ghost linkdel">✖ link</button></div>`;
