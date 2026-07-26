@@ -13,6 +13,66 @@ import {
 import { isScannerSelfSource, isTestFile } from '../file-filter.js';
 import { maskCommentsAndStringsFromContent } from './_internal/masking.js';
 
+// Keywords that mean the expression to their right is being handed somewhere.
+const OWNERSHIP_KEYWORDS = /^(?:return|await|yield|throw)$/;
+
+/**
+ * Walk backward from `idx` over a member/call chain and report what precedes it.
+ *
+ * Answers one question: is this promise chain the whole statement, or is it
+ * being given to something else? `return p.then(…)` and `waitUntil(p.then(…))`
+ * both hand the promise to a caller who owns its rejection, and reporting them
+ * as unhandled is wrong. Only a chain sitting alone as a statement is
+ * fire-and-forget.
+ *
+ * @returns {{ start: number, precededBy: string }} `precededBy` is the keyword
+ *   or single character found to the left, or '' at the start of the file.
+ */
+function scanBackToExpressionStart(content, idx) {
+  const isWord = (c) => /[\w$]/.test(c);
+  let i = idx - 1;
+  let start = idx;
+  for (;;) {
+    while (i >= 0 && /\s/.test(content[i])) i--;
+    if (i < 0) return { start, precededBy: '' };
+    const ch = content[i];
+    // A balanced closer: jump to its opener and keep going left.
+    if (ch === ')' || ch === ']') {
+      const open = ch === ')' ? '(' : '[';
+      let depth = 0;
+      for (; i >= 0; i--) {
+        if (content[i] === ch) depth++;
+        else if (content[i] === open) {
+          depth--;
+          if (depth === 0) break;
+        }
+      }
+      if (i < 0) return { start, precededBy: '' };
+      start = i;
+      i--;
+      continue;
+    }
+    if (isWord(ch)) {
+      let j = i;
+      while (j >= 0 && isWord(content[j])) j--;
+      const word = content.slice(j + 1, i + 1);
+      // A keyword is not part of the expression, it is what owns it.
+      if (OWNERSHIP_KEYWORDS.test(word)) return { start, precededBy: word };
+      i = j;
+      start = j + 1;
+      continue;
+    }
+    if (ch === '.') {
+      i--;
+      continue;
+    }
+    // `=>` reads as ownership (a concise arrow body returns the promise), so
+    // check the two-character form before treating '>' as a terminator.
+    if (ch === '>' && i > 0 && content[i - 1] === '=') return { start, precededBy: '=>' };
+    return { start, precededBy: ch };
+  }
+}
+
 export function probeCodeQuality(files) {
   const findings = [];
   files.forEach((file) => {
@@ -137,8 +197,27 @@ export function probeCodeQuality(files) {
     // Walk the statement to its END (terminating semicolon, end of file, or back-to-column-1 at
     // the start of a new statement) before deciding it's unhandled. Previous fixed 200-char
     // window false-positived on .then() handlers with long bodies (adversarial-agent finding).
+    // One chain is one finding. `fetch(u).then(r => r.json()).then(render)` is
+    // a single promise missing a single .catch, but it matches /\.then\s*\(/
+    // twice and used to report twice, at the same line, with the same text.
+    // On a real cockpit UI that turned 23 unhandled chains into 40 findings
+    // (real-scan finding 2026-07). After a chain is examined, every .then
+    // inside its span belongs to it and is skipped.
+    //
+    // All of the structural walking below runs on comment- and string-masked
+    // content. The forward walk tracks quotes but knew nothing about comments,
+    // so an apostrophe in `// don't cache this` opened a string that never
+    // closed and the scan ran to end of file. That was survivable when a bad
+    // span only widened one .catch search; with chain de-duplication it also
+    // sets chainSkipUntil past every remaining chain in the file, so a single
+    // contraction in a comment silenced the probe for the whole module.
+    // Masking preserves byte offsets exactly, so indices, line numbers and
+    // evidence slices still refer to the real source.
+    const structural = maskCommentsAndStringsFromContent(content);
+    let chainSkipUntil = -1;
     if (!selfSource)
-      [...content.matchAll(/\.then\s*\(/g)].forEach((m) => {
+      [...structural.matchAll(/\.then\s*\(/g)].forEach((m) => {
+        if (m.index < chainSkipUntil) return;
         // Walk forward through balanced parens / braces until we hit a semicolon at depth 0
         // or two consecutive newlines (paragraph break).
         let i = m.index;
@@ -148,9 +227,9 @@ export function probeCodeQuality(files) {
           inDouble = false,
           inBack = false;
         let lastChar = '';
-        let chainEnd = content.length;
-        for (; i < content.length; i++) {
-          const ch = content[i];
+        let chainEnd = structural.length;
+        for (; i < structural.length; i++) {
+          const ch = structural[i];
           if (inSingle) {
             if (ch === "'" && lastChar !== '\\') inSingle = false;
             lastChar = ch;
@@ -176,14 +255,34 @@ export function probeCodeQuality(files) {
           else if (ch === ';' && pDepth === 0 && bDepth === 0) {
             chainEnd = i;
             break;
-          } else if (ch === '\n' && content[i + 1] === '\n' && pDepth === 0 && bDepth === 0) {
+          } else if (ch === '\n' && structural[i + 1] === '\n' && pDepth === 0 && bDepth === 0) {
             chainEnd = i;
             break;
           }
           lastChar = ch;
         }
-        const window = content.slice(m.index, chainEnd);
+        const window = structural.slice(m.index, chainEnd);
+        chainSkipUntil = chainEnd;
         if (/\.catch\s*\(|\.finally\s*\(/.test(window)) return;
+        // Is anyone else responsible for this rejection? A returned, awaited,
+        // assigned, or argument-position promise has a caller who can handle
+        // it, and an unhandled rejection there is that caller's bug, not this
+        // line's. Only a chain standing alone as a statement is truly
+        // fire-and-forget. Real-scan finding 2026-07: a fetch wrapper
+        // (`window.fetch = (u, o) => rawFetch(u, o).then(…)`) and a service
+        // worker's `e.waitUntil(matchAll().then(…))` were both reported, and
+        // both correctly delegate.
+        const { precededBy } = scanBackToExpressionStart(structural, m.index);
+        if (
+          OWNERSHIP_KEYWORDS.test(precededBy) ||
+          precededBy === '=>' ||
+          precededBy === '=' ||
+          precededBy === '(' ||
+          precededBy === ',' ||
+          precededBy === '[' ||
+          precededBy === ':'
+        )
+          return;
         const ln = content.slice(0, m.index).split('\n').length;
         findings.push({
           id: `cq-then-no-catch-${file.path}-${m.index}`,

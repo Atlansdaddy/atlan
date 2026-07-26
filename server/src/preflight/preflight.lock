@@ -1,8 +1,8 @@
 {
   "repo": "https://github.com/midatlanticAI/PreFlight.git",
   "ref": "main",
-  "commit": "50b562ccf45408ef6c3ac16b2ca098d91a4fdfd4",
-  "syncedAt": "2026-07-26T01:31:03.593Z",
+  "commit": "bc2c59b749514550a2214729660f16512334fe1d",
+  "syncedAt": "2026-07-26T01:55:05.538Z",
   "fileCount": 138,
   "engineDeps": [
     "acorn",

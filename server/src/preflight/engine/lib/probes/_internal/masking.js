@@ -126,15 +126,83 @@ export function maskBlockCommentsAndTemplateLiterals(content) {
   return out.join('');
 }
 
+// A `/` begins a regex literal when what precedes it cannot end an expression.
+// After an identifier, a number, `)` or `]`, a slash is division. After an
+// operator, an opening bracket, a comma, a semicolon, or a keyword, it is a
+// regex. This is the standard lexical disambiguation and it is right for every
+// shape that appears in real source.
+const REGEX_ALLOWED_AFTER = /[({[,;:=!&|?+\-*%^~<>]/;
+const REGEX_ALLOWED_KEYWORDS =
+  /(?:^|[^\w$])(?:return|typeof|instanceof|in|of|new|delete|void|throw|case|do|else|yield|await)$/;
+
 export function maskCommentsAndStringsFromContent(content) {
   if (typeof content !== 'string' || content.length === 0) return content || '';
   const out = [];
   const len = content.length;
   let i = 0;
   const blankExceptNewline = (ch) => (ch === '\n' ? '\n' : ' ');
+  // Last non-whitespace character emitted, used only to tell a regex literal
+  // from a division. Comments never update it, which is what we want: `x = /a/`
+  // and `x = /* note */ /a/` must lex the same way.
+  let lastSignificant = '';
+  let lastSignificantIdx = -1;
+  const isRegexPosition = () => {
+    if (lastSignificant === '') return true; // start of file
+    if (REGEX_ALLOWED_AFTER.test(lastSignificant)) return true;
+    if (/[\w$]/.test(lastSignificant)) {
+      let j = lastSignificantIdx;
+      while (j >= 0 && /[\w$]/.test(content[j])) j--;
+      return REGEX_ALLOWED_KEYWORDS.test(content.slice(j + 1, lastSignificantIdx + 1));
+    }
+    return false; // after ) ] or a literal, `/` is division
+  };
+  // Emit a regex literal with its body blanked. Returns the index just past the
+  // flags, or 0 when this turned out not to be a regex after all.
+  const consumeRegex = (start) => {
+    let j = start + 1;
+    let inClass = false;
+    while (j < len) {
+      const ch = content[j];
+      if (ch === '\n') return 0; // regex literals cannot span lines
+      if (ch === '\\') {
+        j += 2;
+        continue;
+      }
+      if (inClass) {
+        if (ch === ']') inClass = false;
+      } else if (ch === '[') inClass = true;
+      else if (ch === '/') break;
+      j++;
+    }
+    if (j >= len || content[j] !== '/') return 0;
+    out.push('/');
+    for (let k = start + 1; k < j; k++) out.push(' ');
+    out.push('/');
+    let f = j + 1;
+    while (f < len && /[a-z]/i.test(content[f])) {
+      out.push(content[f]);
+      f++;
+    }
+    lastSignificant = '/'; // a regex ends an expression; the next `/` is division
+    lastSignificantIdx = j;
+    return f;
+  };
   while (i < len) {
     const c = content[i];
     const c2 = i + 1 < len ? content[i + 1] : '';
+    // Regex literal. Without this, the `"` in `String(s).replace(/[&<>"']/g, …)`
+    // opens a string that runs to the next unrelated quote, blanking hundreds
+    // of lines of real code. escapeHtml is in nearly every generated app, so
+    // this silently truncated analysis on a large share of real projects
+    // (real-scan finding 2026-07: it hid six unhandled promise chains and
+    // every other masked-content check between lines 442 and 1098 of one file).
+    if (c === '/' && c2 !== '/' && c2 !== '*' && isRegexPosition()) {
+      const consumed = consumeRegex(i);
+      if (consumed > 0) {
+        i = consumed;
+        continue;
+      }
+    }
     // /* block comment (may span lines)
     if (c === '/' && c2 === '*') {
       out.push('/', '*');
@@ -178,10 +246,16 @@ export function maskCommentsAndStringsFromContent(content) {
       }
       if (j >= len) return out.join(''); // unterminated string; trail consumed
       out.push(quote);
+      lastSignificant = quote; // a string ends an expression
+      lastSignificantIdx = j;
       i = j + 1;
       continue;
     }
     out.push(c);
+    if (!/\s/.test(c)) {
+      lastSignificant = c;
+      lastSignificantIdx = i;
+    }
     i++;
   }
   return out.join('');

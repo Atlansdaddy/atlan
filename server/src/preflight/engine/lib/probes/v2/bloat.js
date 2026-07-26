@@ -37,6 +37,61 @@ export const BLOAT_IMPORT_COUNT = 20;
 export const BLOAT_COMMENTED_CODE_LINES = 10;
 export const BLOAT_MAGIC_STRING_REPEATS = 3;
 
+// Real-scan finding 2026-07: the repeated-literal check produced 33 of one
+// project's 105 code-health findings, and most were protocol constants or DOM
+// lookup keys. Both are noise of the worst kind, because the suggested fix
+// (name it once) makes the code no better and the reader learns the check is
+// not worth reading.
+const PROTOCOL_LITERAL_RE =
+  /^(?:(?:content|accept|authorization|cache|cookie|set-cookie|user-agent|x-[\w-]+)[\w-]*|application\/[\w.+-]+|text\/[\w.+-]+|multipart\/[\w-]+|GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS|utf-?8|no-cache|no-store|same-origin|strict-origin[\w-]*|Bearer|Basic)$/i;
+
+// Callees whose string argument is an identifier for something else.
+// Callees whose string argument is a reference to markup, not an app constant.
+//
+// `$('buildBtn')` repeated six times is not a magic number waiting to be named.
+// The string is an id that already has exactly one definition, in the HTML, and
+// hoisting it to `const BUILD_BTN = 'buildBtn'` adds a second name for the same
+// thing without removing the coupling. Selectors, ids, tag names and attribute
+// names all behave this way.
+//
+// Deliberately DOM-query only. An earlier version included `get`/`set`/
+// `getItem`/`setItem`/`setHeader`, which swallowed genuine findings:
+// `cookies.get('app_session_v2')` in three places IS the case this check
+// exists for, because that key is defined nowhere but in those three string
+// literals. Standard header and protocol tokens are handled by
+// PROTOCOL_LITERAL_RE instead, which keys on the value rather than the caller.
+const LOOKUP_CALLEES =
+  /^(?:\$|jQuery|getElementById|querySelector|querySelectorAll|getElementsByClassName|getElementsByTagName|closest|matches|getAttribute|setAttribute|removeAttribute|hasAttribute|createElement|createElementNS)$/;
+
+/**
+ * True when this function is an immediately-invoked wrapper around the whole
+ * file: the classic no-build-step module boundary.
+ *
+ * Both halves are required. Immediate invocation alone is not enough, because a
+ * genuinely oversized IIFE nested inside real code deserves the finding; and
+ * spanning the file alone is not enough either, because a single enormous named
+ * function IS the finding. Together they identify a wrapper whose length is the
+ * file's length, which the file-size check already reports.
+ */
+function isModuleWrapper(node, parent, ast) {
+  if (node.type !== 'ArrowFunctionExpression' && node.type !== 'FunctionExpression') return false;
+  const invoked = parent?.type === 'CallExpression' && parent.callee === node;
+  if (!invoked) return false;
+  const start = node.loc?.start?.line;
+  const end = node.loc?.end?.line;
+  const fileEnd = ast?.loc?.end?.line;
+  if (!start || !end || !fileEnd) return false;
+  return start <= 5 && end >= fileEnd - 3;
+}
+
+function isLookupCallee(callee) {
+  if (!callee) return false;
+  if (callee.type === 'Identifier') return LOOKUP_CALLEES.test(callee.name);
+  if (callee.type === 'MemberExpression' && !callee.computed && callee.property?.name)
+    return LOOKUP_CALLEES.test(callee.property.name);
+  return false;
+}
+
 const finding = (o) => ({
   probe: 'AI Codegen Bloat',
   category: 'Maintainability',
@@ -57,18 +112,28 @@ function fnName(node, parent) {
 // THIS function, not nested function bodies (those get their own score).
 function cyclomaticOf(fnNode) {
   let score = 1;
-  const seen = new Set();
-  walk(fnNode, (n, parent) => {
-    if (n !== fnNode && FN_TYPES.has(n.type)) {
-      seen.add(n);
-      return;
+  // Descend manually and STOP at a nested function, rather than walking the
+  // whole subtree and trying to skip its contents afterwards.
+  //
+  // The previous version used the shared walker and excluded nodes whose
+  // IMMEDIATE parent was a nested function. Anything two or more levels deep
+  // inside a callback still counted toward the enclosing function, so a route
+  // handler containing a couple of callbacks inherited all of their branches
+  // and scored as if it were the tangle. Real-scan finding 2026-07: 19
+  // complexity findings, dominated by anonymous handlers whose real complexity
+  // belonged to the callbacks inside them.
+  const visit = (n) => {
+    if (!n || typeof n.type !== 'string') return;
+    if (n !== fnNode && FN_TYPES.has(n.type)) return; // its own score, not ours
+    countNode(n);
+    for (const key of Object.keys(n)) {
+      if (key === 'parent') continue;
+      const v = n[key];
+      if (Array.isArray(v)) v.forEach(visit);
+      else if (v && typeof v.type === 'string') visit(v);
     }
-    // Skip anything inside an already-seen nested function.
-    let p = parent;
-    while (p) {
-      if (seen.has(p)) return;
-      p = null; // walk() gives immediate parent only; one level is enough here
-    }
+  };
+  function countNode(n) {
     if (
       n.type === 'IfStatement' ||
       n.type === 'ForStatement' ||
@@ -88,7 +153,8 @@ function cyclomaticOf(fnNode) {
     // costs nothing; genuinely tangled control flow shows up in the branch and
     // logical-operator counts below.
     else if (n.type === 'LogicalExpression' && ['&&', '||', '??'].includes(n.operator)) score++;
-  });
+  }
+  visit(fnNode);
   return score;
 }
 
@@ -341,6 +407,14 @@ export function probeAICodegenBloat(files) {
       const startLine = node.loc?.start?.line;
       const endLine = node.loc?.end?.line;
       const name = fnName(node, parent);
+      // An IIFE wrapping the whole file is a module boundary, not a function
+      // anyone should split. A no-build-step script that opens with `(() => {`
+      // and closes at the last line was reported as `Function "(anonymous)" is
+      // 1772 lines` at medium severity, which is both unactionable (the advice
+      // is "extract helpers", and the helpers are already in there) and
+      // double-counted: Code Quality's file-length check already says this file
+      // is large, which is the real observation (real-scan finding 2026-07).
+      if (isModuleWrapper(node, parent, ast)) return;
       if (startLine && endLine && endLine - startLine + 1 > BLOAT_FN_LINES) {
         findings.push(
           finding({
@@ -476,6 +550,40 @@ export function probeAICodegenBloat(files) {
     // reports that fragment as a repeated magic string. That produced titles
     // like `String ", method: " is repeated 80 times` in the 2026-07
     // adversarial round. Literal nodes cannot have that failure mode.
+    // First pass: which strings in this file name something in the markup?
+    //
+    // Checking the call site alone is not enough, because the same id reaches
+    // the DOM by more than one route. In real code (Atlan 2026-07) `fieldRows`
+    // appeared as `$('fieldRows')`, as `addRow('fieldRows', …)` through a
+    // helper, and as `rowsOf('fieldRows')`. Only the first is recognisable
+    // from its callee, so the other two were counted and the id was reported
+    // as a magic string. `sessline` had the same problem via `el.className =`.
+    //
+    // A string used ONCE as a selector, id or class is an element name for the
+    // whole file. Collect those first, then exclude them from counting
+    // wherever they appear.
+    const markupStrings = new Set();
+    walk(ast, (node, parent) => {
+      if (node.type !== 'Literal' || typeof node.value !== 'string') return;
+      if (parent?.type === 'CallExpression' && isLookupCallee(parent.callee))
+        markupStrings.add(node.value);
+      // el.className = 'sessline' / el.id = 'x' / classList.add('open')
+      if (
+        parent?.type === 'AssignmentExpression' &&
+        parent.right === node &&
+        parent.left?.type === 'MemberExpression' &&
+        /^(?:className|id)$/.test(parent.left.property?.name || '')
+      )
+        markupStrings.add(node.value);
+      if (
+        parent?.type === 'CallExpression' &&
+        parent.callee?.type === 'MemberExpression' &&
+        parent.callee.object?.type === 'MemberExpression' &&
+        parent.callee.object.property?.name === 'classList'
+      )
+        markupStrings.add(node.value);
+    });
+
     const strCounts = new Map();
     const strLine = new Map();
     walk(ast, (node, parent) => {
@@ -488,6 +596,17 @@ export function probeAICodegenBloat(files) {
       // 2026-07: a TRANSITIONS map reported its own state names as magic).
       if (parent?.type === 'ArrayExpression') return;
       if (parent?.type === 'Property' && parent.value === node) return;
+      // Protocol constants. `content-type` appearing 30 times is not a magic
+      // value the author should have named once; it is the name of an HTTP
+      // header, and `headers['content-type']` is already the clearest way to
+      // write it. Same for auth header names, methods and common MIME types.
+      if (PROTOCOL_LITERAL_RE.test(node.value)) return;
+      // Lookup keys. A string handed to a DOM query, a header accessor, or a
+      // storage getter is an identifier for something else, not a decision
+      // encoded as text. `$('buildBtn')` repeated four times is four lookups
+      // of one element, and naming it `const BUILD_BTN = 'buildBtn'` moves the
+      // string without removing it.
+      if (markupStrings.has(node.value)) return;
       // Import/export sources and JSX attribute values (className, href,
       // data-*) are structural, not magic constants.
       if (parent?.type === 'ImportDeclaration' || parent?.type === 'ExportNamedDeclaration') return;
