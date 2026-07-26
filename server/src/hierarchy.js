@@ -26,11 +26,24 @@ export function initHierarchy(fn) { if (fn) broadcast = fn; }
 // engines to exercise the escalation ladder without real spend). An overridden
 // base needs no key.
 const localBase = process.env.ATLAN_TIER_LOCAL_BASE || 'http://127.0.0.1:8080/v1';
-const cloudBase = process.env.ATLAN_TIER_CLOUDSM_BASE || 'https://api.deepseek.com/v1';
+// Rungs spread across BOTH model strength and capability class, and every rung
+// is something this device can actually reach. The old middle rung was DeepSeek
+// behind DEEPSEEK_API_KEY — unconfigured, so every escalation threw
+// "cloud-sm needs DEEPSEEK_API_KEY", and it was also the ladder's only metered
+// step. Gemini 3.6 Flash replaces it: already keyed, verified free-tier, ~1.6s.
+// (Probed 2026-07-26: 3.6-flash is the ONLY text model this key reaches —
+// 3.1-flash / 3.1-pro / 3-pro / 3.6-pro all 404. No free rung exists between
+// Flash and frontier, so the ladder is three rungs, not four.)
+const cloudBase = process.env.ATLAN_TIER_CLOUDSM_BASE || 'https://generativelanguage.googleapis.com/v1beta/openai';
 export const TIERS = {
-  local:    { engine: 'local',    base: localBase, keyEnv: null,                                                   model: 'qwen',           constrained: true,  label: 'on-phone Qwen (free)' },
-  'cloud-sm': { engine: 'deepseek', base: cloudBase, keyEnv: process.env.ATLAN_TIER_CLOUDSM_BASE ? null : 'DEEPSEEK_API_KEY', model: 'deepseek-chat', constrained: true, label: 'DeepSeek (cheap cloud)' },
-  frontier: { engine: 'claude',   base: null,      keyEnv: null,                                                   model: 'claude-fable-5', constrained: false, label: 'Claude (frontier)' },
+  //                                                                                                              constrained = grammar/schema-locked JSON out
+  local:    { engine: 'local',    base: localBase, keyEnv: null,                                                   model: 'qwen',            constrained: true,  label: 'on-phone Qwen (free)' },
+  'cloud-sm': { engine: 'gemini', base: cloudBase, keyEnv: process.env.ATLAN_TIER_CLOUDSM_BASE ? null : 'GEMINI_API_KEY', model: 'gemini-3.6-flash', constrained: true, label: 'Gemini Flash (free tier)' },
+  // Opus 5 rather than Fable 5: it leads SWE-bench Verified (~80.8%) for the
+  // code-shaped work this rung catches, and Fable's thinking cannot be disabled.
+  // Both run on the subscription via frontierExecute, so this is a capability
+  // choice, not a cost one — set ATLAN_TIER_FRONTIER_MODEL to override.
+  frontier: { engine: 'claude',   base: null,      keyEnv: null,                                                   model: process.env.ATLAN_TIER_FRONTIER_MODEL || 'claude-opus-5', constrained: false, label: 'Claude Opus 5 (frontier)' },
 };
 export const tierList = Object.entries(TIERS).map(([id, t]) => ({ id, label: t.label, constrained: t.constrained }));
 
