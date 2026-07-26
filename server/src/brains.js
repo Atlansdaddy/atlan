@@ -89,6 +89,12 @@ function getKey(keyEnv) {
   return process.env[keyEnv] || getStoredKey(keyEnv);
 }
 
+// Single source of truth for the natively-multimodal describe model.
+// attachments.js imports this instead of hardcoding its own copy — the copy it
+// used to keep (gemini-2.5-flash) was retired and missed by the stale-model
+// sweep, which silently killed every audio/video attachment.
+export const MULTIMODAL_MODEL = PROVIDERS.gemini.defaultModel;
+
 export async function engineRoster() {
   const roster = [];
   for (const [id, p] of Object.entries(PROVIDERS)) {

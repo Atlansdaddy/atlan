@@ -4,6 +4,7 @@ import { basename, join, resolve, extname } from 'node:path';
 import { APP_ROOT, PROJECTS_DIR } from './config.js';
 import { SENSITIVE } from './guards.js';
 import { getStoredKey } from './keys.js';
+import { MULTIMODAL_MODEL } from './brains.js';
 
 // Attachments — images/audio/video/files/folders on a chat message. The routing
 // IS the delegation thesis: images → the agent Reads them (vision); files/
@@ -40,7 +41,14 @@ export async function saveUpload({ name, mime, data }) {
   const out = { id, kind, name: name || safe, path, note: null };
   if (kind === 'audio' || kind === 'video') {
     try { out.note = await describeMedia(path, mime, kind); }
-    catch (err) { out.note = `(needs a Gemini or OpenAI key to understand ${kind} — add one in Doctor: ${err.message})`; }
+    catch (err) {
+      // Don't tell someone to add a key they already have. A missing key and a
+      // failed call are different problems and need different fixes — lumping
+      // them sent a retired-model 404 to the user as "add a key in Doctor".
+      out.note = /no multimodal key/.test(err.message)
+        ? `(needs a Gemini or OpenAI key to understand ${kind} — add one in Doctor)`
+        : `(couldn't read this ${kind}: ${err.message})`;
+    }
   }
   return out;
 }
@@ -95,7 +103,11 @@ async function geminiDescribe(path, mime, kind, key) {
     : 'Describe this video for another AI to act on: what happens, any on-screen text, and transcribe any speech.';
   // Key in a header, not the URL query (the project's no-secret-in-a-URL rule —
   // URLs leak to logs/referer/history). Gemini accepts x-goog-api-key.
-  const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent', {
+  // Model ID lives with the other current defaults in brains.js — gemini-2.5-flash
+  // was retired ("no longer available to new users", 404) and this hardcoded copy
+  // was missed by the 2026-07-25 stale-model sweep, silently killing all audio
+  // and video understanding.
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MULTIMODAL_MODEL}:generateContent`, {
     method: 'POST', headers: { 'content-type': 'application/json', 'x-goog-api-key': key },
     body: JSON.stringify({ contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: mime || 'application/octet-stream', data } }] }] }),
     signal: AbortSignal.timeout(120000),
