@@ -249,6 +249,22 @@ export const FILE_EXCLUDE = [
   /(^|\/)vendor[-_.][\w.-]+\.[jt]sx?$/i,
   /(^|\/)[\w.-]+\.vendor\.[jt]sx?$/i,
   /(^|\/)(?:jquery|lodash|moment|bootstrap|html2canvas|xterm|codemirror|monaco)[-.]?[\w.]*\.js$/i,
+  // An EMBEDDED copy of this scanner's own engine.
+  //
+  // PreFlight is designed to be vendored into a host app (see cockpit-scan.js).
+  // The moment it is, the host's scan walks the engine's own source, where
+  // every probe's regex literals and every threat-intel IOC string sit as
+  // data. The result is spectacular and entirely wrong: a real cockpit that
+  // synced the engine went from 44 files to 189 and from a clean security
+  // score to zero, reporting eight critical "auth weaknesses" that were the
+  // scanner's own detection patterns (real-scan finding 2026-07).
+  //
+  // isScannerSelfSource cannot cover this. It is identity-based and off for
+  // user scans by design, which is correct — a user's own src/lib/probes/
+  // directory must still be scanned. This is different: the engine is
+  // recognisably OURS, wherever it has been copied to.
+  /(^|\/)preflight\/engine\//i,
+  /(^|\/)preflight\/preflight\.lock$/i,
 ];
 
 export function shouldScanFile(path) {

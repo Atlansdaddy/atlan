@@ -118,6 +118,28 @@ const EXPOSURE_DEPENDENT_PROBES = new Set([
 // on a loopback UI).
 const AUDIENCE_DEPENDENT_PROBES = new Set(['SEO Hygiene', 'GEO Hygiene']);
 
+// Within that, two different claims, and they deserve different answers.
+//
+// A crawler tag — canonical, JSON-LD, llms.txt, robots directives — exists so
+// a search or AI crawler can index the page. Nothing crawls 127.0.0.1. Those
+// findings are not "less important" for a local tool, they are inapplicable,
+// and downgrading them still leaves the reader something to chase. They are
+// dropped.
+//
+// A share tag — og:title, og:description, og:image, twitter:card — renders
+// wherever someone pastes the link. A local tool reached over a private tunnel
+// URL still gets pasted into chats, so those stay at full weight. Real-scan
+// finding 2026-07: an operator added exactly these by hand, correctly, because
+// the preview was real to them.
+const CRAWLER_ONLY_TITLE_RE =
+  /canonical|json-?ld|structured data|llms\.txt|robots|sitemap|hreflang|ai-?(?:search|crawler)/i;
+
+export function isInapplicableForShape(finding, shape) {
+  if (!shape?.isSingleUserLocal) return false;
+  if (!AUDIENCE_DEPENDENT_PROBES.has(finding?.probe)) return false;
+  return CRAWLER_ONLY_TITLE_RE.test(finding.title || '');
+}
+
 const DOWNGRADE = { critical: 'medium', high: 'medium', medium: 'low', low: 'info', info: 'info' };
 
 /**
@@ -129,19 +151,21 @@ const DOWNGRADE = { critical: 'medium', high: 'medium', medium: 'low', low: 'inf
  */
 export function applyAppShape(findings, shape) {
   if (!shape?.isSingleUserLocal) return findings || [];
-  return (findings || []).map((f) => {
-    const exposure = EXPOSURE_DEPENDENT_PROBES.has(f?.probe);
-    const audience = AUDIENCE_DEPENDENT_PROBES.has(f?.probe);
-    if (!exposure && !audience) return f;
-    const downgraded = DOWNGRADE[f.severity] || f.severity;
-    if (downgraded === f.severity) return f;
-    return {
-      ...f,
-      severity: downgraded,
-      originalSeverity: f.severity,
-      shapeNote: exposure
-        ? 'Reduced because this project looks like a single-user tool bound to loopback: the disclosure reaches only the person running it. Restore full weight the moment it listens on a public interface or gains a second user.'
-        : 'Reduced because this project looks like a single-user tool bound to loopback: there is no search engine to rank in and no social card to preview. Restore full weight if it ever gets a public URL.',
-    };
-  });
+  return (findings || [])
+    .filter((f) => !isInapplicableForShape(f, shape))
+    .map((f) => {
+      const exposure = EXPOSURE_DEPENDENT_PROBES.has(f?.probe);
+      const audience = AUDIENCE_DEPENDENT_PROBES.has(f?.probe);
+      if (!exposure && !audience) return f;
+      const downgraded = DOWNGRADE[f.severity] || f.severity;
+      if (downgraded === f.severity) return f;
+      return {
+        ...f,
+        severity: downgraded,
+        originalSeverity: f.severity,
+        shapeNote: exposure
+          ? 'Reduced because this project looks like a single-user tool bound to loopback: the disclosure reaches only the person running it. Restore full weight the moment it listens on a public interface or gains a second user.'
+          : 'Reduced because this project looks like a single-user tool bound to loopback. Share previews still render wherever the link is pasted, so this is worth doing; it just does not gate anything.',
+      };
+    });
 }

@@ -291,6 +291,12 @@ const GLOBALS = new Set([
   // (Atlan cockpit): a voice UI reported speechSynthesis and friends as
   // undeclared identifiers, which is the probe's worst failure mode — a
   // confident correctness claim about code that is correct.
+  'Audio',
+  'Image',
+  'FileReader',
+  'DOMParser',
+  'XMLSerializer',
+  'Notification',
   'speechSynthesis',
   'SpeechSynthesisUtterance',
   'SpeechSynthesisVoice',
@@ -305,6 +311,30 @@ const GLOBALS = new Set([
   'AnalyserNode',
   'GainNode',
   'reportError',
+  // Globals a <script src> tag puts on window. A file that uses `Terminal` or
+  // `CodeMirror` is not making the mistake this probe exists to catch — a
+  // dangling reference left by a refactor — it is using a library loaded in
+  // the HTML. The probe cannot see that definition because vendored library
+  // files are (correctly) out of scope, so the names are listed here instead.
+  // Real-scan finding 2026-07: a cockpit had four of these reported as
+  // undeclared identifiers, and the tempting "fix" was to add fake
+  // declarations to satisfy the scanner.
+  'CodeMirror',
+  'Terminal',
+  'FitAddon',
+  'WebLinksAddon',
+  'SearchAddon',
+  'jQuery',
+  'THREE',
+  'Chart',
+  'moment',
+  'marked',
+  'hljs',
+  'Prism',
+  'html2canvas',
+  'Sortable',
+  'flatpickr',
+  'io',
   // Modern browser APIs the original allowlist didn't cover
   'Intl',
   'WebAssembly',

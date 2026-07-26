@@ -65,7 +65,13 @@ function returnExpressions(content, bodyStart) {
   if (!started || depth !== 0) return null;
   const body = content.slice(bodyStart, i);
   const returns = [];
-  for (const m of body.matchAll(/\breturn\b([^;\n}]*)/g)) returns.push(m[1].trim());
+  // Read each return with the real expression reader. The old `[^;\n}]*` form
+  // truncated at the first `}`, which is inside every template substitution:
+  // `return \`<span>${escapeHtml(n)}</span>\`” came back as an unterminated
+  // fragment and could never resolve safe.
+  for (const m of body.matchAll(/\breturn\b/g)) {
+    returns.push(readAssignedExpression(body, m.index + m[0].length));
+  }
   return returns;
 }
 
@@ -190,6 +196,52 @@ export function readAssignedExpression(content, startIdx) {
   return content.slice(start, i).trim();
 }
 
+const escapeRe = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+// Text between the parens of a call whose opening paren has already been
+// consumed, tolerant of nesting and quotes.
+function readCallArguments(content, afterOpenParen) {
+  let depth = 1;
+  let quote = null;
+  let i = afterOpenParen;
+  for (; i < content.length && i < afterOpenParen + 4000; i++) {
+    const ch = content[i];
+    if (quote) {
+      if (ch === quote && content[i - 1] !== '\\') quote = null;
+      continue;
+    }
+    if (ch === "'" || ch === '"' || ch === '`') quote = ch;
+    else if (ch === '(') depth++;
+    else if (ch === ')') {
+      depth--;
+      if (depth === 0) break;
+    }
+  }
+  return content.slice(afterOpenParen, i);
+}
+
+// Function name -> { params, returns }. Used for the cross-boundary rules:
+// a function whose returns are all safe, and a parameter whose call sites all
+// pass safe values.
+function collectFunctionSignatures(content) {
+  const out = new Map();
+  if (typeof content !== 'string' || !content) return out;
+  const decl =
+    /\bfunction\s+([A-Za-z_$][\w$]*)\s*\(([^)]*)\)\s*\{|\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?\(([^)]*)\)\s*=>\s*\{/g;
+  for (const m of content.matchAll(decl)) {
+    const name = m[1] || m[3];
+    const rawParams = m[1] ? m[2] : m[4];
+    if (!name || out.has(name)) continue;
+    const params = splitTopLevel(rawParams || '', ',')
+      .map((p) => p.split('=')[0].trim())
+      .filter((p) => /^[A-Za-z_$][\w$]*$/.test(p));
+    const openIdx = content.indexOf('{', m.index + m[0].length - 1);
+    const returns = openIdx >= 0 ? returnExpressions(content, openIdx) : null;
+    out.set(name, { params, returns: returns || [] });
+  }
+  return out;
+}
+
 const isLiteralExpression = (expr) =>
   /^'[^']*'$/.test(expr) ||
   /^"[^"]*"$/.test(expr) ||
@@ -253,7 +305,17 @@ export function collectSafeBindings(content) {
   //   el.innerHTML = bits.join(' · ');
   // Every push here carries only numbers, so the join cannot introduce markup.
   const safeArrays = new Set();
-  const bindings = { constants, numerics, sanitizers, literalFns, safeArrays };
+  const safeFns = new Set();
+  const safeParams = new Set();
+  const bindings = {
+    constants,
+    numerics,
+    sanitizers,
+    literalFns,
+    safeArrays,
+    safeFns,
+    safeParams,
+  };
   for (const m of content.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*\[\s*\]/g)) {
     const name = m[1];
     const pushes = [...content.matchAll(new RegExp(`\\b${name}\\s*\\.\\s*push\\s*\\(`, 'g'))];
@@ -275,6 +337,64 @@ export function collectSafeBindings(content) {
       }
     }
     if (!added) break;
+  }
+
+  // Cross-boundary safety, same file, resolved to a fixpoint.
+  //
+  // Two shapes survive everything above, and after a real read-through they
+  // were the only XSS findings left on a live project:
+  //
+  //   wrap.innerHTML = LINK_ROW();           // function that returns markup
+  //   function addRow(boxId, html) {         // parameter fed escaped markup
+  //     row.innerHTML = html + '<button/>';  //   by every caller
+  //   }
+  //
+  // Both are answerable without whole-program analysis. A function whose every
+  // return resolves safe returns a safe value. A parameter that receives a safe
+  // value at every call site in the file holds a safe value. Neither is a
+  // guess; each is a refusal to stop looking at an arbitrary boundary.
+  //
+  // The parameter rule keys on name and applies only when that name is unique
+  // among the file's function parameters. Two functions sharing a parameter
+  // name make the claim ambiguous, so it is declined rather than approximated.
+  const signatures = collectFunctionSignatures(content);
+  const paramNameCounts = new Map();
+  for (const meta of signatures.values())
+    for (const p of meta.params) paramNameCounts.set(p, (paramNameCounts.get(p) || 0) + 1);
+
+  for (let round = 0; round < 4; round++) {
+    let changed = false;
+    for (const [name, meta] of signatures) {
+      if (!safeFns.has(name) && meta.returns.length > 0) {
+        if (meta.returns.every((r) => r === '' || resolvesToConstant(r, bindings))) {
+          safeFns.add(name);
+          changed = true;
+        }
+      }
+      if (meta.params.length === 0) continue;
+      // Real call sites only. The declaration `function addRow(boxId, html)`
+      // matches the same pattern, and counting it as a call meant the
+      // parameter list was checked as an argument list — so `html` never
+      // resolved and no parameter was ever provable.
+      const calls = [
+        ...content.matchAll(new RegExp(`(^|[^.\\w$])${escapeRe(name)}\\s*\\(`, 'g')),
+      ].filter((cm) => !/\b(?:function|const|let|var)\s+$/.test(content.slice(0, cm.index + 1)));
+      if (calls.length === 0) continue;
+      meta.params.forEach((param, idx) => {
+        if (safeParams.has(param) || paramNameCounts.get(param) !== 1) return;
+        const allSafe = calls.every((cm) => {
+          const inner = readCallArguments(content, cm.index + cm[0].length);
+          const arg = splitTopLevel(inner, ',')[idx];
+          if (arg === undefined) return true; // omitted argument is undefined
+          return resolvesToConstant(arg, bindings);
+        });
+        if (allSafe) {
+          safeParams.add(param);
+          changed = true;
+        }
+      });
+    }
+    if (!changed) break;
   }
 
   return bindings;
@@ -303,12 +423,20 @@ export function resolvesToConstant(expr, bindings) {
 
   // A bare identifier bound to a literal or a numeric value.
   if (/^[A-Za-z_$][\w$]*$/.test(e)) {
-    return bindings.constants.has(e) || bindings.numerics.has(e);
+    return (
+      bindings.constants.has(e) || bindings.numerics.has(e) || Boolean(bindings.safeParams?.has(e))
+    );
   }
 
   // A call of a local sanitizer or of a function that only returns literals.
   const call = e.match(/^([A-Za-z_$][\w$]*)\s*\(/);
-  if (call && (bindings.sanitizers.has(call[1]) || bindings.literalFns.has(call[1]))) return true;
+  if (
+    call &&
+    (bindings.sanitizers.has(call[1]) ||
+      bindings.literalFns.has(call[1]) ||
+      bindings.safeFns?.has(call[1]))
+  )
+    return true;
 
   // `safeArray.join(<literal>)` — every element was checked when the array was
   // collected, so the joined result carries nothing the elements did not.
@@ -431,7 +559,13 @@ function isSafeSubstitution(s, bindings) {
   // escapeHtml(x) inside a hole is the whole point of having an escaper.
   if (HTML_SANITIZER_IN_SUB.test(s)) return true;
   const call = s.match(/^([A-Za-z_$][\w$]*)\s*\(/);
-  if (call && (bindings.sanitizers.has(call[1]) || bindings.literalFns.has(call[1]))) return true;
+  if (
+    call &&
+    (bindings.sanitizers.has(call[1]) ||
+      bindings.literalFns.has(call[1]) ||
+      bindings.safeFns?.has(call[1]))
+  )
+    return true;
   const branches = ternaryBranches(s);
   if (branches && branches.every((b) => isSafeSubstitution(b, bindings))) return true;
   return false;
