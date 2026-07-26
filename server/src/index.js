@@ -424,7 +424,7 @@ wss.on('connection', (ws, req) => {
             if (reply) h.push({ role: 'assistant', content: reply });
             while (h.length > 21) h.splice(1, 2); // keep system + last 10 exchanges
             brainHistory.set(m.engine, h);
-          });
+          }).catch((err) => { console.error('[brain]', m.engine, err); });
         }
         break;
       }

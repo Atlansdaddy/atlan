@@ -155,7 +155,9 @@ export function spawnRun({ prompt, profile = 'scout', cwd = '/root', model = 'cl
   if (runs.length > 200) runs.pop();
   broadcast({ t: 'fleet.run', run: publicRun(run) });
   broadcast({ t: 'atlan.mood', mood: 'building', agents: active.size + 1 });
-  exec(run, prof);
+  // fire-and-forget: exec self-handles internally, but a stray rejection must
+  // never become an unhandledRejection that takes down the whole server.
+  exec(run, prof).catch((err) => { console.error('[fleet] exec crashed:', err); });
   return publicRun(run);
 }
 
