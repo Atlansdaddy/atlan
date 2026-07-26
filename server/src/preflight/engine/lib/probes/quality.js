@@ -16,6 +16,138 @@ import { maskCommentsAndStringsFromContent } from './_internal/masking.js';
 // Keywords that mean the expression to their right is being handed somewhere.
 const OWNERSHIP_KEYWORDS = /^(?:return|await|yield|throw)$/;
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Per-await rejection guarding
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Whether an async callback handles its rejections is a question about each
+// await individually, not about the body as a whole. The check used to ask
+// whether the body contained the substring `.catch(` anywhere, which reads a
+// handler attached to one promise as covering a different one:
+//
+//   $('pwSave').addEventListener('click', async () => {
+//     const r = await fetch('/api/auth/password', { method: 'POST' }); // exposed
+//     const j = await r.json().catch(() => ({}));                      // guarded
+//   });
+//
+// The `.catch` guards `r.json()`. If the fetch rejects, the listener rejects
+// with no handler and the UI never updates: the user clicks Save and nothing
+// happens. Reported by an operator running PreFlight against their own cockpit,
+// 2026-07. `try {` had the identical defect, since a try covering part of a body
+// suppressed findings for awaits outside it.
+
+/** Index of the `}` matching the `{` at `openIdx`. Text must be mask-cleaned. */
+function matchBrace(text, openIdx) {
+  let depth = 0;
+  for (let i = openIdx; i < text.length; i++) {
+    if (text[i] === '{') depth++;
+    else if (text[i] === '}') {
+      depth--;
+      if (depth === 0) return i;
+    }
+  }
+  return text.length;
+}
+
+/**
+ * Spans of the `{ … }` belonging to each `try` that has a `catch` clause.
+ *
+ * Two boundaries here were both got wrong first time, and an adversarial round
+ * caught both by reading the rule rather than the code (2026-07):
+ *
+ * The catch and finally clauses are OUTSIDE the span. A catch handles the try
+ * block's failure, not its own, so `catch (e) { await report(e) }` is exposed
+ * exactly like any other bare await. Crediting it would be the same category
+ * error this whole change exists to fix: a handler attached to one promise
+ * does not cover a different one.
+ *
+ * And a `try` with no catch does not guard at all. `try { await x() } finally
+ * { cleanup() }` runs the cleanup and then lets the rejection keep going.
+ */
+function tryBlockSpans(body) {
+  const spans = [];
+  for (const m of body.matchAll(/\btry\s*\{/g)) {
+    const open = m.index + m[0].length - 1;
+    const close = matchBrace(body, open);
+    if (!/^\s*catch\b/.test(body.slice(close + 1))) continue;
+    spans.push([open, close]);
+  }
+  return spans;
+}
+
+/**
+ * Spans of functions declared INSIDE the body. An await in a nested function
+ * belongs to that function, not to the callback that contains it, so it cannot
+ * make the outer callback unguarded.
+ */
+function nestedFunctionSpans(body) {
+  const spans = [];
+  const patterns = [/\bfunction\b[^(){;]*\([^)]*\)\s*\{/g, /(?:\)|\b[\w$]+)\s*=>\s*\{/g];
+  for (const pattern of patterns) {
+    for (const m of body.matchAll(pattern)) {
+      const open = m.index + m[0].length - 1;
+      spans.push([m.index, matchBrace(body, open)]);
+    }
+  }
+  return spans;
+}
+
+/**
+ * True when the expression starting at `start` ends in its own `.catch(…)`.
+ *
+ * Two conditions, and both were learned the hard way.
+ *
+ * The handler has to be at the TOP level of the awaited expression:
+ * `await r.json().catch(h)` is guarded, but `await send(load().catch(h))` is
+ * not, because there the handler belongs to `load()` and `send` can still
+ * reject.
+ *
+ * And it has to be LAST in the chain. A `.catch` only covers the links before
+ * it, so `await loadUser().catch(() => null).then(normalize)` is exposed: if
+ * `normalize` throws, nothing is left to catch it. Found by an adversarial
+ * recall round, 2026-07.
+ */
+function expressionHasOwnCatch(body, start) {
+  let paren = 0,
+    square = 0,
+    curly = 0;
+  let lastTopLevelCall = null;
+  for (let i = start; i < body.length; i++) {
+    const ch = body[i];
+    if (ch === '(') paren++;
+    else if (ch === ')') {
+      if (paren === 0) break; // ran out of the enclosing call
+      paren--;
+    } else if (ch === '[') square++;
+    else if (ch === ']') square--;
+    else if (ch === '{') curly++;
+    else if (ch === '}') {
+      if (curly === 0) break; // end of the enclosing block
+      curly--;
+    } else if ((ch === ';' || ch === ',') && !paren && !square && !curly) break;
+    else if (ch === '.' && !paren && !square && !curly) {
+      const m = /^\.\s*([\w$]+)\s*\(/.exec(body.slice(i, i + 60));
+      if (m) lastTopLevelCall = m[1];
+    }
+  }
+  return lastTopLevelCall === 'catch';
+}
+
+/**
+ * The first await in `body` with nothing to handle its rejection, or null.
+ * `body` must already have comments and string interiors blanked.
+ */
+export function firstUnguardedAwait(body) {
+  const guarded = [...tryBlockSpans(body), ...nestedFunctionSpans(body)];
+  const insideGuard = (i) => guarded.some(([s, e]) => i >= s && i <= e);
+  for (const m of body.matchAll(/\bawait\b/g)) {
+    if (insideGuard(m.index)) continue;
+    if (expressionHasOwnCatch(body, m.index + m[0].length)) continue;
+    return m.index;
+  }
+  return null;
+}
+
 /**
  * Walk backward from `idx` over a member/call chain and report what precedes it.
  *
@@ -316,8 +448,15 @@ export function probeCodeQuality(files) {
     // newlines preserved) so trigger shapes quoted in comments, strings, and
     // template literals can't fire (adversarial precision round 2026-07).
     const maskedContent = maskCommentsAndStringsFromContent(content);
+    // Openers for an async callback body. Three shapes were missing and an
+    // adversarial recall round found all three (2026-07):
+    //   `async function () {`            anonymous expression; the name was required
+    //   `async (e: MouseEvent): Promise<void> => {`   TypeScript return annotation
+    //   `async e => {`                   single parameter, no parentheses
     const asyncBodies = [
-      ...maskedContent.matchAll(/async\s+(?:function\s+\w+\s*\([^)]*\)|\([^)]*\)\s*=>)\s*\{/g),
+      ...maskedContent.matchAll(
+        /async\s+(?:function\s*[\w$]*\s*\([^)]*\)|\([^)]*\)(?:\s*:[^=;{]+)?\s*=>|[\w$]+\s*=>)\s*\{/g
+      ),
     ];
     if (!selfSource)
       asyncBodies.forEach((m) => {
@@ -394,11 +533,21 @@ export function probeCodeQuality(files) {
           i++;
           prev = ch;
         }
-        const body = maskedContent.slice(m.index + m[0].length, i - 1);
-        // A body whose awaits are individually .catch-chained handles its
-        // rejections without try/catch (adversarial precision round 2026-07).
-        if (/\bawait\b/.test(body) && !/\btry\s*\{/.test(body) && !/\.catch\s*\(/.test(body)) {
+        const bodyStart = m.index + m[0].length;
+        const body = maskedContent.slice(bodyStart, i - 1);
+        // Ask of each await separately whether anything handles its rejection.
+        // A body-wide search for `.catch(` or `try {` cannot tell a handler on
+        // THIS promise from a handler on some other one in the same function.
+        const unguarded = firstUnguardedAwait(body);
+        if (unguarded !== null) {
           const ln = maskedContent.slice(0, m.index).split('\n').length;
+          const awaitLine = maskedContent.slice(0, bodyStart + unguarded).split('\n').length;
+          // Quote the real source, not the masked copy: offsets match, so this
+          // shows the reader the expression they actually have to fix.
+          const exposed = content
+            .slice(bodyStart + unguarded, bodyStart + unguarded + 110)
+            .split('\n')[0]
+            .trim();
           findings.push({
             id: `cq-async-no-try-${file.path}-${m.index}`,
             probe: 'Code Quality',
@@ -408,9 +557,9 @@ export function probeCodeQuality(files) {
             cwe: 'CWE-755',
             file: file.path,
             line: ln,
-            evidence: m[0].slice(0, 120),
+            evidence: `${m[0].slice(0, 80)} … unguarded at line ${awaitLine}: ${exposed}`,
             remediation:
-              'Nothing awaits an async callback passed to an event listener, timer, or JSX handler, so a rejection inside it has no handler: it surfaces as an unhandled rejection in the console (and can kill a Node process). Wrap the body in try/catch and decide whether to surface the error to the UI, log it, or retry.',
+              'Nothing awaits an async callback passed to an event listener, timer, or JSX handler, so a rejection inside it has no handler: it surfaces as an unhandled rejection in the console (and can kill a Node process). Wrap the body in try/catch and decide whether to surface the error to the UI, log it, or retry. Note that a .catch() on a later promise does not cover an earlier one, so check the awaits one at a time.',
           });
         }
       });
@@ -436,9 +585,29 @@ export function probeCodeQuality(files) {
       }
       if (asyncNames.size) {
         const originalLines = content.split('\n');
-        maskedContent.split('\n').forEach((lineText, idx) => {
+        const maskedLines = maskedContent.split('\n');
+        maskedLines.forEach((lineText, idx) => {
           const call = lineText.match(/^\s*(\w+)\s*\([^)]*\)\s*;?\s*$/);
           if (!call || !asyncNames.has(call[1])) return;
+          // A call alone on its line may be the head of a chain that continues
+          // below. Formatters break long chains exactly this way:
+          //
+          //   send()
+          //     .then((r) => show(r))
+          //     .catch((e) => show(e));
+          //
+          // The line regex sees `send()` and calls it fire-and-forget, when the
+          // rejection is handled two lines down. Look ahead past blank lines
+          // for a leading dot before deciding (adversarial precision round
+          // 2026-07: two of the suite's false positives were this shape).
+          if (!/;\s*$/.test(lineText)) {
+            for (let k = idx + 1; k < maskedLines.length; k++) {
+              const next = maskedLines[k].trim();
+              if (!next) continue;
+              if (next.startsWith('.')) return; // chained, not dropped
+              break;
+            }
+          }
           findings.push({
             id: `cq-async-fire-forget-${file.path}-${idx + 1}`,
             probe: 'Code Quality',
