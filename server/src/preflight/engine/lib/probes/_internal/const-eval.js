@@ -212,6 +212,17 @@ export function collectSafeBindings(content) {
 
   for (const m of content.matchAll(CONST_LITERAL_RE)) constants.add(m[1]);
   for (const m of content.matchAll(NUMERIC_BINDING_RE)) numerics.add(m[1]);
+  // Identifiers the code itself treats as numbers. A function parameter has no
+  // declaration to read, but `snapCount > 1` settles what it is: you cannot
+  // compare markup to an integer and mean anything by it. This is how the
+  // common `${n} item${n > 1 ? 's' : ''}` shape gets recognised when n is a
+  // parameter rather than a local.
+  for (const m of content.matchAll(
+    /\b([A-Za-z_$][\w$]*)\s*(?:>=|<=|===|!==|==|!=|>|<)\s*-?\d+(?:\.\d+)?\b/g
+  ))
+    numerics.add(m[1]);
+  for (const m of content.matchAll(/\b([A-Za-z_$][\w$]*)\s*(?:\+\+|--|[-*/%]=)/g))
+    numerics.add(m[1]);
   for (const m of content.matchAll(LOCAL_SANITIZER_RE)) {
     const name = m[1] || m[2];
     if (name) sanitizers.add(name);
@@ -233,9 +244,27 @@ export function collectSafeBindings(content) {
     if (returns.every((r) => r === '' || isLiteralExpression(r))) literalFns.add(m[1]);
   }
 
-  // Second pass: a name bound to a template literal is constant when every
-  // substitution in it is. Repeated so a chain of such bindings settles.
-  const bindings = { constants, numerics, sanitizers, literalFns };
+  // Arrays that only ever receive safe values, so `arr.join(sep)` is safe.
+  //
+  // Building an array of fragments and joining it is the standard vanilla-JS
+  // way to assemble markup:
+  //   const bits = [];
+  //   if (n) bits.push(`${n} error${n > 1 ? 's' : ''} queued`);
+  //   el.innerHTML = bits.join(' · ');
+  // Every push here carries only numbers, so the join cannot introduce markup.
+  const safeArrays = new Set();
+  const bindings = { constants, numerics, sanitizers, literalFns, safeArrays };
+  for (const m of content.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*\[\s*\]/g)) {
+    const name = m[1];
+    const pushes = [...content.matchAll(new RegExp(`\\b${name}\\s*\\.\\s*push\\s*\\(`, 'g'))];
+    if (pushes.length === 0) continue;
+    const allSafe = pushes.every((pm) => {
+      const arg = readAssignedExpression(content, pm.index + pm[0].length);
+      // readAssignedExpression stops at the closing paren of the push call.
+      return arg && resolvesToConstant(arg.replace(/\)\s*;?\s*$/, '').trim(), bindings);
+    });
+    if (allSafe) safeArrays.add(name);
+  }
   for (let round = 0; round < 3; round++) {
     let added = false;
     for (const m of content.matchAll(CONST_TEMPLATE_RE)) {
@@ -280,6 +309,11 @@ export function resolvesToConstant(expr, bindings) {
   // A call of a local sanitizer or of a function that only returns literals.
   const call = e.match(/^([A-Za-z_$][\w$]*)\s*\(/);
   if (call && (bindings.sanitizers.has(call[1]) || bindings.literalFns.has(call[1]))) return true;
+
+  // `safeArray.join(<literal>)` — every element was checked when the array was
+  // collected, so the joined result carries nothing the elements did not.
+  const join = e.match(/^([A-Za-z_$][\w$]*)\s*\.\s*join\s*\(/);
+  if (join && bindings.safeArrays?.has(join[1])) return true;
 
   // A ternary whose branches are all constants is a constant. Real code picks
   // between two bits of static markup constantly:
@@ -386,6 +420,11 @@ function templateSubstitutions(tmpl) {
 // ternary of those.
 function isSafeSubstitution(s, bindings) {
   if (!s) return true;
+  // A literal in a hole is the author's own text. This check was missing here
+  // even after it was added to resolvesToConstant, so `${n > 1 ? 's' : ''}` —
+  // a pluraliser, one of the most common substitutions in hand-written markup
+  // — read as unsafe because neither branch was recognised.
+  if (isLiteralExpression(s)) return true;
   if (/^-?\d+(?:\.\d+)?$/.test(s)) return true;
   if (bindings.numerics.has(s) || bindings.constants.has(s)) return true;
   if (/\.length$/.test(s)) return true;
