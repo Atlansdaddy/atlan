@@ -28,6 +28,7 @@ import { tailnetHost, tailnetOrigin } from './tailnet.js';
 import { listRoutines, upsertRoutine, deleteRoutine, setPaused, fireRoutine, startScheduler } from './routines.js';
 import { initHierarchy, listJobs, upsertJob, deleteJob, startJob, listRuns as listHierarchyRuns, getRun as getHierarchyRun, resolveGate, tierList } from './hierarchy.js';
 import { saveUpload, saveRef, turnContext } from './attachments.js';
+import { studioRoster, generateImage } from './studio.js';
 import { readFile, writeFile, listDir } from './files.js';
 import { voiceRoster, synthesize } from './voice.js';
 import {
@@ -261,6 +262,13 @@ app.get('/api/tree', (req, res) => {
 });
 
 // ── voice: TTS roster + synthesis (STT is browser-side Web Speech) ──
+// ── studio: generation surfaces (image on the ChatGPT subscription, no key) ──
+app.get('/api/studio/roster', (_req, res) => res.json(studioRoster()));
+app.post('/api/studio/image', express.json(), async (req, res) => {
+  try { res.json(await generateImage({ prompt: req.body?.prompt, cwd: req.body?.cwd || PROJECTS_DIR })); }
+  catch (err) { res.status(400).json({ error: err.message }); }
+});
+
 app.get('/api/voice/roster', async (_req, res) => res.json(await voiceRoster()));
 app.post('/api/voice/tts', async (req, res) => {
   try { res.json(await synthesize(req.body ?? {})); } catch (err) { res.status(400).json({ error: err.message }); }
