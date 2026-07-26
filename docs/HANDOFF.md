@@ -39,7 +39,7 @@ Kill/restart the server freely: **everything of record survives** (inbox, burn, 
 
 - **Locked out / forgot password** → stop the server, `rm /root/atlan/.fleet/auth.json` (clears the password; also `.fleet/sessions.json` for a clean slate), restart, set a new password on first load. (`.auth-token` is the automation bearer, not the human login — deleting it won't help you log in.)
 - **Server won't start** → `node server/src/index.js` in foreground, read the error. Usual suspects: port 4589 busy (`pkill -f "server/src/index"` — but never in the same command that restarts it, proot self-match gotcha) or a corrupted JSON store (they all fail soft to empty — move the bad file aside).
-- **Signal-9 overnight death** → Android phantom-process killer. Known, documented in memory; wake-lock mitigates; stores make it lossless.
+- **Server vanished (signal-9 / thermal / phantom-kill)** → the whole Termux/proot tree can be force-killed at once — Android's thermal governor shedding background apps (a hot phone, e.g. during a video call), or the phantom-process killer. The in-proot supervisor **can't** survive that (it dies with the tree), so the **Termux watchdog** (`bin/atlan-watchdog.sh`, on Android JobScheduler, outside proot) resurrects the stack within ≤15 min. The Doctor tab's "Auto-recovery watchdog" row shows whether it's armed; if it's not, register it (see `docs/SETUP.md`). Stores keep the loss itself lossless; wake-lock + battery-allowlist reduce the kills.
 - **APK build dies** → check free RAM (`free -m`, wants ~2.5GB) — stop llama-server; Doctor tab names anything else (JDK/SDK/aapt2).
 - **Termux update broke something** → Doctor tab. Every proot-boundary hack has a check; whatever's red is what broke.
 

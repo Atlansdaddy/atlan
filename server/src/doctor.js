@@ -1,6 +1,6 @@
 import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
-import { existsSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
 import { PORT, sandboxEnabled } from './config.js';
 
 const sh = promisify(exec);
@@ -145,6 +145,30 @@ export async function runDoctor() {
       } catch {
         return { ok: false, warn: true, detail: 'not running (optional)' };
       }
+    }),
+    check('watchdog', 'Auto-recovery watchdog (Termux)', async () => {
+      // The OUTER net: a native-Termux JobScheduler task that resurrects the
+      // whole proot stack when it's force-killed at once (thermal shed, phantom
+      // killer, OOM) — the one failure the in-proot supervisor can't survive,
+      // because it dies with the tree. Only meaningful on a Termux/proot phone;
+      // on a PC/home node the supervisor + your OS init is the durability path.
+      const TX = '/data/data/com.termux/files/home';
+      if (!existsSync(TX)) {
+        return { ok: true, detail: 'N/A — not a Termux/proot host; use the supervisor + your OS init (systemd/pm2) for durability' };
+      }
+      const script = `${TX}/.atlan/watchdog.sh`;
+      const stamp = `${TX}/.atlan/watchdog.stamp`;
+      if (!existsSync(script)) {
+        return { ok: false, warn: true, detail: 'not installed — copy bin/atlan-watchdog.sh to ~/.atlan/watchdog.sh in Termux, then register it (see the script header)' };
+      }
+      if (!existsSync(stamp)) {
+        return { ok: false, warn: true, detail: 'installed but never fired — in native Termux run: termux-job-scheduler --script $HOME/.atlan/watchdog.sh --job-id 4589 --period-ms 900000 --persisted true' };
+      }
+      const ageMin = (Date.now() - statSync(stamp).mtimeMs) / 60000;
+      if (ageMin <= 20) {
+        return { ok: true, detail: `armed — last heartbeat ${Math.round(ageMin)} min ago; resurrects the stack ≤15 min after a proot-tree kill` };
+      }
+      return { ok: false, warn: true, detail: `stale — last heartbeat ${Math.round(ageMin)} min ago (>20); JobScheduler may be unregistered or Doze-throttled (check: termux-job-scheduler --pending)` };
     }),
   ]);
   return checks;
