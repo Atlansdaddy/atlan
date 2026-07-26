@@ -69,6 +69,67 @@ function returnExpressions(content, bodyStart) {
   return returns;
 }
 
+/**
+ * Map of same-file function name -> body text, for probes that need to look
+ * inside a helper rather than only at the call site.
+ *
+ * Real-scan finding 2026-07: the cookie probe read a 10-line window from the
+ * `Set-Cookie` call and reported httpOnly/secure/sameSite missing, when the
+ * app built its header in a `cookieHeader()` helper that set all three. The
+ * flags were there; the probe was looking at the wrong place and telling the
+ * author their working code was insecure.
+ */
+export function collectFunctionBodies(content) {
+  const bodies = new Map();
+  if (typeof content !== 'string' || !content) return bodies;
+  const decl =
+    /\bfunction\s+([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*\{|\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?(?:function\s*)?\([^)]*\)\s*=>\s*\{/g;
+  for (const m of content.matchAll(decl)) {
+    const name = m[1] || m[2];
+    if (!name || bodies.has(name)) continue;
+    const openIdx = content.indexOf('{', m.index + m[0].length - 1);
+    if (openIdx < 0) continue;
+    let depth = 0;
+    let i = openIdx;
+    for (; i < content.length && i < openIdx + 6000; i++) {
+      const ch = content[i];
+      if (ch === '{') depth++;
+      else if (ch === '}') {
+        depth--;
+        if (depth === 0) break;
+      }
+    }
+    if (depth === 0) bodies.set(name, content.slice(openIdx, i + 1));
+  }
+  return bodies;
+}
+
+/**
+ * Text of `line` plus the bodies of any same-file functions it calls. Lets a
+ * probe reason about a value that is assembled elsewhere without pretending
+ * to do real interprocedural analysis: one hop, same file, by name.
+ */
+export function expandCalledHelpers(line, bodies, depth = 1) {
+  if (!line || !bodies || bodies.size === 0) return line || '';
+  let out = line;
+  let frontier = [line];
+  for (let d = 0; d < depth; d++) {
+    const next = [];
+    for (const chunk of frontier) {
+      for (const m of chunk.matchAll(/\b([A-Za-z_$][\w$]*)\s*\(/g)) {
+        const body = bodies.get(m[1]);
+        if (body && !out.includes(body)) {
+          out += ' ' + body;
+          next.push(body);
+        }
+      }
+    }
+    if (next.length === 0) break;
+    frontier = next;
+  }
+  return out;
+}
+
 const isLiteralExpression = (expr) =>
   /^'[^']*'$/.test(expr) ||
   /^"[^"]*"$/.test(expr) ||

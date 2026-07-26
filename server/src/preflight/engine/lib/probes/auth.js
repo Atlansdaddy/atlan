@@ -9,7 +9,12 @@
 // every probe function from its new family file.
 
 import { isTestFile, isScannerSelfSource } from '../file-filter.js';
-import { collectSafeBindings, resolvesToConstant } from './_internal/const-eval.js';
+import {
+  collectSafeBindings,
+  resolvesToConstant,
+  collectFunctionBodies,
+  expandCalledHelpers,
+} from './_internal/const-eval.js';
 import {
   SECRET_VALUE_PLACEHOLDER_RE,
   isMatchInPlaceholderNamedAssignment,
@@ -1049,6 +1054,11 @@ export function probeCookieFlags(files) {
     if (isTestFile(file.path) || isScannerSelfSource(file.path)) return;
     if (!/\.[jt]sx?$|\.py$/.test(file.path)) return;
     const lines = file.content.split('\n');
+    // Same-file helper bodies. Apps commonly build the Set-Cookie value in a
+    // cookieHeader() / buildSessionCookie() helper, which puts the flags
+    // outside the call-site window and produced a confident "missing httpOnly,
+    // secure" on code that set all three (real-scan finding 2026-07).
+    const helperBodies = collectFunctionBodies(file.content);
     lines.forEach((line, i) => {
       // Depth round 2: widened cookie-set detector. Adds Python `set_cookie`,
       // Next.js App Router `cookies().set(...)` (parens break the literal
@@ -1073,7 +1083,11 @@ export function probeCookieFlags(files) {
       // contains 'csrf', do not flag missing httpOnly.
       const isCsrfDoubleSubmit = /\bcsrf\b/i.test(line);
       // Wider window — multi-line option objects span 8+ lines on prettier.
-      const ctx = lines.slice(i, Math.min(lines.length, i + 10)).join(' ');
+      const windowText = lines.slice(i, Math.min(lines.length, i + 10)).join(' ');
+      // Widen through any same-file helper this line calls, one hop. Only
+      // widens when there IS a call, so an inline cookie set with no flags
+      // still fires.
+      const ctx = expandCalledHelpers(windowText, helperBodies);
       const missing = [];
       if (
         !isCsrfDoubleSubmit &&

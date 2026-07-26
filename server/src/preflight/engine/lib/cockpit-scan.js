@@ -17,13 +17,15 @@
 // Returns:
 //   findings   — severity-sorted, each with .snippet (±5 lines), .stableId, and
 //                probe meta attached (identical objects to what the app renders)
-//   score      — computeScore(findings)
+//   score      — computeScore(findings), security only
+//   scores     — computeScores(findings), per-area breakdown
 //   suppressions — repo-local .preflight.yml/json suppressions (host may apply)
 //   probeFailures — [{ probe, error }] for any probe that threw (scan never aborts)
 //   filesScanned — files.length
 
 import { PROBES, attachStableIds, attachProbeMeta } from './probes.js';
-import { SEV_ORDER, computeScore } from './scoring.js';
+import { SEV_ORDER, computeScore, computeScores } from './scoring.js';
+import { detectAppShape, applyAppShape } from './probes/v2/app-shape.js';
 import { buildSnippet } from './snippet.js';
 import {
   findPreflightConfigFile,
@@ -77,10 +79,25 @@ export function scan(files, opts = {}) {
     if (!cfg.error) suppressions = configToSuppressions(cfg, findings);
   }
 
-  // 6) score
-  const score = computeScore(findings);
+  // 5b) app shape: re-weight exposure-dependent findings for a
+  // single-user local tool rather than dropping them.
+  const appShape = detectAppShape(files);
+  const shaped = applyAppShape(findings, appShape);
 
-  return { findings, score, suppressions, probeFailures, filesScanned: files.length };
+  // 6) score. `score` is the headline security number; `scores` breaks it out
+  // by area (security / health / accessibility / discoverability) so a host
+  // can show where the outstanding work actually is.
+  const score = computeScore(shaped);
+  const scores = computeScores(shaped);
+
+  return {
+    findings: shaped,
+    score,
+    scores,
+    suppressions,
+    probeFailures,
+    filesScanned: files.length,
+  };
 }
 
 // Host-friendly engine metadata without importing the React tree.
