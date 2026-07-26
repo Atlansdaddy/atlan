@@ -1,0 +1,55 @@
+/* Mid-Atlantic AI brand tokens — the authoritative kit, converted verbatim from
+   PreFlight's src/lib/theme.js (navy / white / mint-cyan / orange / grays). Every
+   value + WCAG note is carried over; this file is the single source of the
+   MidAtlantic identity in Atlan. It overrides Atlan's real :root variables under
+   [data-template="midatlantic"], so it composes with any effects layer (e.g. the
+   glass template) without touching structure.
+
+   Palette story: deep brand navy ground, the bot's antenna-ORANGE as the primary
+   accent (Classic uses cyan — this is what makes it read as MidAtlantic), the
+   bot's mint-cyan EYES as the friendly highlight + success. Alerts shift to the
+   kit's severity reds so they stay distinct from the now-orange accent.
+
+   Fonts: brand stacks named first, then Atlan's self-contained system fallbacks —
+   no CDN/webfont fetch (the app is strictly self-hosted). */
+
+:root[data-template="midatlantic"] {
+  /* ground + surfaces (kit: bg / panel / panelAlt / panelHover / border) */
+  --ground: #0a1226;
+  --panel: #11192e;
+  --surface: #172143;
+  --surface2: #1d294d;
+  --line: #2c3a5e;
+
+  /* text ramp — contrast vs --ground per the kit */
+  --ink: #f5f7fa;   /* 17.7:1 AAA */
+  --dim: #a8b1c5;   /* 8.94:1 AAA — explicit, breaks the Classic --dim→--muted alias */
+  --muted: #8a96b0; /* 6.5:1 AA */
+  --fg: var(--ink);
+
+  /* brand marks: orange antenna = accent, mint eyes = teal/highlight */
+  --accent: #f26b1f;     /* antenna orange — the identity color */
+  --accent2: #f78c4f;    /* lighter orange for hovers/brights */
+  --accent-ink: #12070a; /* dark text on orange fills */
+  --teal: #9fe5dd;       /* robot-eye mint — explicit, breaks the --teal→--accent alias */
+  --orange: #f26b1f;     /* explicit, breaks the --orange→--hot2 alias */
+  --navy: #1b2d52;       /* logo-body navy — chrome accents */
+
+  /* status — alerts move to the severity ramp so they don't read as the accent */
+  --ok: #9fe5dd;    /* success = brand mint */
+  --warn: #fbbf24;  /* sev medium */
+  --hot: #f97316;   /* sev high */
+  --hot2: #fb7185;  /* sev critical */
+  --err: #fb7185;
+
+  /* type — brand stacks first, self-contained fallbacks after */
+  --sans: 'Roboto', 'Rubik', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --mono: ui-monospace, 'SF Mono', Menlo, Consolas, 'Roboto Mono', monospace;
+
+  /* forward-compat: the glass/effects layer (helis-d PR) reads these; harmless
+     until that template lands, ready when the amalgam composes on top */
+  --phone-grad: radial-gradient(120% 100% at 50% 0%, #11192e 0%, #0a1226 60%);
+  --nav-bg: rgba(10, 18, 38, 0.92);
+  --glass-bg: rgba(23, 33, 67, 0.55);
+  --glass-surface: rgba(23, 33, 67, 0.42);
+}

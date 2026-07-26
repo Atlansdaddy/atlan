@@ -155,7 +155,9 @@ export function spawnRun({ prompt, profile = 'scout', cwd = '/root', model = 'cl
   if (runs.length > 200) runs.pop();
   broadcast({ t: 'fleet.run', run: publicRun(run) });
   broadcast({ t: 'atlan.mood', mood: 'building', agents: active.size + 1 });
-  exec(run, prof);
+  // fire-and-forget: exec self-handles internally, but a stray rejection must
+  // never become an unhandledRejection that takes down the whole server.
+  exec(run, prof).catch((err) => { console.error('[fleet] exec crashed:', err); });
   return publicRun(run);
 }
 
@@ -252,7 +254,7 @@ function finish(run) {
   active.delete(run.id);
   if (!run.endedAt) run.endedAt = Date.now();
   commitBurn(run.tokens, run.cost, run.cacheRead);
-  try { appendFileSync(HISTORY, JSON.stringify({ ...publicRun(run), prompt: run.prompt }) + '\n'); } catch {}
+  try { appendFileSync(HISTORY, JSON.stringify({ ...publicRun(run), prompt: run.prompt }) + '\n'); } catch { /* best-effort: history append is non-critical, a disk error here must not fail the run */ }
   broadcast({ t: 'fleet.done', run: publicRun(run), today: todayBurn() });
   broadcast({
     t: 'atlan.mood',

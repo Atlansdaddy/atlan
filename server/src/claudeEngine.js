@@ -56,8 +56,8 @@ export class ClaudeSession {
   async dispose() {
     this._closed = true;
     const wake = this._wake; this._wake = null; wake?.(); // let the input generator return → ends the query
-    try { await this.q?.interrupt?.(); } catch {}
-    try { this.q?.close?.(); } catch {}
+    try { await this.q?.interrupt?.(); } catch { /* best-effort teardown — errors interrupting a dying session are expected and safe to ignore */ }
+    try { this.q?.close?.(); } catch { /* best-effort teardown */ }
     this.q = null;
     for (const r of this.pendingPerms.values()) r(false);
     this.pendingPerms.clear();

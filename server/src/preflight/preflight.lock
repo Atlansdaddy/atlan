@@ -1,0 +1,14 @@
+{
+  "repo": "https://github.com/midatlanticAI/PreFlight.git",
+  "ref": "main",
+  "commit": "7c10fddcd87da232a63c038cdbe0cad5f4d36d74",
+  "syncedAt": "2026-07-26T03:26:04.222Z",
+  "fileCount": 138,
+  "engineDeps": [
+    "acorn",
+    "acorn-jsx",
+    "acorn-loose",
+    "jsonwebtoken"
+  ],
+  "entry": "server/src/preflight/engine/lib/cockpit-scan.js"
+}

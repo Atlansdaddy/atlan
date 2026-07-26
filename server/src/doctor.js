@@ -66,7 +66,8 @@ export async function runDoctor() {
     check('sw-no-fetch', 'push SW has no fetch handler', async () => {
       // The stale-SW landmine stays dead only while sw.js never intercepts
       // requests. If this goes red, someone added caching — rip it out.
-      const src = await import('node:fs/promises').then((fs) => fs.readFile(new URL('../../web/public/sw.js', import.meta.url), 'utf8'));
+      const { readFile } = await import('node:fs/promises');
+      const src = await readFile(new URL('../../web/public/sw.js', import.meta.url), 'utf8');
       const hasFetch = /addEventListener\(\s*['"]fetch['"]/.test(src);
       return { ok: !hasFetch, detail: hasFetch ? 'FETCH HANDLER FOUND — stale-cache risk, remove it' : 'push-only, cannot cache' };
     }),

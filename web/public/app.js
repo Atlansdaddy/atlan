@@ -23,7 +23,7 @@
   window.fetch = (url, opts = {}) => rawFetch(url, opts).then((res) => {
     if (res.status === 401 && !authShown) showAuth();
     return res;
-  });
+  }).catch((e) => { console.warn('[atlan]', e); throw e; }); // re-throw: preserve rejection flow for callers
   async function showAuth() {
     authShown = true;
     const { configured } = await rawFetch('/api/auth/status').then((r) => r.json()).catch(() => ({ configured: true }));
@@ -64,7 +64,7 @@
     if (b.dataset.s === 's-term') initTerm();
     if (b.dataset.s === 's-editor') initEditor();
     if (b.dataset.s === 's-fleet') loadFleet();
-    if (b.dataset.s === 's-doctor') { loadDoctor(); loadKeys(); loadPreflight(); loadLocalModels(); }
+    if (b.dataset.s === 's-doctor') { loadDoctor(); loadKeys(); loadPreflight(); loadLocalModels(); loadScan(); }
   }));
 
   // ── Atlan alive: mood engine + halo canvas ──
@@ -244,9 +244,9 @@
         say(`${m.name} surfaced — ${m.mb} MB of us, ${m.secs}s under.`);
         addBuildLine(`surfaced in ${m.secs}s`, 'bl-ok');
         $('apkCard').innerHTML = `<div class="apkcard">
-          <div class="top"><span class="fn"></span><span class="stamp">${m.stamp}</span></div>
-          <div class="meta">${m.mb} MB · ${m.secs}s · unique filename (stale-cache dodge)</div>
-          <a class="btn hot" href="${m.url}" download>Install — download & open</a></div>`;
+          <div class="top"><span class="fn"></span><span class="stamp">${escapeHtml(m.stamp)}</span></div>
+          <div class="meta">${escapeHtml(m.mb)} MB · ${escapeHtml(m.secs)}s · unique filename (stale-cache dodge)</div>
+          <a class="btn hot" href="${escapeHtml(m.url)}" download>Install — download & open</a></div>`;
         $('apkCard').querySelector('.fn').textContent = m.name;
         break;
       }
@@ -346,10 +346,50 @@
       who.textContent = role === 'brain' ? (engineLabel || 'brain') + ' · chat only' : (engineLabel || 'Claude');
       div.append(who);
     }
-    div.append(document.createTextNode(text));
+    // Only CHAT brains get the propose-into-canvas treatment: they have no
+    // hands, so their code needs a destination (the review editor). The
+    // autonomous coding agents (Claude / Codex / Antigravity / Grok) already
+    // act on disk like their CLIs — routing their large diffs through manual
+    // review would be pure fatigue, and the Editor tab is right there when you
+    // do want to look. So agents render plain; brains get the code cards.
+    if (role === 'brain') renderRichMessage(div, text);
+    else div.append(document.createTextNode(text));
     // capture non-streamed assistant replies (brains, agent CLIs) for voice
     if ((role === 'claude' || role === 'brain') && !streamBubble) turnText = text;
     chatlog.append(div); scroll();
+  }
+
+  // Render an assistant message: prose as text, ```fenced``` blocks as reviewable
+  // code cards. XSS-safe — every node is createElement/textContent, no innerHTML.
+  function renderRichMessage(container, text) {
+    const parts = String(text).split('```');
+    parts.forEach((part, i) => {
+      if (i % 2 === 0) { if (part) container.appendChild(document.createTextNode(part)); return; }
+      let lang = '', code = part;
+      const nl = part.indexOf('\n');
+      if (nl >= 0) {
+        const first = part.slice(0, nl).trim();
+        if (/^[\w+.-]{1,24}$/.test(first)) { lang = first; code = part.slice(nl + 1); }
+      }
+      container.appendChild(buildCodeBlock(code.replace(/\n$/, ''), lang));
+    });
+  }
+  function buildCodeBlock(code, lang) {
+    const wrap = document.createElement('div'); wrap.className = 'codeblock';
+    const bar = document.createElement('div'); bar.className = 'codebar';
+    if (lang) { const t = document.createElement('span'); t.className = 'codelang'; t.textContent = lang; bar.append(t); }
+    const toEd = document.createElement('button');
+    toEd.className = 'btn ghost'; toEd.textContent = '→ Editor';
+    toEd.title = 'Open this code in the Editor to review — then set a path and Save. Nothing writes until you do.';
+    toEd.addEventListener('click', () => sendToEditor(code, lang));
+    const cp = document.createElement('button');
+    cp.className = 'btn ghost'; cp.textContent = 'Copy';
+    cp.addEventListener('click', () => { if (navigator.clipboard) { navigator.clipboard.writeText(code); cp.textContent = 'Copied'; setTimeout(() => { cp.textContent = 'Copy'; }, 1200); } });
+    bar.append(toEd, cp);
+    const pre = document.createElement('pre'); const codeEl = document.createElement('code');
+    codeEl.textContent = code; pre.append(codeEl);
+    wrap.append(bar, pre);
+    return wrap;
   }
 
   // engine roster → fill the switcher's local/cloud groups
@@ -358,11 +398,18 @@
       const groups = { agent: $('ogAgents'), local: $('ogLocal'), cloud: $('ogCloud') };
       for (const g of Object.values(groups)) g.innerHTML = '';
       for (const e of roster) {
-        const o = document.createElement('option');
-        o.value = `${e.id}|${e.model}`;
-        o.textContent = e.label + (e.ready ? '' : ` — needs: ${e.needs}`);
-        o.disabled = !e.ready;
-        (groups[e.group] ?? groups.cloud).append(o);
+        // agent engines expose model tiers — one option per tier so hard tasks
+        // can pick a heavier model and quick ones a lighter, per turn
+        const models = Array.isArray(e.models) && e.models.length ? e.models : [e.model];
+        const short = e.label.split(' — ')[0];
+        for (const m of models) {
+          const o = document.createElement('option');
+          o.value = `${e.id}|${m}`;
+          o.textContent = (models.length > 1 ? `${short} · ${m}` : e.label) + (e.ready ? '' : ` — needs: ${e.needs}`);
+          o.disabled = !e.ready;
+          (groups[e.group] ?? groups.cloud).append(o);
+          if (!e.ready) break; // one disabled hint row is enough
+        }
       }
     }).catch(() => {});
   }
@@ -392,7 +439,7 @@
     chatlog.append(div); scroll();
   }
   function scroll() { chatlog.scrollTop = chatlog.scrollHeight; }
-  function escapeHtml(s) { return s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`); }
+  function escapeHtml(s) { return String(s).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`); }
 
   // ── attachments ──
   let attachments = []; // {id, kind, name, path, note}
@@ -443,7 +490,7 @@
     const path = $('attachRefPath').value.trim();
     if (!path) return;
     fetch('/api/attach/ref', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ path }) })
-      .then((r) => r.json()).then((a) => { pushAttachment(a); if (!a.error) $('attachRefPath').value = ''; });
+      .then((r) => r.json()).then((a) => { pushAttachment(a); if (!a.error) $('attachRefPath').value = ''; }).catch((e) => { console.warn('[atlan]', e); });
   });
   // paste an image straight into the chat
   document.addEventListener('paste', (e) => {
@@ -635,7 +682,29 @@
       cmEditor.setValue(f.content); edClean = f.content; edCurrentPath = f.path;
       $('edName').textContent = f.name; $('edPath').value = f.path; $('edDirty').textContent = '';
       edMode(f.name);
-    });
+    }).catch((e) => { console.warn('[atlan]', e); });
+  }
+  // Chat → review canvas: drop proposed code into the editor for review. Clears
+  // the path so Save is a conscious choice of where it lands — the code is a
+  // proposal until you Save it, and Preview can run it before you do.
+  const LANG_EXT = { javascript: 'js', js: 'js', typescript: 'ts', ts: 'ts', jsx: 'jsx', tsx: 'tsx', python: 'py', py: 'py', html: 'html', css: 'css', json: 'json', bash: 'sh', sh: 'sh', shell: 'sh', go: 'go', rust: 'rs', rs: 'rs', java: 'java', c: 'c', cpp: 'cpp', ruby: 'rb', php: 'php', sql: 'sql', yaml: 'yml', md: 'md', markdown: 'md' };
+  function sendToEditor(code, langHint) {
+    const btn = document.querySelector('nav button[data-s="s-editor"]');
+    if (btn) btn.click(); // switch to the Editor tab (also runs initEditor)
+    initEditor();
+    cmEditor.setValue(code);
+    edClean = ''; edCurrentPath = null;            // it's a proposal until saved
+    $('edName').textContent = 'from chat · review, then Save';
+    $('edPath').value = '';
+    $('edPath').placeholder = langHint && LANG_EXT[langHint.toLowerCase()]
+      ? 'untitled.' + LANG_EXT[langHint.toLowerCase()] + ' — set a path to save'
+      : 'set a path to save';
+    $('edDirty').textContent = '● unsaved';
+    if (langHint && window.CodeMirror && CodeMirror.findModeByName) {
+      const info = CodeMirror.findModeByName(langHint.toLowerCase());
+      if (info) { cmEditor.setOption('mode', info.mime); CodeMirror.autoLoadMode(cmEditor, info.mode); $('edLang').textContent = info.name; }
+    }
+    cmEditor.refresh(); cmEditor.focus();
   }
   $('edOpen').addEventListener('click', () => openFile($('edPath').value.trim()));
   $('edPath').addEventListener('keydown', (e) => { if (e.key === 'Enter') openFile($('edPath').value.trim()); });
@@ -649,7 +718,7 @@
         edClean = cmEditor.getValue(); edCurrentPath = f.path; $('edName').textContent = f.name;
         $('edDirty').textContent = 'saved ✓';
         setTimeout(() => { if ($('edDirty').textContent === 'saved ✓') $('edDirty').textContent = ''; }, 1500);
-      });
+      }).catch((e) => { console.warn('[atlan]', e); });
   });
   $('edTree').addEventListener('click', () => {
     const box = $('edTreeBox');
@@ -667,7 +736,7 @@
         row.addEventListener('click', () => e.dir ? loadTree(e.path) : (openFile(e.path), box.style.display = 'none'));
         box.append(row);
       }
-    });
+    }).catch((e) => { console.warn('[atlan]', e); });
   }
   $('edToChat').addEventListener('click', () => {
     if (!edCurrentPath) return addMsg('err', 'open or save a file first');
@@ -678,7 +747,7 @@
         document.querySelector('nav button[data-s="s-chat"]').click();
         $('chatInput').value = 'Review this file and tell me what you would improve, with specifics.';
         $('chatInput').focus();
-      });
+      }).catch((e) => { console.warn('[atlan]', e); });
   });
 
   // ── preview ──
@@ -920,6 +989,19 @@
     fetch('/api/fleet/kill', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: 'all' }) });
   });
 
+  // ── visual template picker — a variable-override skin chosen per device.
+  // Default (empty value) is Atlan Classic; the pre-paint head script already
+  // applied the saved one, so here we just sync the <select> and handle change.
+  const templateSel = $('templateSel');
+  if (templateSel) {
+    templateSel.value = localStorage.getItem('atlanTemplate') || '';
+    templateSel.addEventListener('change', () => {
+      const t = templateSel.value;
+      if (t) { document.documentElement.setAttribute('data-template', t); localStorage.setItem('atlanTemplate', t); }
+      else { document.documentElement.removeAttribute('data-template'); localStorage.removeItem('atlanTemplate'); }
+    });
+  }
+
   // ── local model picker (home node only — the card stays hidden where the
   // node doesn't manage llama-server, so it's never a broken button) ──
   function loadLocalModels() {
@@ -998,7 +1080,7 @@
         const row = document.createElement('div');
         row.className = 'keyrow';
         const help = KEY_HELP[k.env];
-        row.innerHTML = `<span class="kname"></span><input type="password" placeholder="${k.set ? 'saved ' + k.hint + ' — paste to replace' : 'paste key'}" autocomplete="off">
+        row.innerHTML = `<span class="kname"></span><input type="password" placeholder="${k.set ? 'saved ' + escapeHtml(k.hint) + ' — paste to replace' : 'paste key'}" autocomplete="off">
           <span class="kset">${k.set ? '● ' + (k.source === 'env' ? 'env' : 'set') : ''}</span><button class="btn">Save</button>`;
         row.querySelector('.kname').textContent = KEY_LABELS[k.env] ?? k.env;
         if (help) {
@@ -1017,7 +1099,7 @@
             if (j.error) return addMsg('err', j.error);
             input.value = '';
             loadKeys(); loadEngines(); loadVoicePicker(); // refresh availability everywhere
-          });
+          }).catch((e) => { console.warn('[atlan]', e); });
         });
         box.append(row);
       }
@@ -1056,20 +1138,29 @@
 
   // ── session controls (Doctor tab) ──
   $('logoutBtn').addEventListener('click', async () => {
-    await fetch('/api/auth/logout', { method: 'POST' });
+    // Reload regardless: a failed logout POST must not strand the user on a
+    // half-logged-out page (async listener → an unguarded reject is silent).
+    try { await fetch('/api/auth/logout', { method: 'POST' }); } catch (e) { console.warn('[atlan]', e); }
     location.reload();
   });
   $('changePwBtn').addEventListener('click', () => {
     $('pwForm').style.display = $('pwForm').style.display === 'none' ? '' : 'none';
   });
   $('pwSave').addEventListener('click', async () => {
-    const r = await fetch('/api/auth/password', {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ current: $('pwCurrent').value, next: $('pwNext').value }),
-    });
-    const j = await r.json().catch(() => ({}));
-    $('pwMsg').textContent = r.ok ? 'password changed ✓' : (j.error || 'failed');
-    if (r.ok) { $('pwCurrent').value = ''; $('pwNext').value = ''; }
+    // Guard the fetch itself: if it rejects, `r` never exists, the inner
+    // .catch (bound to r.json()) is unreachable, and Save would fail silently.
+    try {
+      const r = await fetch('/api/auth/password', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ current: $('pwCurrent').value, next: $('pwNext').value }),
+      });
+      const j = await r.json().catch(() => ({}));
+      $('pwMsg').textContent = r.ok ? 'password changed ✓' : (j.error || 'failed');
+      if (r.ok) { $('pwCurrent').value = ''; $('pwNext').value = ''; }
+    } catch (e) {
+      console.warn('[atlan]', e);
+      $('pwMsg').textContent = 'failed — check your connection';
+    }
   });
 
   // ── doctor ──
@@ -1109,6 +1200,80 @@
       $('preflightVerdict').textContent = p.ready
         ? '✓ preflight green — safe to consider exposure (tunnel + Access, never a bare port)'
         : `✗ ${p.blockers} blocker${p.blockers > 1 ? 's' : ''} — Atlan stays loopback-only until these are green`;
+    }).catch(() => {});
+  }
+
+  // ── Scan surface: run the vendored PreFlight SAST engine on a project ──
+  let scanPopulated = false;
+  function loadScan() {
+    if (scanPopulated) return;
+    scanPopulated = true;
+    fetch('/api/projects').then((r) => r.json()).then((list) => {
+      const sel = $('scanProjSel');
+      for (const p of list) { const o = document.createElement('option'); o.value = p.path; o.textContent = p.name; sel.append(o); }
+      if ($('projSel').value) sel.value = $('projSel').value; // default to the picked project
+    }).catch(() => {});
+  }
+  const SEV_UI = ['critical', 'high', 'medium', 'low', 'info'];
+  $('scanBtn')?.addEventListener('click', () => {
+    const root = $('scanProjSel').value;
+    if (!root) return;
+    $('scanBtn').disabled = true;
+    $('scanMeta').textContent = 'scanning ' + (root.split('/').pop() || root) + ' …';
+    $('scanList').innerHTML = '';
+    fetch('/api/scan?path=' + encodeURIComponent(root)).then((r) => r.json()).then((res) => {
+      $('scanBtn').disabled = false;
+      if (res.error) { $('scanMeta').textContent = res.error; return; }
+      const counts = {};
+      for (const f of res.findings) counts[f.severity] = (counts[f.severity] || 0) + 1;
+      // four axes, not one scary number: the headline is Security ("safe to
+      // ship"); health/a11y/discoverability are separate so a private cockpit's
+      // SEO/complexity findings don't read as risk.
+      const ax = res.scores || {};
+      const AX = { security: '🛡 Security', health: '🩺 Health', accessibility: '♿ A11y', discoverability: '🔎 Reach' };
+      $('scanMeta').innerHTML = '';
+      const axRow = document.createElement('div'); axRow.className = 'axisrow';
+      for (const a of ['security', 'health', 'accessibility', 'discoverability']) {
+        if (!ax[a]) continue;
+        const chip = document.createElement('span');
+        chip.className = 'axis ' + (ax[a].score >= 90 ? 'ok' : ax[a].score >= 70 ? 'warn' : 'bad');
+        chip.textContent = `${AX[a]} ${ax[a].score}`;
+        axRow.append(chip);
+      }
+      const sub = document.createElement('div'); sub.className = 'axissub';
+      sub.textContent = `${res.filesCollected} files · `
+        + (SEV_UI.filter((s) => counts[s]).map((s) => `${counts[s]} ${s}`).join(' · ') || 'clean');
+      $('scanMeta').append(axRow, sub);
+      const list = $('scanList');
+      for (const sev of SEV_UI) {
+        const fs = res.findings.filter((f) => f.severity === sev);
+        for (const f of fs.slice(0, 60)) {
+          const row = document.createElement('button');
+          row.className = 'scanrow sev-' + sev;
+          row.innerHTML = `<span class="sbadge"></span><span class="stext"></span><span class="sloc"></span>`;
+          row.querySelector('.sbadge').textContent = sev;
+          row.querySelector('.stext').textContent = `[${f.probe}] ${f.title || f.message || ''}`;
+          row.querySelector('.sloc').textContent = `${f.file}:${f.line || '?'}`;
+          row.addEventListener('click', () => openScanFinding(root, f.file, f.line));
+          list.append(row);
+        }
+        if (fs.length > 60) { const m = document.createElement('div'); m.className = 'hint'; m.textContent = `… +${fs.length - 60} more ${sev}`; list.append(m); }
+      }
+      if (!res.findings.length) list.innerHTML = '<div class="hint">clean — no findings 🎉</div>';
+    }).catch((e) => { $('scanBtn').disabled = false; $('scanMeta').textContent = String(e); });
+  });
+  // open a finding's file in the editor at its line (findings are relative to the scan root)
+  function openScanFinding(root, relFile, line) {
+    const abs = root.replace(/\/$/, '') + '/' + relFile;
+    document.querySelector('nav button[data-s="s-editor"]')?.click();
+    fetch('/api/file?path=' + encodeURIComponent(abs)).then((r) => r.json()).then((f) => {
+      if (f.error) return addMsg('err', f.error);
+      initEditor();
+      cmEditor.setValue(f.content); edClean = f.content; edCurrentPath = f.path;
+      $('edName').textContent = f.name; $('edPath').value = f.path; $('edDirty').textContent = '';
+      edMode(f.name);
+      if (line) { const ln = Math.max(0, line - 1); cmEditor.setCursor({ line: ln, ch: 0 }); cmEditor.scrollIntoView({ line: ln, ch: 0 }, 120); }
+      cmEditor.refresh(); cmEditor.focus();
     }).catch(() => {});
   }
 
@@ -1154,15 +1319,15 @@
         card.querySelector('.rfire').textContent = r.missed ? '▶ run late' : '▶ run now';
         card.querySelector('.rfire').addEventListener('click', () => {
           fetch('/api/routines/fire', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: r.id, late: r.missed }) })
-            .then((x) => x.json()).then((j) => { if (j.error) addMsg('err', j.error); else loadRoutines(); });
+            .then((x) => x.json()).then((j) => { if (j.error) addMsg('err', j.error); else loadRoutines(); }).catch((e) => { console.warn('[atlan]', e); });
         });
         card.querySelector('.redit').addEventListener('click', () => editRoutine(r));
         card.querySelector('.rtoggle').textContent = r.enabled ? 'disable' : 'enable';
         card.querySelector('.rtoggle').addEventListener('click', () => {
-          fetch('/api/routines', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...r, enabled: !r.enabled }) }).then(loadRoutines);
+          fetch('/api/routines', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...r, enabled: !r.enabled }) }).then(loadRoutines).catch((e) => { console.warn('[atlan]', e); });
         });
         card.querySelector('.rdel').addEventListener('click', () => {
-          fetch('/api/routines/delete', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: r.id }) }).then(loadRoutines);
+          fetch('/api/routines/delete', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: r.id }) }).then(loadRoutines).catch((e) => { console.warn('[atlan]', e); });
         });
         box.append(card);
       }
@@ -1192,7 +1357,7 @@
     $('routAt').style.display = daily ? '' : 'none';
   });
   $('routPauseBtn').addEventListener('click', () => {
-    fetch('/api/routines/pause', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ paused: !routPaused }) }).then(loadRoutines);
+    fetch('/api/routines/pause', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ paused: !routPaused }) }).then(loadRoutines).catch((e) => { console.warn('[atlan]', e); });
   });
   $('routSave').addEventListener('click', () => {
     const cadence = $('routKind').value === 'daily'
@@ -1210,7 +1375,7 @@
       if (j.error) return addMsg('err', j.error);
       $('routForm').style.display = 'none'; routEditing = null;
       loadRoutines();
-    });
+    }).catch((e) => { console.warn('[atlan]', e); });
   });
 
   // ── Persona+ builder ──
@@ -1263,7 +1428,7 @@
         $('dPersona').open = true;
       });
       card.querySelector('.pdel').addEventListener('click', () => {
-        fetch('/api/personas/delete', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: p.id }) }).then(loadBuilder);
+        fetch('/api/personas/delete', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: p.id }) }).then(loadBuilder).catch((e) => { console.warn('[atlan]', e); });
       });
       box.append(card);
     }
@@ -1281,7 +1446,7 @@
       perEditing = null;
       for (const id of ['pName', 'pFocus', 'pBio', 'pSkills', 'pNoNos', 'pInstr']) $(id).value = '';
       loadBuilder();
-    });
+    }).catch((e) => { console.warn('[atlan]', e); });
   });
 
   // dynamic rows: variables / fields / checkers
@@ -1360,7 +1525,7 @@
         $('dCommand').open = true;
       });
       card.querySelector('.cdel').addEventListener('click', () => {
-        fetch('/api/commands/delete', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: c.id }) }).then(loadBuilder);
+        fetch('/api/commands/delete', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: c.id }) }).then(loadBuilder).catch((e) => { console.warn('[atlan]', e); });
       });
       box.append(card);
     }
@@ -1381,7 +1546,7 @@
       $('varRows').innerHTML = ''; $('fieldRows').innerHTML = ''; $('chkRows').innerHTML = '';
       for (const id of ['cName', 'cFocus', 'cInstr']) $(id).value = '';
       loadBuilder();
-    });
+    }).catch((e) => { console.warn('[atlan]', e); });
   });
   $('cCompiled').addEventListener('click', () => {
     const id = cmdEditing ?? commands[0]?.id;
@@ -1390,7 +1555,7 @@
       const out = $('compiledOut');
       out.style.display = '';
       out.textContent = `── SYSTEM PROMPT (persona) ──\n${c.system ?? '(no persona linked)'}\n\n── REQUEST (sent as the user turn) ──\n${c.request}\n\n── RESPONSE JSON-SCHEMA (constrains decoding) ──\n${JSON.stringify(c.responseSchema, null, 1)}\n\n── AS A TOOL (VARIABLES → parameters) ──\n${JSON.stringify(c.toolSchema, null, 1)}`;
-    });
+    }).catch((e) => { console.warn('[atlan]', e); });
   });
 
   // ── test harness ──
@@ -1415,7 +1580,7 @@
       const row = document.createElement('div');
       row.className = 'rowedit';
       row.innerHTML = `<label class="vlabel"></label>` + (v.type === 'enum'
-        ? `<select data-v="${v.name}">${(v.values ?? []).map((x) => `<option>${x}</option>`).join('')}</select>`
+        ? `<select data-v="${escapeHtml(v.name)}">${(v.values ?? []).map((x) => `<option>${escapeHtml(x)}</option>`).join('')}</select>`
         : `<input data-v="${v.name}" placeholder="${v.type}${v.required ? ' · required' : ''}">`);
       row.querySelector('.vlabel').textContent = v.name;
       box.append(row);
@@ -1472,7 +1637,7 @@
           .then((x) => x.json()).then((j) => {
             if (j.error) return addMsg('err', j.error);
             addMsg('claude', `Escalated to the fleet as run ${j.id} — the inbox will ping when it surfaces.`);
-          });
+          }).catch((e) => { console.warn('[atlan]', e); });
       });
       box.append(btn);
     }
@@ -1483,7 +1648,7 @@
   function loadHierarchy() {
     fetch('/api/hierarchy').then((r) => r.json()).then((d) => {
       hierJobs = d.jobs; hierTiers = d.tiers;
-      fetch('/api/personas').then((r) => r.json()).then((p) => { hierCommands = p.commands; renderJobs(); });
+      fetch('/api/personas').then((r) => r.json()).then((p) => { hierCommands = p.commands; renderJobs(); }).catch((e) => { console.warn('[atlan]', e); });
     }).catch(() => {});
   }
   function renderJobs() {
@@ -1499,18 +1664,18 @@
       card.querySelector('.rprompt').textContent = jb.links.map((l) => (hierCommands.find((c) => c.id === l.commandId)?.name ?? l.commandId)).join(' → ');
       card.querySelector('.jstart').addEventListener('click', () => startJobFlow(jb));
       card.querySelector('.jedit').addEventListener('click', () => editJob(jb));
-      card.querySelector('.jdel').addEventListener('click', () => fetch('/api/hierarchy/job/delete', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: jb.id }) }).then(loadHierarchy));
+      card.querySelector('.jdel').addEventListener('click', () => fetch('/api/hierarchy/job/delete', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: jb.id }) }).then(loadHierarchy).catch((e) => { console.warn('[atlan]', e); }));
       box.append(card);
     }
   }
   const LINK_ROW = () => {
-    const cmdOpts = hierCommands.map((c) => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
+    const cmdOpts = hierCommands.map((c) => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.name)}</option>`).join('');
     const tierChecks = hierTiers.map((t) => `<label class="ck"><input type="checkbox" data-tier="${t.id}" checked>${t.id}</label>`).join('');
     return `<div class="linkedit">
       <input data-k="id" placeholder="link id (e.g. extract)">
       <select data-k="commandId">${cmdOpts}</select>
       <input data-k="inputsFrom" placeholder="inputs from (comma: job.input, extract.field)">
-      <div class="tierrow">start:<select data-k="startTier">${hierTiers.map((t) => `<option value="${t.id}">${t.id}</option>`).join('')}</select>
+      <div class="tierrow">start:<select data-k="startTier">${hierTiers.map((t) => `<option value="${escapeHtml(t.id)}">${escapeHtml(t.id)}</option>`).join('')}</select>
         ladder: ${tierChecks}
         <select data-k="onCheckerFail"><option value="escalate">escalate</option><option value="human">ask me</option><option value="halt">halt</option></select></div>
       <button class="btn ghost linkdel">✖ link</button></div>`;
@@ -1557,7 +1722,7 @@
     }).then((r) => r.json()).then((jb) => {
       if (jb.error) return addMsg('err', jb.error);
       $('jobForm').style.display = 'none'; jobEditing = null; loadHierarchy();
-    });
+    }).catch((e) => { console.warn('[atlan]', e); });
   });
   function startJobFlow(jb) {
     const need = jb.links.flatMap((l) => hierCommands.find((c) => c.id === l.commandId)?.variables ?? []);
@@ -1569,7 +1734,7 @@
       input[v.name] = v.type === 'number' ? Number(val) : val;
     }
     fetch('/api/hierarchy/start', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jobId: jb.id, input }) })
-      .then((r) => r.json()).then((run) => { if (run.error) return addMsg('err', run.error); hierWatch = run.id; paintHierRun(run); });
+      .then((r) => r.json()).then((run) => { if (run.error) return addMsg('err', run.error); hierWatch = run.id; paintHierRun(run); }).catch((e) => { console.warn('[atlan]', e); });
   }
   function paintHierRun(run) {
     hierWatch = run.id;
@@ -1593,7 +1758,7 @@
   }
   function resolveGate(runId, approve) {
     fetch('/api/hierarchy/gate', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ runId, approve }) })
-      .then((r) => r.json()).then((run) => { if (run.error) return addMsg('err', run.error); paintHierRun(run); });
+      .then((r) => r.json()).then((run) => { if (run.error) return addMsg('err', run.error); paintHierRun(run); }).catch((e) => { console.warn('[atlan]', e); });
   }
 
   // 🧇 the waffles fall

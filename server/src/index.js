@@ -2,7 +2,7 @@ import express from 'express';
 import { createServer } from 'node:http';
 import { WebSocketServer } from 'ws';
 import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { readdirSync, statSync } from 'node:fs';
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { ClaudeSession } from './claudeEngine.js';
@@ -13,6 +13,8 @@ import { engineRoster, brainChat } from './brains.js';
 import { runBuild, APK_DIR } from './build.js';
 import { keyStatus, setStoredKey } from './keys.js';
 import { runPreflight } from './preflight.js';
+import { scanProject } from './preflight/scanProject.mjs';
+import { isUnder } from './guards.js';
 import { agentStatus, agentTurn } from './agents.js';
 import { localModels, activateLocalModel } from './localmodels.js';
 import { initFleet, spawnRun, listRuns, killRun, killAll, todayBurn, profileList, historyTail, topUpRun } from './fleet.js';
@@ -65,9 +67,16 @@ app.post('/api/auth/setup', (req, res) => {
   if (!setupAllowed(req)) return res.status(403).json({ error: 'first-run setup must come from this device' });
   try {
     setPassword(String(req.body?.password ?? ''));
-    res.setHeader('Set-Cookie', cookieHeader(newSession()));
+    res.setHeader('Set-Cookie', cookieHeader(newSession(), { req }));
     res.json({ ok: true });
-  } catch (err) { res.status(400).json({ error: err.message }); }
+  } catch (err) {
+    // Pre-auth endpoint: only surface the known length-validation message; any
+    // other error (e.g. an fs failure writing auth.json) must not leak an
+    // internal path to an unauthenticated caller — log it, return generic.
+    const safe = /at least \d+ characters/i.test(err?.message || '');
+    if (!safe) console.error('[auth/setup] unexpected error:', err);
+    res.status(400).json({ error: safe ? err.message : 'setup failed — check the server log' });
+  }
 });
 app.post('/api/auth/login', (req, res) => {
   if (loginThrottled()) return res.status(429).json({ error: 'too many attempts — wait a minute' });
@@ -77,13 +86,13 @@ app.post('/api/auth/login', (req, res) => {
     return res.status(401).json({ error: 'wrong password' });
   }
   clearLoginFails();
-  res.setHeader('Set-Cookie', cookieHeader(newSession()));
+  res.setHeader('Set-Cookie', cookieHeader(newSession(), { req }));
   res.json({ ok: true });
 });
 app.post('/api/auth/logout', (req, res) => {
   const m = /(?:^|;\s*)atlan_session=([^;]+)/.exec(req.headers.cookie || '');
   if (m) dropSession(m[1]);
-  res.setHeader('Set-Cookie', cookieHeader('', { clear: true }));
+  res.setHeader('Set-Cookie', cookieHeader('', { clear: true, req }));
   res.json({ ok: true });
 });
 app.post('/api/auth/password', authMiddleware, (req, res) => {
@@ -93,7 +102,7 @@ app.post('/api/auth/password', authMiddleware, (req, res) => {
   try {
     setPassword(String(req.body?.next ?? ''));
     revokeAllSessions();
-    res.setHeader('Set-Cookie', cookieHeader(newSession()));
+    res.setHeader('Set-Cookie', cookieHeader(newSession(), { req }));
     res.json({ ok: true });
   } catch (err) { res.status(400).json({ error: err.message }); }
 });
@@ -120,6 +129,20 @@ app.post('/api/local/models', async (req, res) => {
 app.use('/apk', express.static(APK_DIR));
 
 app.get('/api/preflight', async (_req, res) => res.json(await runPreflight()));
+
+// SAST scan of a project with the vendored PreFlight engine (server/src/preflight).
+// Path is validated under PROJECTS_DIR; defaults to the whole projects dir.
+app.get('/api/scan', (req, res) => {
+  try {
+    const target = req.query.path ? resolve(String(req.query.path)) : PROJECTS_DIR;
+    if (target !== PROJECTS_DIR && !isUnder(target, PROJECTS_DIR)) {
+      return res.status(400).json({ error: 'scan path must be under the projects directory' });
+    }
+    res.json(scanProject(target));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
 
 app.get('/api/fleet', (_req, res) => res.json({ runs: listRuns(), history: historyTail(30), today: todayBurn(), profiles: profileList, pushSubs: subCount() }));
 app.post('/api/fleet/topup', (req, res) => {
@@ -367,7 +390,7 @@ wss.on('connection', (ws, req) => {
             + pending.errors.slice(-12).map((e) => `• ${e}`).join('\n');
         }
         const isClaude = !m.engine || m.engine === 'claude';
-        const isAgentCli = m.engine === 'codex' || m.engine === 'gemini-cli';
+        const isAgentCli = m.engine === 'codex' || m.engine === 'antigravity' || m.engine === 'grok' || m.engine === 'copilot';
         if (isClaude || isAgentCli) {
           for (const p of pending.snaps) {
             text += `\n\n[Atlan preview snapshot saved at ${p} — Read/view that image file to SEE the current preview.]`;
@@ -381,7 +404,7 @@ wss.on('connection', (ws, req) => {
         if (isAgentCli) {
           const state = agentState.get(m.engine) ?? {};
           agentState.set(m.engine, state);
-          agentTurn({ engine: m.engine, cwd: m.cwd || '/root', text, send, state });
+          agentTurn({ engine: m.engine, cwd: m.cwd || '/root', text, send, state, model: m.model });
         } else if (isClaude) {
           if (!claude || (m.cwd && claude.cwd !== m.cwd)) {
             claude?.dispose(); // end the old warm session before replacing it (cwd changed)
@@ -401,7 +424,7 @@ wss.on('connection', (ws, req) => {
             if (reply) h.push({ role: 'assistant', content: reply });
             while (h.length > 21) h.splice(1, 2); // keep system + last 10 exchanges
             brainHistory.set(m.engine, h);
-          });
+          }).catch((err) => { console.error('[brain]', m.engine, err); });
         }
         break;
       }

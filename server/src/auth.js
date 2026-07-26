@@ -38,6 +38,11 @@ function bearerOk(v) {
 export function authToken() { return bearer; }
 
 // ── password ──
+// Audit trail for security-sensitive events — timestamped to the server log,
+// NEVER the secret itself. A tamper-evident record of who did what, when.
+export function audit(event, detail = '') {
+  console.warn(`[audit] ${new Date().toISOString()} ${event}${detail ? ' · ' + detail : ''}`);
+}
 export function isConfigured() { return existsSync(AUTH_FILE); }
 export function setPassword(pw) {
   if (typeof pw !== 'string' || pw.length < 8) throw new Error('password must be at least 8 characters');
@@ -45,13 +50,16 @@ export function setPassword(pw) {
   const hash = scryptSync(pw, salt, 64).toString('hex');
   atomicWrite(AUTH_FILE, JSON.stringify({ salt, hash }), { mode: 0o600 });
   try { chmodSync(AUTH_FILE, 0o600); } catch { /* best effort */ }
+  audit('password.set');
 }
 export function checkPassword(pw) {
   const a = loadJson(AUTH_FILE, null);
   if (!a || typeof pw !== 'string') return false;
   const got = scryptSync(pw, a.salt, 64);
   const want = Buffer.from(a.hash, 'hex');
-  return got.length === want.length && timingSafeEqual(got, want);
+  const ok = got.length === want.length && timingSafeEqual(got, want);
+  if (!ok) audit('login.fail');
+  return ok;
 }
 
 // ── sessions (persisted → survive restarts, so no re-login/lockout) ──
@@ -80,10 +88,19 @@ export function dropSession(t) { const h = sha(t); sessions = sessions.filter((x
 // Password change revokes every session (peer review): a stolen cookie dies.
 export function revokeAllSessions() { sessions = []; saveSessions(); }
 export const COOKIE = 'atlan_session';
-// Secure flag when served over TLS (a tunnel); omitted on plain loopback http.
+// Secure flag: forced on by ATLAN_SECURE_COOKIE, else set PER-REQUEST when the
+// connection is actually https (a tunnel sets X-Forwarded-Proto). This gives a
+// Secure cookie over the tailscale/https tunnel WITHOUT breaking plain
+// loopback-http login, where a Secure cookie the browser would refuse to send.
 const SECURE = !!process.env.ATLAN_SECURE_COOKIE;
-export function cookieHeader(token, { clear = false } = {}) {
-  const base = `${COOKIE}=${clear ? '' : token}; HttpOnly; SameSite=Strict; Path=/${SECURE ? '; Secure' : ''}`;
+export function isHttpsRequest(req) {
+  if (req?.secure) return true;
+  const xf = req?.headers?.['x-forwarded-proto'];
+  return typeof xf === 'string' && xf.split(',')[0].trim() === 'https';
+}
+export function cookieHeader(token, { clear = false, req = null } = {}) {
+  const secure = SECURE || isHttpsRequest(req);
+  const base = `${COOKIE}=${clear ? '' : token}; HttpOnly; SameSite=Strict; Path=/${secure ? '; Secure' : ''}`;
   return clear ? `${base}; Max-Age=0` : `${base}; Max-Age=${Math.floor(SESSION_TTL / 1000)}`;
 }
 function cookieToken(req) {

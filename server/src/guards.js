@@ -14,8 +14,13 @@ import { APP_ROOT, PROJECTS_DIR } from './config.js';
 // (Found by a PC code-review pass, 2026-07-23.) Keeping the regex + the guard in
 // one place is the structural fix so they can't diverge again.
 
-// Credential/secret-shaped paths refused even inside the project root.
-export const SENSITIVE = /(^|\/)\.(ssh|aws|gnupg|gcloud|docker|kube)(\/|$)|(^|\/)(\.auth-token|\.keys\.enc|\.keysecret|\.fleet|\.env|id_rsa|id_ed25519)(\/|$)/;
+// Credential/secret-shaped paths refused even inside the project root. Includes
+// the agent-CLI auth stores (.copilot/.codex/.grok/.gemini/.claude) — these sit
+// under $HOME which is inside PROJECTS_DIR (/root) on the home node, and each
+// holds a PLAINTEXT subscription token; without this the editor's /api/file
+// would read them straight out over the tunnel. The SDK/CLIs read their own
+// stores directly (not via guardPath), so blocking the editor path is safe.
+export const SENSITIVE = /(^|\/)\.(ssh|aws|gnupg|gcloud|docker|kube|copilot|codex|grok|gemini|claude)(\/|$)|(^|\/)\.config\/(gh|github-copilot)(\/|$)|(^|\/)(\.auth-token|\.keys\.enc|\.keysecret|\.fleet|\.env|id_rsa|id_ed25519)(\/|$)/;
 
 export function isUnder(p, root) {
   const r = root.endsWith('/') ? root : root + '/';

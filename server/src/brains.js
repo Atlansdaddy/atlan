@@ -19,7 +19,7 @@ const PROVIDERS = {
     label: 'Gemini',
     base: 'https://generativelanguage.googleapis.com/v1beta/openai',
     keyEnv: 'GEMINI_API_KEY',
-    defaultModel: 'gemini-3-flash-preview',
+    defaultModel: 'gemini-3.6-flash',
   },
   openai: {
     label: 'OpenAI',
@@ -31,19 +31,19 @@ const PROVIDERS = {
     label: 'DeepSeek',
     base: 'https://api.deepseek.com/v1',
     keyEnv: 'DEEPSEEK_API_KEY',
-    defaultModel: 'deepseek-chat',
+    defaultModel: 'deepseek-v4-flash', // deepseek-chat/reasoner aliases retired 2026-07-24
   },
   kimi: {
     label: 'Kimi (Moonshot)',
     base: 'https://api.moonshot.ai/v1',
     keyEnv: 'MOONSHOT_API_KEY',
-    defaultModel: 'kimi-k2-0711-preview',
+    defaultModel: 'kimi-k2.6',
   },
   grok: {
     label: 'xAI Grok',
     base: 'https://api.x.ai/v1',
     keyEnv: 'XAI_API_KEY',
-    defaultModel: 'grok-4',
+    defaultModel: 'grok-4.5',
   },
   mistral: {
     label: 'Mistral',
@@ -79,7 +79,7 @@ const PROVIDERS = {
     label: 'Cohere',
     base: 'https://api.cohere.ai/compatibility/v1',
     keyEnv: 'COHERE_API_KEY',
-    defaultModel: 'command-r-plus',
+    defaultModel: 'command-a-03-2025',
   },
 };
 

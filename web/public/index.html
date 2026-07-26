@@ -4,6 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#020c18">
+<meta name="description" content="Atlan — a personal AI build cockpit. Talk to any coding agent, review the code in an editor, preview it, and build from your phone. One interface, your own subscriptions, on your hardware.">
+<meta property="og:title" content="Atlan">
+<meta property="og:description" content="A personal AI build cockpit — every coding agent in one interface, phone-first, on your own hardware.">
+<meta property="og:type" content="website">
+<meta property="og:image" content="img/atlan-bot.svg">
+<meta name="twitter:card" content="summary">
 <title>Atlan</title>
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="img/atlan-bot.svg">
@@ -11,15 +17,23 @@
 <link rel="stylesheet" href="vendor/cm/codemirror.css">
 <link rel="stylesheet" href="vendor/cm/material-darker.css">
 <link rel="stylesheet" href="style.css?v=20260724">
+<link rel="stylesheet" href="midatlantic.css?v=20260725">
+<script>
+  /* Apply the saved visual template before first paint — no flash of the wrong
+     skin. Templates are variable-override sets keyed on data-template; the
+     default (no attribute) is Atlan Classic. */
+  try { var t = localStorage.getItem('atlanTemplate'); if (t) document.documentElement.setAttribute('data-template', t); } catch (e) {}
+</script>
 </head>
 <body>
+<a href="#s-chat" class="skiplink">Skip to content</a>
 <div class="authoverlay" id="authOverlay">
   <div class="authcard">
     <img src="img/atlan-bot.svg" alt="" style="width:54px">
     <div class="wordmark">At<em>la</em>n</div>
     <div id="authTitle" class="authtitle">Welcome</div>
     <p id="authHint">Enter your password to unlock Atlan.</p>
-    <input id="authInput" type="password" placeholder="password" autocomplete="current-password">
+    <input id="authInput" type="password" placeholder="password" aria-label="password" autocomplete="current-password">
     <button class="btn hot" id="authSave">Log in</button>
     <div id="authErr" class="autherr"></div>
   </div>
@@ -157,7 +171,7 @@
           <input id="routName" placeholder="routine name — e.g. nightly repo scan">
           <div class="projbar">
             <select id="routKind"><option value="every">every N minutes</option><option value="daily">daily at HH:MM</option></select>
-            <input id="routEvery" type="number" min="5" value="360" placeholder="minutes">
+            <input id="routEvery" type="number" min="5" value="360" placeholder="minutes" aria-label="routine interval in minutes">
             <input id="routAt" type="time" value="07:00" style="display:none">
           </div>
           <textarea id="routPrompt" rows="3" placeholder="What should it do each time? It reports to the inbox like any run."></textarea>
@@ -297,14 +311,22 @@
         <button class="btn ghost" id="changePwBtn">change password</button>
       </div>
       <div id="pwForm" class="bform" style="display:none">
-        <input id="pwCurrent" type="password" placeholder="current password" autocomplete="current-password">
-        <input id="pwNext" type="password" placeholder="new password (8+ chars)" autocomplete="new-password">
+        <input id="pwCurrent" type="password" placeholder="current password" aria-label="current password" autocomplete="current-password">
+        <input id="pwNext" type="password" placeholder="new password (8+ chars)" aria-label="new password" autocomplete="new-password">
         <div class="projbar"><button class="btn hot" id="pwSave">Save new password</button></div>
         <div id="pwMsg" class="hint"></div>
       </div>
       <div class="eyebrow" style="margin-top:6px">Engine keys — encrypted at rest, never shown back</div>
       <div class="hint">Each row links out to where you get the key. Everything works without any of these — they just unlock more models &amp; voices.</div>
       <div id="keysList" class="doctor-list"></div>
+      <div class="eyebrow" style="margin-top:6px">Look — pick a visual template</div>
+      <div class="projbar">
+        <select id="templateSel" aria-label="visual template">
+          <option value="">Atlan Classic</option>
+          <option value="midatlantic">MidAtlantic AI</option>
+        </select>
+      </div>
+      <div class="hint">Changes colors, type, and chrome instantly. More templates arrive as they're built — your pick is remembered per device.</div>
       <div class="eyebrow" style="margin-top:6px">Voice — pick who speaks back</div>
       <div class="projbar">
         <select id="voiceProviderSel" aria-label="voice provider"></select>
@@ -322,6 +344,13 @@
       <div class="eyebrow" style="margin-top:6px">Preflight — must be green before any deploy or tunnel</div>
       <div id="preflightList" class="doctor-list"></div>
       <div class="hint" id="preflightVerdict"></div>
+      <div class="eyebrow" style="margin-top:6px">Scan — SAST audit of a project</div>
+      <div class="projbar">
+        <select id="scanProjSel" aria-label="project to scan"></select>
+        <button class="btn hot" id="scanBtn">Run scan</button>
+      </div>
+      <div class="hint" id="scanMeta">Static analysis with the PreFlight engine. Nothing leaves the machine — findings tap to open in the editor.</div>
+      <div id="scanList" class="doctor-list"></div>
       <div class="lore">ATLAN · your cockpit in the deep<br><span>“a steady light while you build.”</span></div>
     </section>
   </div>

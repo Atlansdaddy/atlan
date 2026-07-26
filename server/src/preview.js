@@ -54,6 +54,7 @@ const INJECT = `
   window.addEventListener('unhandledrejection', (e) => post({ kind: 'console', level: 'error',
     text: 'unhandled rejection: ' + fmt([e.reason]) }));
   window.addEventListener('message', (e) => {
+    if (e.source !== window.parent) return; // only the embedding cockpit may trigger a snapshot
     if (e.data && e.data.__atlan === 'snapshot') {
       const go = () => window.html2canvas(document.body, { logging: false, scale: 1 })
         .then((c) => post({ kind: 'snapshot', data: c.toDataURL('image/png') }))

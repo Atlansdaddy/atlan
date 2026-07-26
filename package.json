@@ -2,10 +2,20 @@
   "name": "atlan",
   "private": true,
   "version": "0.1.0",
-  "workspaces": ["server", "web"],
+  "workspaces": [
+    "server",
+    "web"
+  ],
   "scripts": {
     "dev": "npm run dev -w server",
     "web": "npm run dev -w web",
-    "test": "bash test/run.sh"
+    "test": "bash test/run.sh",
+    "sync:preflight": "node scripts/sync-preflight.mjs"
+  },
+  "dependencies": {
+    "acorn": "^8.17.0",
+    "acorn-jsx": "^5.3.2",
+    "acorn-loose": "^8.5.2",
+    "jsonwebtoken": "^9.0.3"
   }
 }

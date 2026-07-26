@@ -391,6 +391,42 @@ a{color:var(--accent)}
   .projbar select{font-size:11px}
 }
 
+/* Chat code blocks — the pseudo-assistant's reviewable proposals. The bar's
+   "→ Editor" drops the code into the review canvas; nothing writes to disk. */
+.codeblock{margin:8px 0;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--ground)}
+.codebar{display:flex;justify-content:flex-end;align-items:center;gap:6px;padding:5px 8px;background:var(--surface2);border-bottom:1px solid var(--line)}
+.codelang{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-right:auto}
+.codebar .btn{padding:2px 9px;font-size:11px;min-height:0}
+.codeblock pre{margin:0;padding:10px 12px;overflow-x:auto;white-space:pre;font-family:var(--mono);font-size:12px;line-height:1.5}
+.codeblock pre code{color:var(--ink);background:none;padding:0;font-size:inherit}
+
+/* Skip-to-content link — off-screen until keyboard-focused (WCAG 2.4.1) */
+.skiplink{position:absolute;left:-9999px;top:0;z-index:100;background:var(--accent);color:var(--accent-ink);
+  padding:8px 14px;border-radius:0 0 8px 0;font-size:12px;font-weight:700}
+.skiplink:focus{left:0}
+
+/* Scan axis scores — security is the headline; health/a11y/reach are separate */
+.axisrow{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:4px}
+.axis{font-size:11px;font-weight:700;padding:3px 9px;border-radius:20px;border:1px solid var(--line);white-space:nowrap}
+.axis.ok{color:var(--ok);border-color:var(--ok)}
+.axis.warn{color:var(--warn);border-color:var(--warn)}
+.axis.bad{color:var(--hot);border-color:var(--hot)}
+.axissub{font-size:11px;color:var(--muted)}
+
+/* Scan findings — tap a row to open it in the editor at its line */
+.scanrow{display:flex;align-items:baseline;gap:8px;width:100%;text-align:left;font:inherit;
+  background:var(--surface);border:1px solid var(--line);border-left-width:3px;border-radius:8px;
+  padding:7px 10px;margin:3px 0;cursor:pointer;color:var(--ink)}
+.scanrow:hover{background:var(--surface2)}
+.scanrow .sbadge{flex:0 0 auto;font-size:9px;letter-spacing:.08em;text-transform:uppercase;font-weight:700;opacity:.85}
+.scanrow .stext{flex:1;min-width:0;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.scanrow .sloc{flex:0 0 auto;font-family:var(--mono);font-size:10px;color:var(--muted)}
+.scanrow.sev-critical{border-left-color:var(--err)}.scanrow.sev-critical .sbadge{color:var(--err)}
+.scanrow.sev-high{border-left-color:var(--hot)}.scanrow.sev-high .sbadge{color:var(--hot)}
+.scanrow.sev-medium{border-left-color:var(--warn)}.scanrow.sev-medium .sbadge{color:var(--warn)}
+.scanrow.sev-low{border-left-color:var(--accent)}.scanrow.sev-low .sbadge{color:var(--accent)}
+.scanrow.sev-info{border-left-color:var(--muted)}.scanrow.sev-info .sbadge{color:var(--muted)}
+
 /* Respect reduced-motion everywhere (WCAG 2.3.3) */
 @media (prefers-reduced-motion:reduce){
   *{animation-duration:.001ms !important;animation-iteration-count:1 !important;transition-duration:.001ms !important}
