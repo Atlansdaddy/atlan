@@ -241,6 +241,14 @@ export const FILE_EXCLUDE = [
   /(^|\/)vendored\//,
   /(^|\/)third[-_]party\//,
   /(^|\/)bower_components\//,
+  // Vendored as a FILE rather than a directory. `server/src/vendor-html2canvas.js`
+  // is a bundled third-party library living beside first-party code, and it
+  // carried 60 of one project's 163 code-health findings — 37% of the debt
+  // report was about a library the author did not write and cannot fix
+  // (real-scan finding 2026-07). Directory-only matching missed it entirely.
+  /(^|\/)vendor[-_.][\w.-]+\.[jt]sx?$/i,
+  /(^|\/)[\w.-]+\.vendor\.[jt]sx?$/i,
+  /(^|\/)(?:jquery|lodash|moment|bootstrap|html2canvas|xterm|codemirror|monaco)[-.]?[\w.]*\.js$/i,
 ];
 
 export function shouldScanFile(path) {

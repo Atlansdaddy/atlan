@@ -110,6 +110,14 @@ const EXPOSURE_DEPENDENT_PROBES = new Set([
   'Iframe Sandbox',
 ]);
 
+// Findings that assume the app WANTS to be found. A tool on 127.0.0.1 has no
+// search engine to rank in, no social card to preview, and no AI crawler to
+// serve. Reporting a missing og:image against a single-user cockpit is the
+// same category error as reporting its stack traces: correct rule, wrong app
+// (real-scan finding 2026-07: 8 of 8 discoverability findings were meta tags
+// on a loopback UI).
+const AUDIENCE_DEPENDENT_PROBES = new Set(['SEO Hygiene', 'GEO Hygiene']);
+
 const DOWNGRADE = { critical: 'medium', high: 'medium', medium: 'low', low: 'info', info: 'info' };
 
 /**
@@ -122,15 +130,18 @@ const DOWNGRADE = { critical: 'medium', high: 'medium', medium: 'low', low: 'inf
 export function applyAppShape(findings, shape) {
   if (!shape?.isSingleUserLocal) return findings || [];
   return (findings || []).map((f) => {
-    if (!EXPOSURE_DEPENDENT_PROBES.has(f?.probe)) return f;
+    const exposure = EXPOSURE_DEPENDENT_PROBES.has(f?.probe);
+    const audience = AUDIENCE_DEPENDENT_PROBES.has(f?.probe);
+    if (!exposure && !audience) return f;
     const downgraded = DOWNGRADE[f.severity] || f.severity;
     if (downgraded === f.severity) return f;
     return {
       ...f,
       severity: downgraded,
       originalSeverity: f.severity,
-      shapeNote:
-        'Reduced because this project looks like a single-user tool bound to loopback: the disclosure reaches only the person running it. Restore full weight the moment it listens on a public interface or gains a second user.',
+      shapeNote: exposure
+        ? 'Reduced because this project looks like a single-user tool bound to loopback: the disclosure reaches only the person running it. Restore full weight the moment it listens on a public interface or gains a second user.'
+        : 'Reduced because this project looks like a single-user tool bound to loopback: there is no search engine to rank in and no social card to preview. Restore full weight if it ever gets a public URL.',
     };
   });
 }
