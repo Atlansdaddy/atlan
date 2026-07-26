@@ -23,7 +23,7 @@
   window.fetch = (url, opts = {}) => rawFetch(url, opts).then((res) => {
     if (res.status === 401 && !authShown) showAuth();
     return res;
-  });
+  }).catch((e) => { console.warn('[atlan]', e); throw e; }); // re-throw: preserve rejection flow for callers
   async function showAuth() {
     authShown = true;
     const { configured } = await rawFetch('/api/auth/status').then((r) => r.json()).catch(() => ({ configured: true }));
@@ -490,7 +490,7 @@
     const path = $('attachRefPath').value.trim();
     if (!path) return;
     fetch('/api/attach/ref', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ path }) })
-      .then((r) => r.json()).then((a) => { pushAttachment(a); if (!a.error) $('attachRefPath').value = ''; });
+      .then((r) => r.json()).then((a) => { pushAttachment(a); if (!a.error) $('attachRefPath').value = ''; }).catch((e) => { console.warn('[atlan]', e); });
   });
   // paste an image straight into the chat
   document.addEventListener('paste', (e) => {
@@ -682,7 +682,7 @@
       cmEditor.setValue(f.content); edClean = f.content; edCurrentPath = f.path;
       $('edName').textContent = f.name; $('edPath').value = f.path; $('edDirty').textContent = '';
       edMode(f.name);
-    });
+    }).catch((e) => { console.warn('[atlan]', e); });
   }
   // Chat → review canvas: drop proposed code into the editor for review. Clears
   // the path so Save is a conscious choice of where it lands — the code is a
@@ -718,7 +718,7 @@
         edClean = cmEditor.getValue(); edCurrentPath = f.path; $('edName').textContent = f.name;
         $('edDirty').textContent = 'saved ✓';
         setTimeout(() => { if ($('edDirty').textContent === 'saved ✓') $('edDirty').textContent = ''; }, 1500);
-      });
+      }).catch((e) => { console.warn('[atlan]', e); });
   });
   $('edTree').addEventListener('click', () => {
     const box = $('edTreeBox');
@@ -736,7 +736,7 @@
         row.addEventListener('click', () => e.dir ? loadTree(e.path) : (openFile(e.path), box.style.display = 'none'));
         box.append(row);
       }
-    });
+    }).catch((e) => { console.warn('[atlan]', e); });
   }
   $('edToChat').addEventListener('click', () => {
     if (!edCurrentPath) return addMsg('err', 'open or save a file first');
@@ -747,7 +747,7 @@
         document.querySelector('nav button[data-s="s-chat"]').click();
         $('chatInput').value = 'Review this file and tell me what you would improve, with specifics.';
         $('chatInput').focus();
-      });
+      }).catch((e) => { console.warn('[atlan]', e); });
   });
 
   // ── preview ──
@@ -1099,7 +1099,7 @@
             if (j.error) return addMsg('err', j.error);
             input.value = '';
             loadKeys(); loadEngines(); loadVoicePicker(); // refresh availability everywhere
-          });
+          }).catch((e) => { console.warn('[atlan]', e); });
         });
         box.append(row);
       }
@@ -1310,15 +1310,15 @@
         card.querySelector('.rfire').textContent = r.missed ? '▶ run late' : '▶ run now';
         card.querySelector('.rfire').addEventListener('click', () => {
           fetch('/api/routines/fire', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: r.id, late: r.missed }) })
-            .then((x) => x.json()).then((j) => { if (j.error) addMsg('err', j.error); else loadRoutines(); });
+            .then((x) => x.json()).then((j) => { if (j.error) addMsg('err', j.error); else loadRoutines(); }).catch((e) => { console.warn('[atlan]', e); });
         });
         card.querySelector('.redit').addEventListener('click', () => editRoutine(r));
         card.querySelector('.rtoggle').textContent = r.enabled ? 'disable' : 'enable';
         card.querySelector('.rtoggle').addEventListener('click', () => {
-          fetch('/api/routines', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...r, enabled: !r.enabled }) }).then(loadRoutines);
+          fetch('/api/routines', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...r, enabled: !r.enabled }) }).then(loadRoutines).catch((e) => { console.warn('[atlan]', e); });
         });
         card.querySelector('.rdel').addEventListener('click', () => {
-          fetch('/api/routines/delete', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: r.id }) }).then(loadRoutines);
+          fetch('/api/routines/delete', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: r.id }) }).then(loadRoutines).catch((e) => { console.warn('[atlan]', e); });
         });
         box.append(card);
       }
@@ -1348,7 +1348,7 @@
     $('routAt').style.display = daily ? '' : 'none';
   });
   $('routPauseBtn').addEventListener('click', () => {
-    fetch('/api/routines/pause', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ paused: !routPaused }) }).then(loadRoutines);
+    fetch('/api/routines/pause', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ paused: !routPaused }) }).then(loadRoutines).catch((e) => { console.warn('[atlan]', e); });
   });
   $('routSave').addEventListener('click', () => {
     const cadence = $('routKind').value === 'daily'
@@ -1366,7 +1366,7 @@
       if (j.error) return addMsg('err', j.error);
       $('routForm').style.display = 'none'; routEditing = null;
       loadRoutines();
-    });
+    }).catch((e) => { console.warn('[atlan]', e); });
   });
 
   // ── Persona+ builder ──
@@ -1419,7 +1419,7 @@
         $('dPersona').open = true;
       });
       card.querySelector('.pdel').addEventListener('click', () => {
-        fetch('/api/personas/delete', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: p.id }) }).then(loadBuilder);
+        fetch('/api/personas/delete', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: p.id }) }).then(loadBuilder).catch((e) => { console.warn('[atlan]', e); });
       });
       box.append(card);
     }
@@ -1437,7 +1437,7 @@
       perEditing = null;
       for (const id of ['pName', 'pFocus', 'pBio', 'pSkills', 'pNoNos', 'pInstr']) $(id).value = '';
       loadBuilder();
-    });
+    }).catch((e) => { console.warn('[atlan]', e); });
   });
 
   // dynamic rows: variables / fields / checkers
@@ -1516,7 +1516,7 @@
         $('dCommand').open = true;
       });
       card.querySelector('.cdel').addEventListener('click', () => {
-        fetch('/api/commands/delete', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: c.id }) }).then(loadBuilder);
+        fetch('/api/commands/delete', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: c.id }) }).then(loadBuilder).catch((e) => { console.warn('[atlan]', e); });
       });
       box.append(card);
     }
@@ -1537,7 +1537,7 @@
       $('varRows').innerHTML = ''; $('fieldRows').innerHTML = ''; $('chkRows').innerHTML = '';
       for (const id of ['cName', 'cFocus', 'cInstr']) $(id).value = '';
       loadBuilder();
-    });
+    }).catch((e) => { console.warn('[atlan]', e); });
   });
   $('cCompiled').addEventListener('click', () => {
     const id = cmdEditing ?? commands[0]?.id;
@@ -1546,7 +1546,7 @@
       const out = $('compiledOut');
       out.style.display = '';
       out.textContent = `── SYSTEM PROMPT (persona) ──\n${c.system ?? '(no persona linked)'}\n\n── REQUEST (sent as the user turn) ──\n${c.request}\n\n── RESPONSE JSON-SCHEMA (constrains decoding) ──\n${JSON.stringify(c.responseSchema, null, 1)}\n\n── AS A TOOL (VARIABLES → parameters) ──\n${JSON.stringify(c.toolSchema, null, 1)}`;
-    });
+    }).catch((e) => { console.warn('[atlan]', e); });
   });
 
   // ── test harness ──
@@ -1628,7 +1628,7 @@
           .then((x) => x.json()).then((j) => {
             if (j.error) return addMsg('err', j.error);
             addMsg('claude', `Escalated to the fleet as run ${j.id} — the inbox will ping when it surfaces.`);
-          });
+          }).catch((e) => { console.warn('[atlan]', e); });
       });
       box.append(btn);
     }
@@ -1639,7 +1639,7 @@
   function loadHierarchy() {
     fetch('/api/hierarchy').then((r) => r.json()).then((d) => {
       hierJobs = d.jobs; hierTiers = d.tiers;
-      fetch('/api/personas').then((r) => r.json()).then((p) => { hierCommands = p.commands; renderJobs(); });
+      fetch('/api/personas').then((r) => r.json()).then((p) => { hierCommands = p.commands; renderJobs(); }).catch((e) => { console.warn('[atlan]', e); });
     }).catch(() => {});
   }
   function renderJobs() {
@@ -1655,7 +1655,7 @@
       card.querySelector('.rprompt').textContent = jb.links.map((l) => (hierCommands.find((c) => c.id === l.commandId)?.name ?? l.commandId)).join(' → ');
       card.querySelector('.jstart').addEventListener('click', () => startJobFlow(jb));
       card.querySelector('.jedit').addEventListener('click', () => editJob(jb));
-      card.querySelector('.jdel').addEventListener('click', () => fetch('/api/hierarchy/job/delete', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: jb.id }) }).then(loadHierarchy));
+      card.querySelector('.jdel').addEventListener('click', () => fetch('/api/hierarchy/job/delete', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: jb.id }) }).then(loadHierarchy).catch((e) => { console.warn('[atlan]', e); }));
       box.append(card);
     }
   }
@@ -1713,7 +1713,7 @@
     }).then((r) => r.json()).then((jb) => {
       if (jb.error) return addMsg('err', jb.error);
       $('jobForm').style.display = 'none'; jobEditing = null; loadHierarchy();
-    });
+    }).catch((e) => { console.warn('[atlan]', e); });
   });
   function startJobFlow(jb) {
     const need = jb.links.flatMap((l) => hierCommands.find((c) => c.id === l.commandId)?.variables ?? []);
@@ -1725,7 +1725,7 @@
       input[v.name] = v.type === 'number' ? Number(val) : val;
     }
     fetch('/api/hierarchy/start', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jobId: jb.id, input }) })
-      .then((r) => r.json()).then((run) => { if (run.error) return addMsg('err', run.error); hierWatch = run.id; paintHierRun(run); });
+      .then((r) => r.json()).then((run) => { if (run.error) return addMsg('err', run.error); hierWatch = run.id; paintHierRun(run); }).catch((e) => { console.warn('[atlan]', e); });
   }
   function paintHierRun(run) {
     hierWatch = run.id;
@@ -1749,7 +1749,7 @@
   }
   function resolveGate(runId, approve) {
     fetch('/api/hierarchy/gate', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ runId, approve }) })
-      .then((r) => r.json()).then((run) => { if (run.error) return addMsg('err', run.error); paintHierRun(run); });
+      .then((r) => r.json()).then((run) => { if (run.error) return addMsg('err', run.error); paintHierRun(run); }).catch((e) => { console.warn('[atlan]', e); });
   }
 
   // 🧇 the waffles fall
