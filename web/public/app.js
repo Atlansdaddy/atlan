@@ -1147,13 +1147,20 @@
     $('pwForm').style.display = $('pwForm').style.display === 'none' ? '' : 'none';
   });
   $('pwSave').addEventListener('click', async () => {
-    const r = await fetch('/api/auth/password', {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ current: $('pwCurrent').value, next: $('pwNext').value }),
-    });
-    const j = await r.json().catch(() => ({}));
-    $('pwMsg').textContent = r.ok ? 'password changed ✓' : (j.error || 'failed');
-    if (r.ok) { $('pwCurrent').value = ''; $('pwNext').value = ''; }
+    // Guard the fetch itself: if it rejects, `r` never exists, the inner
+    // .catch (bound to r.json()) is unreachable, and Save would fail silently.
+    try {
+      const r = await fetch('/api/auth/password', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ current: $('pwCurrent').value, next: $('pwNext').value }),
+      });
+      const j = await r.json().catch(() => ({}));
+      $('pwMsg').textContent = r.ok ? 'password changed ✓' : (j.error || 'failed');
+      if (r.ok) { $('pwCurrent').value = ''; $('pwNext').value = ''; }
+    } catch (e) {
+      console.warn('[atlan]', e);
+      $('pwMsg').textContent = 'failed — check your connection';
+    }
   });
 
   // ── doctor ──
