@@ -1138,7 +1138,9 @@
 
   // ── session controls (Doctor tab) ──
   $('logoutBtn').addEventListener('click', async () => {
-    await fetch('/api/auth/logout', { method: 'POST' });
+    // Reload regardless: a failed logout POST must not strand the user on a
+    // half-logged-out page (async listener → an unguarded reject is silent).
+    try { await fetch('/api/auth/logout', { method: 'POST' }); } catch (e) { console.warn('[atlan]', e); }
     location.reload();
   });
   $('changePwBtn').addEventListener('click', () => {
