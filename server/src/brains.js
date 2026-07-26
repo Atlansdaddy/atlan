@@ -2,7 +2,8 @@ import { getStoredKey } from './keys.js';
 
 // "Brains" = chat-only engines (no tools, no files) behind ONE OpenAI-compat
 // adapter — base-URL swap per provider. Claude Code stays the only agent
-// with hands until M4 wires Codex/Gemini CLIs.
+// with hands are the CLI engines: Claude Code (Agent SDK, per-tool cards) plus
+// Codex, Antigravity, Grok Build and Copilot (exec CLIs, full-auto).
 // Every provider here speaks the OpenAI /chat/completions shape, so one adapter
 // covers them all — new provider = one base-URL row. defaultModel is just a
 // sensible starting point; users can type any model the provider offers in the

@@ -19,7 +19,7 @@ One sentence: **Claude Code in a phone IDE with a live preview sandbox, Mid-Atla
 │             summarized thinking, Atlan identity + live       │
 │             self-awareness (cockpitContext), perms→cards,    │
 │             warm setModel(), resume-id handoff to --resume   │
-│ agents.js   → Codex + Gemini CLIs headless (JSONL→events)   │
+│ agents.js   → Codex/Antigravity/Grok/Copilot CLIs headless  │
 │ brains.js   → ONE OpenAI-compat adapter, base-URL swap, 12  │
 │             providers: local · gemini · openai · deepseek · │
 │             kimi · grok · mistral · groq · together ·        │

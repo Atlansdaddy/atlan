@@ -2,7 +2,9 @@ import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { getStoredKey } from './keys.js';
 
-// Agent CLIs (Codex, Gemini) driven headlessly. Unlike Claude (Agent SDK with
+// Agent CLIs (Codex, Antigravity, Grok Build, Copilot) driven headlessly —
+// Antigravity (`agy`) replaced the Gemini CLI when Google retired its free
+// Sign-in-with-Google backend on 2026-06-18. Unlike Claude (Agent SDK with
 // per-tool permission cards), exec-mode CLIs are all-or-nothing on approvals —
 // so they run full-auto and the UI labels them that way. Claude stays the
 // gated primary; these are extra hands for repos you trust them in.

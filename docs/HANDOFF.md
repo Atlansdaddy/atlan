@@ -4,7 +4,7 @@
 
 ## What you have
 
-A personal build cockpit that runs its own server — on a phone (Samsung S24 Ultra, Ubuntu proot under Termux) or on any PC/Linux host (easier; also the "run it as a server, connect phones as clients" path). One PWA at `http://127.0.0.1:4589` gives you: Claude Code with permission cards, Codex/Gemini agent CLIs, free on-phone models, cloud brains, a live preview pane that snitches errors to the AI, a real tmux terminal, an autonomous agent fleet with hard token budgets, scheduled routines, a Persona+ builder with deterministic checkers, one-button APK builds, health/security dashboards, and Atlan himself — alive in the header.
+A personal build cockpit that runs its own server — **phone-first** (Samsung S24 Ultra, Ubuntu proot under Termux) — the phone is the host and gets the full toolset, never a cut-down mobile mode. It also runs on any PC/Linux host, which is **additive**: a second place to do the same work, and optional extra capacity behind the phone. Not the "real" tier the phone falls back to. One PWA at `http://127.0.0.1:4589` gives you: Claude Code with permission cards, the full-auto agent CLIs (Codex, Antigravity, Grok Build, Copilot), free on-phone models, cloud brains, a live preview pane that snitches errors to the AI, a real tmux terminal, an autonomous agent fleet with hard token budgets, scheduled routines, a Persona+ builder with deterministic checkers, one-button APK builds, health/security dashboards, and Atlan himself — alive in the header.
 
 ## Day-1 onboarding (do this once)
 

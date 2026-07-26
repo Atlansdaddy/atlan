@@ -109,8 +109,16 @@ one thing.
 
 The full agentic coding CLIs, run under the user's subscription, with real hands
 (read/edit files, run tools, build): **Claude Code, Codex, Antigravity, Grok
-Build**. Gated per their own model — Claude per-tool via permission cards, the
-others via their native sandbox/approval modes. These *act*.
+Build**. Claude is gated per-tool via permission cards. The other four are **not
+gated today** — Atlan launches them with their approvals bypassed
+(`--dangerously-bypass-approvals-and-sandbox`, `--dangerously-skip-permissions`,
+`--always-approve`, `--allow-all`), and the cockpit never sees their individual
+tool calls, so nothing gates them at either end. Each CLI *has* a permission
+system; per-engine levels (full auto / gated / plan-only) selectable in the chat
+bar are the planned fix, with the cockpit as the single chokepoint rendering one
+uniform card surface. Note the phone constraint: Codex's sandbox modes cannot
+initialize under proot (bwrap needs user namespaces), so on-device the approval
+axis is the only one available. These *act*.
 
 ### Class 2 — Chat-driven pseudo-assistant
 

@@ -8,7 +8,7 @@ All keys live in **Settings → Engine keys**, encrypted at rest (AES-256-GCM). 
 
 ## AI models (chat "brains") — `server/src/brains.js`
 
-One OpenAI-compatible adapter (`POST /chat/completions`) covers all of them; a new provider is a single base-URL row. These are **chat only — no tools, no file access** (the agent engines with hands are Claude Code, Codex, and Gemini CLI, wired separately). `defaultModel` is a starting point only — type any model the provider offers in the model box.
+One OpenAI-compatible adapter (`POST /chat/completions`) covers all of them; a new provider is a single base-URL row. These are **chat only — no tools, no file access** (the agent engines with hands are the CLI tier — Claude Code, Codex, Antigravity, Grok Build and Copilot — wired separately). `defaultModel` is a starting point only — type any model the provider offers in the model box.
 
 | Provider | id | Key | Default model | Notes |
 |---|---|---|---|---|
