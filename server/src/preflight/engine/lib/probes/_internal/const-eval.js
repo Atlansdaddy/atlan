@@ -130,6 +130,66 @@ export function expandCalledHelpers(line, bodies, depth = 1) {
   return out;
 }
 
+/**
+ * Read the right-hand side of an assignment starting at `startIdx` in
+ * `content`, stopping at the statement boundary rather than the end of the
+ * line.
+ *
+ * Real-scan finding 2026-07 (second pass): a line-anchored regex was the
+ * reason 24 XSS false positives survived the first const-eval fix. It broke on
+ * every shape real code actually uses:
+ *
+ *   el.innerHTML = `<div class="card">      <- template continues for 8 lines
+ *   const box = $('x'); box.innerHTML = ''; box.style.display = '';
+ *   list.innerHTML = '<div class="hint">unreachable</div>'; }
+ *
+ * The first truncates to an unterminated backtick, the second and third
+ * swallow the following statement or a closing brace, and in all three cases
+ * the captured text is not a literal so the value reads as taintable.
+ *
+ * This walks the real expression: it tracks quote and template nesting, so a
+ * `;` or newline inside a string or a `${}` does not end it.
+ */
+export function readAssignedExpression(content, startIdx) {
+  let i = startIdx;
+  while (i < content.length && /\s/.test(content[i])) i++;
+  const start = i;
+  let depth = 0; // (), [], {}
+  let tmplDepth = 0; // nesting of ${ } inside templates
+  let quote = null; // ' " `
+  for (; i < content.length && i < start + 8000; i++) {
+    const ch = content[i];
+    const prev = content[i - 1];
+    if (quote) {
+      if (ch === quote && prev !== '\\') {
+        if (quote === '`' && tmplDepth > 0) continue;
+        quote = null;
+      } else if (quote === '`' && ch === '$' && content[i + 1] === '{') {
+        tmplDepth++;
+        i++;
+      } else if (quote === '`' && ch === '}' && tmplDepth > 0) {
+        tmplDepth--;
+      }
+      continue;
+    }
+    if (ch === "'" || ch === '"' || ch === '`') {
+      quote = ch;
+      continue;
+    }
+    if (ch === '(' || ch === '[' || ch === '{') depth++;
+    else if (ch === ')' || ch === ']' || ch === '}') {
+      if (depth === 0) break; // closing brace of the enclosing block
+      depth--;
+    } else if ((ch === ';' || ch === '\n') && depth === 0) {
+      // A newline only ends the statement when the expression looks complete.
+      if (ch === ';') break;
+      const soFar = content.slice(start, i).trim();
+      if (soFar && !/[+\-*/%?:,.&|=([{]$/.test(soFar)) break;
+    }
+  }
+  return content.slice(start, i).trim();
+}
+
 const isLiteralExpression = (expr) =>
   /^'[^']*'$/.test(expr) ||
   /^"[^"]*"$/.test(expr) ||
@@ -199,6 +259,19 @@ export function resolvesToConstant(expr, bindings) {
   if (!expr || !bindings) return false;
   const e = expr.trim();
 
+  // A literal is a constant. This was missing, and it mattered: the function
+  // was written to resolve identifiers and calls, with literals handled by the
+  // caller, so every compound expression whose PARTS are literals — a ternary
+  // between two strings, a concatenation of two strings — failed here.
+  if (isLiteralExpression(e)) return true;
+
+  // Concatenation of constants is a constant.
+  //   row.innerHTML = html + '<button class="rowdel">x</button>';
+  if (e.includes('+')) {
+    const parts = splitTopLevel(e, '+');
+    if (parts.length > 1 && parts.every((p) => resolvesToConstant(p, bindings))) return true;
+  }
+
   // A bare identifier bound to a literal or a numeric value.
   if (/^[A-Za-z_$][\w$]*$/.test(e)) {
     return bindings.constants.has(e) || bindings.numerics.has(e);
@@ -208,20 +281,122 @@ export function resolvesToConstant(expr, bindings) {
   const call = e.match(/^([A-Za-z_$][\w$]*)\s*\(/);
   if (call && (bindings.sanitizers.has(call[1]) || bindings.literalFns.has(call[1]))) return true;
 
-  // A template literal whose every substitution resolves to a constant or a
-  // number. `<b>${errCount}</b> / <b>${snapCount}</b>` is markup the author
-  // wrote around values that cannot contain markup.
+  // A ternary whose branches are all constants is a constant. Real code picks
+  // between two bits of static markup constantly:
+  //   box.innerHTML = items.length ? '' : '<div class="hint">none yet</div>';
+  if (e.includes('?') && e.includes(':')) {
+    const branches = ternaryBranches(e);
+    if (branches && branches.every((b) => resolvesToConstant(b, bindings))) return true;
+  }
+
+  // A template literal whose every substitution is safe. The markup around the
+  // holes is the author's; the question is only what goes in the holes.
   if (/^`[\s\S]*`$/.test(e)) {
-    const subs = [...e.matchAll(/\$\{([^}]*)\}/g)].map((m) => m[1].trim());
+    const subs = templateSubstitutions(e);
     if (subs.length === 0) return true;
-    return subs.every(
-      (s) =>
-        /^-?\d+(?:\.\d+)?$/.test(s) ||
-        bindings.numerics.has(s) ||
-        bindings.constants.has(s) ||
-        /\.length$/.test(s)
-    );
+    return subs.every((s) => isSafeSubstitution(s, bindings));
   }
 
   return false;
 }
+
+// Split on a binary operator at nesting depth zero, ignoring occurrences
+// inside strings, templates, parens or brackets.
+function splitTopLevel(expr, op) {
+  const parts = [];
+  let depth = 0;
+  let quote = null;
+  let last = 0;
+  for (let i = 0; i < expr.length; i++) {
+    const ch = expr[i];
+    if (quote) {
+      if (ch === quote && expr[i - 1] !== '\\') quote = null;
+      continue;
+    }
+    if (ch === "'" || ch === '"' || ch === '`') quote = ch;
+    else if ('([{'.includes(ch)) depth++;
+    else if (')]}'.includes(ch)) depth--;
+    else if (ch === op && depth === 0) {
+      parts.push(expr.slice(last, i).trim());
+      last = i + 1;
+    }
+  }
+  parts.push(expr.slice(last).trim());
+  return parts.filter(Boolean);
+}
+
+// Split a ternary into its two branches, ignoring `?` and `:` that sit inside
+// strings, templates or nested parens.
+function ternaryBranches(expr) {
+  let depth = 0;
+  let quote = null;
+  let qIdx = -1;
+  for (let i = 0; i < expr.length; i++) {
+    const ch = expr[i];
+    if (quote) {
+      if (ch === quote && expr[i - 1] !== '\\') quote = null;
+      continue;
+    }
+    if (ch === "'" || ch === '"' || ch === '`') quote = ch;
+    else if ('([{'.includes(ch)) depth++;
+    else if (')]}'.includes(ch)) depth--;
+    else if (ch === '?' && depth === 0 && expr[i + 1] !== '.' && expr[i + 1] !== '?') {
+      qIdx = i;
+      break;
+    }
+  }
+  if (qIdx < 0) return null;
+  depth = 0;
+  quote = null;
+  for (let i = qIdx + 1; i < expr.length; i++) {
+    const ch = expr[i];
+    if (quote) {
+      if (ch === quote && expr[i - 1] !== '\\') quote = null;
+      continue;
+    }
+    if (ch === "'" || ch === '"' || ch === '`') quote = ch;
+    else if ('([{'.includes(ch)) depth++;
+    else if (')]}'.includes(ch)) depth--;
+    else if (ch === ':' && depth === 0) {
+      return [expr.slice(qIdx + 1, i).trim(), expr.slice(i + 1).trim()];
+    }
+  }
+  return null;
+}
+
+// Substitutions of a template literal, tolerant of nested braces inside `${}`.
+function templateSubstitutions(tmpl) {
+  const out = [];
+  for (let i = 0; i < tmpl.length - 1; i++) {
+    if (tmpl[i] !== '$' || tmpl[i + 1] !== '{') continue;
+    let depth = 1;
+    let j = i + 2;
+    for (; j < tmpl.length && depth > 0; j++) {
+      if (tmpl[j] === '{') depth++;
+      else if (tmpl[j] === '}') depth--;
+    }
+    out.push(tmpl.slice(i + 2, j - 1).trim());
+    i = j - 1;
+  }
+  return out;
+}
+
+// A substitution is safe when it cannot introduce markup: a number, a
+// same-file constant, a length read, a value passed through a sanitizer, or a
+// ternary of those.
+function isSafeSubstitution(s, bindings) {
+  if (!s) return true;
+  if (/^-?\d+(?:\.\d+)?$/.test(s)) return true;
+  if (bindings.numerics.has(s) || bindings.constants.has(s)) return true;
+  if (/\.length$/.test(s)) return true;
+  // escapeHtml(x) inside a hole is the whole point of having an escaper.
+  if (HTML_SANITIZER_IN_SUB.test(s)) return true;
+  const call = s.match(/^([A-Za-z_$][\w$]*)\s*\(/);
+  if (call && (bindings.sanitizers.has(call[1]) || bindings.literalFns.has(call[1]))) return true;
+  const branches = ternaryBranches(s);
+  if (branches && branches.every((b) => isSafeSubstitution(b, bindings))) return true;
+  return false;
+}
+
+const HTML_SANITIZER_IN_SUB =
+  /\b(?:DOMPurify\s*\.\s*sanitize|sanitizeHtml|escapeHtml|escape_html|he\s*\.\s*encode|validator\s*\.\s*escape)\s*\(/;

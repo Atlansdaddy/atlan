@@ -17,8 +17,12 @@
 // multi-user app would not do.
 
 // Server binds that cannot receive traffic from another machine.
+// The port is usually a constant, not a literal: `server.listen(PORT,
+// '127.0.0.1')`. Requiring \d+ meant the most common form in real code never
+// matched, which is why a cockpit that binds loopback twice was not detected
+// as local at all.
 const LOOPBACK_BIND_RE =
-  /(?:listen|bind|host|hostname|HOST)\s*[:=(]\s*['"`](?:127\.0\.0\.1|localhost|::1)['"`]|--host[= ](?:127\.0\.0\.1|localhost)|\blisten\s*\(\s*\d+\s*,\s*['"`](?:127\.0\.0\.1|localhost)['"`]/;
+  /(?:listen|bind|host|hostname|HOST)\s*[:=(]\s*['"`](?:127\.0\.0\.1|localhost|::1)['"`]|--host[= ](?:127\.0\.0\.1|localhost)|\b(?:listen|bind)\s*\(\s*[^,)]+,\s*['"`](?:127\.0\.0\.1|localhost|::1)['"`]/;
 
 // A public bind anywhere is disqualifying: the app can receive outside traffic.
 const PUBLIC_BIND_RE =
@@ -29,8 +33,13 @@ const DESKTOP_SHELL_RE =
   /\b(?:electron|@electron\/|tauri|@tauri-apps\/|neutralinojs|nw\.js)\b|BrowserWindow\s*\(|tauri\.conf\.json/;
 
 // Multi-user signals. Any of these means the "single user" premise is wrong.
+// Every token here has to mean "more than one human uses this". An earlier
+// version made the suffix optional in `register(User|Account)?`, so bare
+// `register` matched — and `navigator.serviceWorker.register('/sw.js')` in a
+// single-user cockpit read as a signup flow. `permissions: [` came out too:
+// an agent-permission prompt is not user-account permissions.
 const MULTI_USER_RE =
-  /\b(?:signup|sign_up|register(?:User|Account)?|createUser|inviteUser|tenant|organization[Ii]d|orgId|workspaceId|role[Bb]ased|rbac|permissions?\s*[:=]\s*\[|users\s*\.\s*(?:findMany|insertMany))\b/;
+  /\b(?:signup|sign_up|signUp|registerUser|registerAccount|createUser|inviteUser|invite_user|tenantId|tenant_id|organization[Ii]d|orgId|workspaceId|roleBased|\brbac\b|users\s*\.\s*(?:findMany|insertMany)|multi[-_]?tenant)\b/;
 
 // Deploy targets imply a public URL.
 const DEPLOY_CONFIG_RE =

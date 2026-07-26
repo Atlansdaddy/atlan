@@ -14,6 +14,7 @@ import {
   resolvesToConstant,
   collectFunctionBodies,
   expandCalledHelpers,
+  readAssignedExpression,
 } from './_internal/const-eval.js';
 import {
   SECRET_VALUE_PLACEHOLDER_RE,
@@ -249,12 +250,21 @@ export function probeAuthWeakness(files) {
         // value from the ORIGINAL line, because the mask blanks template
         // literal contents, which turns `<p>${x}</p>` into a substitution-free
         // string and would read a tainted interpolation as a constant.
-        const INNER_HTML_ASSIGN = /\b(?:innerHTML|outerHTML)\s*\+?=\s*([\s\S]+?)\s*;?\s*$/;
-        const innerHtmlAssignMatch = line.match(INNER_HTML_ASSIGN);
-        const innerHtmlRealMatch = realLine.match(INNER_HTML_ASSIGN);
-        const xssInnerHTMLAssignHit =
-          innerHtmlAssignMatch !== null &&
-          isTaintableHtmlValue((innerHtmlRealMatch || innerHtmlAssignMatch)[1], safeBindings);
+        // Read the real expression from the FULL file text, not from the line.
+        // Line-anchored extraction was why 24 XSS false positives survived the
+        // first const-eval pass: a multi-line template truncated to an
+        // unterminated backtick, and `x.innerHTML = ''; y = 1;` swallowed the
+        // following statement, so neither read as a literal.
+        const INNER_HTML_ASSIGN = /\b(?:innerHTML|outerHTML)\s*\+?=/;
+        let xssInnerHTMLAssignHit = false;
+        if (INNER_HTML_ASSIGN.test(line)) {
+          const lineStart = originalLines.slice(0, i).reduce((n, l) => n + l.length + 1, 0);
+          const relIdx = realLine.search(INNER_HTML_ASSIGN);
+          const eqIdx = relIdx >= 0 ? realLine.indexOf('=', relIdx) : -1;
+          const expr =
+            eqIdx >= 0 ? readAssignedExpression(file.content, lineStart + eqIdx + 1) : '';
+          xssInnerHTMLAssignHit = isTaintableHtmlValue(expr, safeBindings);
+        }
         const xssFrameworkRe =
           /\bv-html\s*=\s*["']|\{@html\s+|<\w[^>]*\sinnerHTML\s*=\s*\{|\[\s*innerHTML\s*\]\s*=\s*["']|\.\s*bypassSecurityTrust(?:Html|Script|Style|Url|ResourceUrl)\s*\(|\bng-bind-html\s*=\s*["']|\$sce\s*\.\s*trustAs(?:Html|Js|Css|Url|ResourceUrl)\s*\(|\bunsafe(?:HTML|SVG|Static)\s*\(|\{\{\{[^}]+\}\}\}/;
         const xssJsUrlRe =
@@ -1088,6 +1098,25 @@ export function probeCookieFlags(files) {
       // widens when there IS a call, so an inline cookie set with no flags
       // still fires.
       const ctx = expandCalledHelpers(windowText, helperBodies);
+      // If the cookie value comes from a call we cannot resolve — an imported
+      // helper like `cookieHeader()` defined in another module — then the flags
+      // are somewhere this probe cannot see. "I cannot see it" is not the same
+      // claim as "it is missing", and reporting the second when we mean the
+      // first is how a scanner tells someone their working code is broken
+      // (real-scan finding 2026-07: three findings against an app whose helper
+      // set all three flags one import away).
+      // Bare calls only. `res.cookie(...)` and `cookies().set(...)` are the
+      // sink itself, not a helper that builds the value, and treating them as
+      // unresolvable would suppress every real finding.
+      const callsUnresolvedHelper = [...windowText.matchAll(/([.\w$]?)\b([A-Za-z_$][\w$]*)\s*\(/g)]
+        .filter((m) => m[1] !== '.')
+        .some(
+          (m) =>
+            !helperBodies.has(m[2]) &&
+            /^(?:[\w$]*cookie[\w$]*|[\w$]*sessionHeader|buildSession[\w$]*)$/i.test(m[2]) &&
+            !/^(?:setCookie|set_cookie|cookies)$/i.test(m[2])
+        );
+      if (callsUnresolvedHelper) return;
       const missing = [];
       if (
         !isCsrfDoubleSubmit &&

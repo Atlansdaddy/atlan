@@ -55,17 +55,62 @@ export function countAdvisoryFindings(findings) {
   return (findings || []).filter(isAdvisoryFinding).length;
 }
 
+// Repeat instances of the same problem cost less than the first one.
+//
+// The band caps this replaced protected against noise, and they worked: a repo
+// with forty cosmetic findings could not be dragged to CRITICAL. But a hard cap
+// creates a plateau where progress is invisible. A real scan went from 24
+// false-positive XSS findings to 7 and the number did not move by a single
+// point, because both counts sat past the cap. Someone who fixes two-thirds of
+// a problem and sees no change learns that the score is not worth chasing.
+//
+// The model now: findings group into classes by probe and severity, because
+// twenty instances of one pattern is one thing to go fix, not twenty. A class
+// costs its severity weight times a multiplier that grows with the log of the
+// instance count and stops at 3x. So the first instance carries most of the
+// cost, the twentieth adds very little, and removing any instance always
+// changes the total.
+//
+//   1 instance   1.0x     4 instances  2.0x     16 instances  3.0x (max)
+//   2 instances  1.5x     8 instances  2.5x     50 instances  3.0x
+// Class multiplier: count^0.6, then bent smoothly toward a ceiling it never
+// actually reaches.
+//
+// The ceiling has to be asymptotic rather than a clamp. A hard `Math.min` was
+// tried first and a test caught it immediately: 24 instances and 40 instances
+// both pinned at the maximum and scored identically, which is the exact
+// plateau this model replaced, just moved further out. Any flat region is a
+// place where someone fixes real problems and the number tells them nothing.
+//
+// r = count^0.6 gives sublinear growth. m = MAX·r / (r + MAX − 1) bends it,
+// equals 1 at count 1, and rises forever while staying under MAX.
+//
+//   1 instance  1.00x     12 instances  2.82x     100 instances  4.55x
+//   3 instances 1.67x     24 instances  3.45x     500 instances  5.35x
+//   7 instances 2.35x     40 instances  3.88x       ∞            → 6x
+export const REPEAT_MULTIPLIER_MAX = 6;
+export const REPEAT_EXPONENT = 0.6;
+
+export function classMultiplier(count) {
+  if (count <= 1) return 1;
+  const r = Math.pow(count, REPEAT_EXPONENT);
+  return (REPEAT_MULTIPLIER_MAX * r) / (r + REPEAT_MULTIPLIER_MAX - 1);
+}
+
 function scoreOf(findings) {
-  const perBand = { critical: 0, high: 0, medium: 0, low: 0, info: 0 };
+  // class key -> instance count
+  const classes = new Map();
   findings.forEach((f) => {
-    const w = SEV_WEIGHT[f.severity];
-    if (w) perBand[f.severity] += w;
+    if (!SEV_WEIGHT[f.severity]) return;
+    const key = `${f.probe || 'unknown'}::${f.severity}`;
+    classes.set(key, (classes.get(key) || 0) + 1);
   });
   let deduction = 0;
-  for (const sev of SEV_ORDER) {
-    deduction += Math.min(perBand[sev], SEV_BAND_CAP[sev]);
+  for (const [key, count] of classes) {
+    const severity = key.slice(key.lastIndexOf('::') + 2);
+    deduction += SEV_WEIGHT[severity] * classMultiplier(count);
   }
-  return Math.max(0, 100 - deduction);
+  return Math.max(0, Math.round(100 - deduction));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

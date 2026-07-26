@@ -231,6 +231,16 @@ export const FILE_EXCLUDE = [
   /(^|\/)coverage\//,
   /(^|\/)\.cache\//,
   /(^|\/)\.turbo\//,
+  // Vendored third-party code. Same reasoning as node_modules, which is
+  // already excluded: it is not the author's code to fix, and it is a large
+  // false-positive source because libraries legitimately contain the shapes
+  // the probes hunt for. Real-scan finding 2026-07: a bundled CodeMirror PHP
+  // syntax mode carries `setcookie` in its keyword list and was reported as an
+  // auth cookie missing its flags.
+  /(^|\/)vendor\//,
+  /(^|\/)vendored\//,
+  /(^|\/)third[-_]party\//,
+  /(^|\/)bower_components\//,
 ];
 
 export function shouldScanFile(path) {
