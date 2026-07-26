@@ -80,10 +80,19 @@ export function dropSession(t) { const h = sha(t); sessions = sessions.filter((x
 // Password change revokes every session (peer review): a stolen cookie dies.
 export function revokeAllSessions() { sessions = []; saveSessions(); }
 export const COOKIE = 'atlan_session';
-// Secure flag when served over TLS (a tunnel); omitted on plain loopback http.
+// Secure flag: forced on by ATLAN_SECURE_COOKIE, else set PER-REQUEST when the
+// connection is actually https (a tunnel sets X-Forwarded-Proto). This gives a
+// Secure cookie over the tailscale/https tunnel WITHOUT breaking plain
+// loopback-http login, where a Secure cookie the browser would refuse to send.
 const SECURE = !!process.env.ATLAN_SECURE_COOKIE;
-export function cookieHeader(token, { clear = false } = {}) {
-  const base = `${COOKIE}=${clear ? '' : token}; HttpOnly; SameSite=Strict; Path=/${SECURE ? '; Secure' : ''}`;
+export function isHttpsRequest(req) {
+  if (req?.secure) return true;
+  const xf = req?.headers?.['x-forwarded-proto'];
+  return typeof xf === 'string' && xf.split(',')[0].trim() === 'https';
+}
+export function cookieHeader(token, { clear = false, req = null } = {}) {
+  const secure = SECURE || isHttpsRequest(req);
+  const base = `${COOKIE}=${clear ? '' : token}; HttpOnly; SameSite=Strict; Path=/${secure ? '; Secure' : ''}`;
   return clear ? `${base}; Max-Age=0` : `${base}; Max-Age=${Math.floor(SESSION_TTL / 1000)}`;
 }
 function cookieToken(req) {

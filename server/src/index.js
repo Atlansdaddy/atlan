@@ -67,9 +67,16 @@ app.post('/api/auth/setup', (req, res) => {
   if (!setupAllowed(req)) return res.status(403).json({ error: 'first-run setup must come from this device' });
   try {
     setPassword(String(req.body?.password ?? ''));
-    res.setHeader('Set-Cookie', cookieHeader(newSession()));
+    res.setHeader('Set-Cookie', cookieHeader(newSession(), { req }));
     res.json({ ok: true });
-  } catch (err) { res.status(400).json({ error: err.message }); }
+  } catch (err) {
+    // Pre-auth endpoint: only surface the known length-validation message; any
+    // other error (e.g. an fs failure writing auth.json) must not leak an
+    // internal path to an unauthenticated caller — log it, return generic.
+    const safe = /at least \d+ characters/i.test(err?.message || '');
+    if (!safe) console.error('[auth/setup] unexpected error:', err);
+    res.status(400).json({ error: safe ? err.message : 'setup failed — check the server log' });
+  }
 });
 app.post('/api/auth/login', (req, res) => {
   if (loginThrottled()) return res.status(429).json({ error: 'too many attempts — wait a minute' });
@@ -79,13 +86,13 @@ app.post('/api/auth/login', (req, res) => {
     return res.status(401).json({ error: 'wrong password' });
   }
   clearLoginFails();
-  res.setHeader('Set-Cookie', cookieHeader(newSession()));
+  res.setHeader('Set-Cookie', cookieHeader(newSession(), { req }));
   res.json({ ok: true });
 });
 app.post('/api/auth/logout', (req, res) => {
   const m = /(?:^|;\s*)atlan_session=([^;]+)/.exec(req.headers.cookie || '');
   if (m) dropSession(m[1]);
-  res.setHeader('Set-Cookie', cookieHeader('', { clear: true }));
+  res.setHeader('Set-Cookie', cookieHeader('', { clear: true, req }));
   res.json({ ok: true });
 });
 app.post('/api/auth/password', authMiddleware, (req, res) => {
@@ -95,7 +102,7 @@ app.post('/api/auth/password', authMiddleware, (req, res) => {
   try {
     setPassword(String(req.body?.next ?? ''));
     revokeAllSessions();
-    res.setHeader('Set-Cookie', cookieHeader(newSession()));
+    res.setHeader('Set-Cookie', cookieHeader(newSession(), { req }));
     res.json({ ok: true });
   } catch (err) { res.status(400).json({ error: err.message }); }
 });
