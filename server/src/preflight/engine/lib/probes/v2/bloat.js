@@ -9,6 +9,13 @@
 // Severity ceiling for the family is MEDIUM by design. Nothing here is an
 // exploit; the expected response is "go read this file", not "patch now".
 //
+// Within that ceiling the line is between artifacts and opinions. A backup file
+// sitting in the tree is a thing that is there, so it earns the medium. Every
+// other check in this family is a judgement about how code is written, and
+// those are low. Function length used to break that rule at medium, which put
+// it two and a half times above the cyclomatic-complexity check even though
+// complexity measures the same property better (2026-07).
+//
 // Two roster entries from the spec are deliberately NOT implemented:
 //   - "generic name pollution (data/result/temp/item)" — spec §1.8 separately
 //     declines exactly this as unfixable-FP ("no deterministic signal separates
@@ -420,7 +427,16 @@ export function probeAICodegenBloat(files) {
           finding({
             id: `bloat-fn-long-${file.path}-${startLine}`,
             title: `Function "${name}" is ${endLine - startLine + 1} lines`,
-            severity: 'medium',
+            // Low, to sit level with the cyclomatic-complexity check below.
+            // The two measure the same property, and complexity measures it
+            // better: 130 flat sequential lines are easier to hold in your head
+            // than 40 lines with 18 branches. Ranking raw line count above the
+            // better signal, at two and a half times the weight, said the
+            // opposite. Both are observations about shape, and shape opinions
+            // are advisory here. The one medium left in this family is the
+            // backup-file check, which reports a concrete artifact sitting in
+            // the tree rather than a judgement about how code is written.
+            severity: 'low',
             cwe: 'CWE-1121',
             file: file.path,
             line: startLine,
