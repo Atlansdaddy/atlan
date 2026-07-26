@@ -25,6 +25,12 @@ const REF = args[args.indexOf('--ref') + 1] || 'main';
 const REPO = args[args.indexOf('--repo') + 1] || 'https://github.com/midatlanticAI/PreFlight.git';
 const ENTRY_REL = 'src/lib/cockpit-scan.js';
 const ENGINE_DEPS = ['acorn', 'acorn-loose', 'acorn-jsx'];
+// Fixtures are scan INPUTS, not engine code — deliberately-vulnerable samples
+// the probes parse to prove a rule fires. They are still vendored (the smoke
+// test scans one), but their imports must never reach Atlan's dependency tree:
+// JS-AUTH-001's sample imports `jsonwebtoken` purely as bait, and tracing it
+// installed a real package into the cockpit that nothing here ever runs.
+const DEP_EXEMPT_RE = /(^|[\\/])fixtures[\\/]/;
 
 const log = (...a) => console.log('[sync-preflight]', ...a);
 const die = (m) => { console.error('[sync-preflight] ABORT:', m); process.exit(1); };
@@ -64,6 +70,7 @@ try {
       cpSync(abs, dest);
       fileCount++;
       // collect external deps (line-anchored, comment-stripped) for the install step
+      if (DEP_EXEMPT_RE.test(childRel)) continue;
       const s = stripComments(readFileSync(abs, 'utf8'));
       for (const re of [IMPORT_RE, SIDE_RE]) {
         let m; re.lastIndex = 0;

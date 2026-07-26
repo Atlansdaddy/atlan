@@ -7,8 +7,7 @@
   "engineDeps": [
     "acorn",
     "acorn-jsx",
-    "acorn-loose",
-    "jsonwebtoken"
+    "acorn-loose"
   ],
   "entry": "server/src/preflight/engine/lib/cockpit-scan.js"
 }
