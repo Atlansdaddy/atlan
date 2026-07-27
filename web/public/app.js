@@ -255,7 +255,7 @@
         addBuildLine(m.msg, 'bl-hi');
         break;
       case 'pty.data': term?.write(m.data); break;
-      case 'pty.exit': term?.writeln('\r\n[tmux session ended — reopen the tab to restart]'); break;
+      case 'pty.exit': term?.writeln('\r\n[terminal session ended — reopen the tab to restart]'); break;
       case 'fleet.run': upsertRun(m.run); break;
       case 'fleet.event': {
         const r = fleetRuns.get(m.id);

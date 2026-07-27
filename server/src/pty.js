@@ -14,30 +14,60 @@ function ptyEnv() {
 
 // tmux-backed PTYs: `new-session -A` attaches if it exists, creates if not.
 // The same session is reachable from Termux with: tmux attach -t atlan-<name>
-// — that is the CLI↔GUI switch for every non-SDK engine.
+// — that is the CLI↔GUI switch for every non-SDK engine. On win32 there is no
+// tmux, so the PTY is a bare shell and that CLI↔GUI handoff does not exist.
 const sessions = new Map();
 
-export function openPty(name, ws, { cols = 80, rows = 24, cwd = '/root' } = {}) {
+// The try/catch below is a win32 guard, NOT a general one — do not read it as
+// "spawn failures are handled". Measured on node-pty 1.x / Linux: a missing
+// binary does NOT throw. pty.spawn() forks a live PTY and returns a valid
+// terminal; the exec fails in the CHILD, surfacing asynchronously as
+// onData "execvp(3) failed.: No such file or directory" + onExit {exitCode:1}.
+// So on the phone and the home node a missing tmux flows through the normal
+// data/exit path (the user does see the execvp line), and this catch never
+// fires. It earns its place on win32, where a bad COMSPEC can throw
+// synchronously out of the WS message handler. Returns null on that path; the
+// caller ignores the return value, so a dead PTY degrades rather than taking
+// the socket down with it.
+export function openPty(name, ws, { cols = 80, rows = 24, cwd } = {}) {
   let s = sessions.get(name);
   if (!s) {
-    const proc = pty.spawn('tmux', ['new-session', '-A', '-s', `atlan-${name}`], {
-      name: 'xterm-256color',
-      cols, rows, cwd,
-      env: ptyEnv(),
-    });
-    s = { proc, subs: new Set() };
-    proc.onData((data) => {
-      for (const sub of s.subs) {
-        if (sub.readyState === 1) sub.send(JSON.stringify({ t: 'pty.data', name, data }));
+    // win32 has no tmux and no /root. The `cwd === '/root'` case is not
+    // redundant: the WS handler passes that literal as its own default, so it
+    // arrives here as an explicit value rather than as undefined.
+    const isWin = process.platform === 'win32';
+    const defaultCwd = isWin ? process.cwd() : '/root';
+    const targetCwd = (!cwd || (cwd === '/root' && isWin)) ? defaultCwd : cwd;
+
+    const shell = isWin ? (process.env.COMSPEC || 'powershell.exe') : 'tmux';
+    const args = isWin ? [] : ['new-session', '-A', '-s', `atlan-${name}`];
+
+    try {
+      const proc = pty.spawn(shell, args, {
+        name: 'xterm-256color',
+        cols, rows, cwd: targetCwd,
+        env: ptyEnv(),
+      });
+      s = { proc, subs: new Set() };
+      proc.onData((data) => {
+        for (const sub of s.subs) {
+          if (sub.readyState === 1) sub.send(JSON.stringify({ t: 'pty.data', name, data }));
+        }
+      });
+      proc.onExit(() => {
+        for (const sub of s.subs) {
+          if (sub.readyState === 1) sub.send(JSON.stringify({ t: 'pty.exit', name }));
+        }
+        sessions.delete(name);
+      });
+      sessions.set(name, s);
+    } catch (err) {
+      console.error(`Failed to spawn PTY (${shell}):`, err.message);
+      if (ws.readyState === 1) {
+        ws.send(JSON.stringify({ t: 'pty.data', name, data: `\r\n[PTY Spawn Error: ${err.message}]\r\n` }));
       }
-    });
-    proc.onExit(() => {
-      for (const sub of s.subs) {
-        if (sub.readyState === 1) sub.send(JSON.stringify({ t: 'pty.exit', name }));
-      }
-      sessions.delete(name);
-    });
-    sessions.set(name, s);
+      return null;
+    }
   }
   s.subs.add(ws);
   ws.on('close', () => s.subs.delete(ws));
