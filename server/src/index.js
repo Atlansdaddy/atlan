@@ -332,7 +332,7 @@ function fmtGap(ms) {
 }
 const TAB_NAMES = {
   's-chat': 'Chat', 's-preview': 'Preview', 's-term': 'Terminal', 's-build': 'Build',
-  's-editor': 'Editor', 's-fleet': 'Fleet', 's-doctor': 'Doctor',
+  's-editor': 'Editor', 's-fleet': 'Fleet', 's-doctor': 'Doctor', 's-scan': 'Scan',
 };
 // Atlan's live self-awareness block — rides the uncached tail of each turn (like
 // the clock always did), so identity stays in the cached system prompt while the
