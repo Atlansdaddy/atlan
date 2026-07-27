@@ -18,6 +18,9 @@ import { isUnder } from './guards.js';
 import { agentStatus, agentTurn } from './agents.js';
 import { localModels, activateLocalModel } from './localmodels.js';
 import { handleInlineAiEdit } from './editorAi.js';
+import {
+  getGitStatus, getGitDiff, gitStage, gitUnstage, gitCommit, gitPush, gitPull, gitAiCommitMsg,
+} from './git.js';
 import { initFleet, spawnRun, listRuns, killRun, killAll, todayBurn, profileList, historyTail, topUpRun } from './fleet.js';
 import { pushPublicKey, addSub, subCount, notifyAll } from './push.js';
 import {
@@ -267,6 +270,19 @@ app.get('/api/tree', (req, res) => {
 // bearer gate and the origin pin. Kept in its own region so its import and route
 // stay off the lines neighbouring stages touch.
 app.post('/api/editor/ai-edit', express.json({ limit: '4mb' }), handleInlineAiEdit);
+
+// ── git ──
+// Same posture as the editor: post-auth, origin-pinned, and every handler
+// refuses APP_ROOT so the cockpit can't be made to stage its own .fleet/
+// .keys.enc/.auth-token and push them somewhere.
+app.get('/api/git/status', getGitStatus);
+app.get('/api/git/diff', getGitDiff);
+app.post('/api/git/stage', express.json(), gitStage);
+app.post('/api/git/unstage', express.json(), gitUnstage);
+app.post('/api/git/commit', express.json(), gitCommit);
+app.post('/api/git/push', express.json(), gitPush);
+app.post('/api/git/pull', express.json(), gitPull);
+app.post('/api/git/ai-commit-msg', express.json(), gitAiCommitMsg);
 
 // ── voice: TTS roster + synthesis (STT is browser-side Web Speech) ──
 // ── studio: generation surfaces (image on the ChatGPT subscription, no key) ──

