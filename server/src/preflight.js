@@ -3,6 +3,7 @@ import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { FLEET_DIR } from './config.js';
 
 const sh = promisify(exec);
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -21,7 +22,11 @@ export async function runPreflight() {
   // Password must be set before exposure — an unconfigured instance lets the
   // first caller claim it. Session cookies gate /api, /apk and WS; a header
   // bearer (.auth-token, 0600) exists for automation only, never in a URL.
-  const pwSet = existsSync(join(ROOT, '.fleet/auth.json'));
+  // Read FLEET_DIR, never a hardcoded ROOT/.fleet: auth.js hashes into
+  // join(FLEET_DIR, 'auth.json'), so an instance run with ATLAN_FLEET_DIR set
+  // would have this gate reporting on a file the server never authenticates
+  // against — green "password set" over an instance anyone can claim.
+  const pwSet = existsSync(join(FLEET_DIR, 'auth.json'));
   add('auth', 'Access auth layer', pwSet,
     pwSet ? 'password set; session-cookie gate on /api, /apk and WS; scrypt hash + 30-day sessions; header bearer for automation only'
           : 'NO password set yet — set one on first load before exposing this beyond the phone');

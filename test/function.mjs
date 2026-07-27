@@ -136,9 +136,16 @@ await test('POST /api/fleet/topup of non-halted → 400', async () => {
 });
 
 // ── data-store durability ("db") ──
+// Corrupt the store the SERVER UNDER TEST actually reads — config.js resolves
+// it as ATLAN_FLEET_DIR, and the harness always points that at a throwaway dir.
+// Reading ROOT/.fleet instead made these two both wrong ways at once: ENOENT on
+// a fresh checkout (no .fleet yet), and on a used checkout a vacuous pass — the
+// endpoint returned 200 off an untouched temp store while we corrupted a live
+// file the server never opened, so fail-soft was never actually exercised.
 const ROOT = new URL('../', import.meta.url).pathname;
+const FLEET = process.env.ATLAN_FLEET_DIR ?? ROOT + '.fleet';
 await test('a corrupt burn.json fails soft (endpoint still 200)', async () => {
-  const f = ROOT + '.fleet/burn.json';
+  const f = FLEET + '/burn.json';
   const bak = existsSync(f) ? readFileSync(f, 'utf8') : null;
   writeFileSync(f, '{ this is not json');
   const { status, body } = await j(await api('/api/fleet'));
@@ -147,7 +154,7 @@ await test('a corrupt burn.json fails soft (endpoint still 200)', async () => {
   if (bak !== null) writeFileSync(f, bak); else unlinkSync(f);
 });
 await test('a truncated history.jsonl line is skipped, not fatal', async () => {
-  const f = ROOT + '.fleet/history.jsonl';
+  const f = FLEET + '/history.jsonl';
   const bak = existsSync(f) ? readFileSync(f, 'utf8') : '';
   writeFileSync(f, bak + '\n{ half a record');
   const { status, body } = await j(await api('/api/fleet'));
