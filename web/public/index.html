@@ -49,6 +49,7 @@
       <div class="atlan-line" id="atlanLine" aria-live="polite" role="status">The water's calm, boss. What are we building today?</div>
     </div>
     <div class="sess" id="sessInfo"><span class="dot" id="connDot" role="img" aria-label="connection status"></span><b id="projName">no project</b><br><span id="sessMeta" aria-live="polite">connecting…</span><br><span id="burnMeta" class="burnmeta"></span></div>
+    <button id="themeBtn" title="toggle light/dark theme" aria-label="toggle theme">☀️</button>
     <button id="voiceBtn" title="voice replies on/off" aria-label="toggle voice replies" aria-pressed="false">🔈</button>
     <button id="helpBtn" title="guide & tour" aria-label="open guide">?</button>
   </header>
@@ -113,7 +114,57 @@
       <div id="editor" class="editorpane"></div>
       <div class="snapbar">
         <button class="btn hot" id="edSave">Save</button>
+        <button class="btn hot" id="edInlineAi">✨ Inline AI</button>
+        <button class="btn ghost" id="edGit">⑂ Git</button>
         <button class="btn ghost" id="edToChat">Send to Claude for review</button>
+      </div>
+      <div id="aiModal" class="aimodal" style="display:none">
+        <div class="aimodal-content">
+          <div class="eyebrow">Inline AI Edit</div>
+          <textarea id="aiModalInput" placeholder="what should the AI change?" rows="3"></textarea>
+          <div class="projbar">
+            <button class="btn hot" id="aiModalSubmit">Edit</button>
+            <button class="btn ghost" id="aiModalClose">Cancel</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Git lives under the Editor toolbar rather than the bottom nav: you commit
+         the code you were just editing, and the phone-first bar is full at eight. -->
+    <section class="screen" id="s-git">
+      <div class="ptools">
+        <b class="title">Git</b>
+        <button class="btn iconbtn" id="gitRefresh" title="refresh">↻</button>
+        <button class="btn ghost" id="gitBack" title="back to editor">‹ Editor</button>
+      </div>
+      <div class="eyebrow">Changed files</div>
+      <div id="gitFilesList" class="doctor-list">
+        <div class="hint">no changes, or not a git repo</div>
+      </div>
+
+      <div id="gitDiffBox" style="display:none;margin-top:8px">
+        <div class="eyebrow" id="gitDiffTitle">Diff</div>
+        <pre id="gitDiffContent" class="gitdiff"></pre>
+        <div class="projbar" style="margin-top:4px">
+          <button class="btn hot" id="gitStageBtn">Stage</button>
+          <button class="btn ghost" id="gitUnstageBtn">Unstage</button>
+        </div>
+      </div>
+
+      <div class="eyebrow" style="margin-top:10px">Commit</div>
+      <div class="bform" style="margin-bottom:8px">
+        <textarea id="gitCommitMsg" placeholder="commit message…" rows="2"></textarea>
+        <div class="projbar">
+          <button class="btn ghost" id="gitAiMsgBtn" title="generate a commit message from the diff">✨ AI Message</button>
+          <button class="btn hot" id="gitCommitBtn">Commit</button>
+        </div>
+      </div>
+      <div class="hint" id="gitNote"></div>
+
+      <div class="projbar">
+        <button class="btn ghost" id="gitPullBtn" style="flex:1">⬇ Pull</button>
+        <button class="btn ghost" id="gitPushBtn" style="flex:1">⬆ Push</button>
       </div>
     </section>
 
@@ -429,7 +480,7 @@
 <script src="vendor/cm/addon/edit/closebrackets.js"></script>
 <script src="vendor/cm/addon/edit/matchbrackets.js"></script>
 <script src="vendor/cm/addon/selection/active-line.js"></script>
-<script src="app.js?v=20260724"></script>
+<script src="app.js?v=20260727"></script>
 <script src="guide.js?v=20260724"></script>
 </body>
 </html>
