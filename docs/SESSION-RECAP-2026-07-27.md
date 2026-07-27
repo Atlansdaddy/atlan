@@ -288,8 +288,17 @@ sessions `auth-copilot`, `auth-grok`, `auth-agy` — attachable from the Term ta
 | Claude Code | ✅ authed (subscription) |
 | Codex GPT-5.6 | ✅ authed (subscription) |
 | **Grok** | ✅ **`Signed in as john@midatlantic.ai`** |
-| **Copilot** | ⚠️ device code accepted; **waiting on a prompt** — *"System keychain unavailable. Store token in plaintext config file? (y/N)"*. Your call. proot has no secret service so it's plaintext or nothing; note your own guards (`57587e2`, `49135bf`) already block agent-CLI plaintext token stores from the editor file API. |
-| **Antigravity** | ⚠️ **Google OAuth succeeded**, data-collection opt-in **unchecked at your instruction**, now waiting on *"Do you trust the contents of this project? /root/atlan"* — left for you, since it grants read/edit/execute. |
+| **Copilot** | ✅ **`Signed in successfully as Atlansdaddy`**. Accepted plaintext token storage — proot has no secret service, so it's plaintext or no Copilot. Mitigated: your own guards (`57587e2`, `49135bf`) already block agent-CLI plaintext token stores from the editor file API. |
+| **Antigravity** | ✅ **`jviruet83@gmail.com (Google AI Pro)`**, Gemini 3.6 Flash. Data-collection opt-in **unchecked** — the box was pre-ticked and `enter` toggles it, not `space`. Folder trust granted for `/root/atlan`. |
+
+**All five CLI engines authed.** Roster went from 3 ready to **7** (`codex`,
+`antigravity`, `grok`, `copilot`, `local`, `gemini`, plus `claude`). The Google
+AI Pro line on Antigravity matters: that's the subscription that also unlocks the
+Nano Banana Pro OAuth image path noted in §6.
+
+Remaining unconfigured are the 10 keyed cloud brains (OpenAI, DeepSeek, Kimi,
+xAI, Mistral, Groq, Together, OpenRouter, Fireworks, Cohere) — all API-key,
+therefore all metered.
 
 ---
 
@@ -341,8 +350,7 @@ shader and physics work).
 
 ## Open items, ranked
 
-1. **Answer the two auth prompts** — Copilot plaintext-token y/N; Antigravity
-   folder trust.
+1. ~~Answer the two auth prompts~~ — **done**, all five CLI engines authed.
 2. **Arm the watchdog** — `pkg install termux-api` + F-Droid addons +
    `termux-job-scheduler` registration, in native Termux.
 3. **Run the game-build test** — needs a model and budget decision.
