@@ -287,5 +287,48 @@ test('setupAllowed: a foreign Origin with no bearer is refused', () => {
   assert.equal(setupAllowed({ headers: { origin: 'http://evil.example' } }), false);
 });
 
+// ── resolveBrain: the agent-vs-brain classifier (S4) ──
+// A synthetic roster keeps this a pure unit — no keys, no llama-server probe.
+// The suite's test() is sync; these need await, so they get their own runner.
+async function atest(name, fn) {
+  try { await fn(); pass++; console.log(`  ✓ ${name}`); }
+  catch (err) { fail++; console.log(`  ✗ ${name} — ${err.message}`); }
+}
+const { resolveBrain } = await import('../server/src/brains.js');
+const ROSTER = [
+  { id: 'local', label: 'On-device', model: 'qwen', ready: false },
+  { id: 'gemini', label: 'Gemini', model: 'gemini-3.6-flash', ready: true },
+  { id: 'openai', label: 'OpenAI', model: 'gpt-5.6', ready: true },
+];
+await atest('resolveBrain: a real brain id resolves to itself', async () => {
+  const r = await resolveBrain('openai', null, ROSTER);
+  assert.equal(r.provider, 'openai');
+  assert.equal(r.fellBack, false);
+});
+await atest('resolveBrain: an explicit model overrides the roster default', async () => {
+  assert.equal((await resolveBrain('openai', 'gpt-5.6-sol', ROSTER)).model, 'gpt-5.6-sol');
+});
+await atest('resolveBrain: agent ids fall back to a ready brain, not "unknown engine"', async () => {
+  for (const agent of ['claude', 'codex', 'copilot', 'antigravity']) {
+    const r = await resolveBrain(agent, null, ROSTER);
+    assert.equal(r.provider, 'gemini', `${agent} did not fall back`);
+    assert.equal(r.fellBack, true, `${agent} fellBack not reported`);
+  }
+});
+await atest('resolveBrain: a NOT-ready brain is skipped when falling back', async () => {
+  assert.equal((await resolveBrain('claude', null, ROSTER)).provider, 'gemini'); // not 'local'
+});
+await atest('resolveBrain: the gemini agent-vs-brain ambiguity resolves brain-first', async () => {
+  const r = await resolveBrain('gemini', null, ROSTER);
+  assert.equal(r.provider, 'gemini');
+  assert.equal(r.fellBack, false);
+});
+await atest('resolveBrain: no ready brain throws a fix-it message, never a silent empty', async () => {
+  await assert.rejects(
+    () => resolveBrain('claude', null, [{ id: 'local', label: 'On-device', model: 'q', ready: false }]),
+    /Add a brain key/,
+  );
+});
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

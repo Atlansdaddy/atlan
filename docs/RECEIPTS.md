@@ -11,7 +11,7 @@ _Free suites only. The E2E suite (real Claude runs) is opt-in — `RUN_PAID=1 no
 
 | Suite | What it proves | Result |
 |---|---|---|
-| Unit | Pure functions in isolation: safe-arith evaluator, checker engine, Persona+ compilers, schema builders, scheduler math, token compare. | ✅ 45/45 |
+| Unit | Pure functions in isolation: safe-arith evaluator, checker engine, Persona+ compilers, schema builders, scheduler math, token compare. | ✅ 51/51 |
 | Function | Every HTTP endpoint contract + shape, plus data-store durability (corrupt/truncated JSON fails soft). (Spawns 1 tiny killed run.) | ✅ 25/25 |
 | Connection | Live WebSocket + PTY: authed connect, 4001 on bad token, malformed-frame survival, multi-client broadcast, tmux round-trip, reconnection. (Spawns 2 tiny killed runs.) | ✅ 6/6 |
 | Security/Penetration | Auth bypass, SSRF (preview + harness), secret exfiltration, path traversal, stored-XSS, oversized-body DoS, profile privilege-escalation. | ✅ 29/29 |
@@ -23,7 +23,7 @@ _Free suites only. The E2E suite (real Claude runs) is opt-in — `RUN_PAID=1 no
 | UI/UX | Headless Chromium drives the real cockpit: tabs, engine roster, doctor/preflight render, key entry no-leak, XSS-safe render. | ✅ 11/11 |
 | Tour/Onboarding | Drives all tour steps live — every step spotlights a real visible element; handbook opens/searches/relaunches. | ✅ 9/9 |
 
-**Total: 199 passed, 0 failed across 11 suites.**
+**Total: 205 passed, 0 failed across 11 suites.**
 
 ## Unit
 
@@ -77,8 +77,14 @@ UNIT SUITE
   ✓ setupAllowed: the local bearer passes with no Origin (scripted path)
   ✓ setupAllowed: no Origin + no bearer is REFUSED (the race vector we close)
   ✓ setupAllowed: a foreign Origin with no bearer is refused
+  ✓ resolveBrain: a real brain id resolves to itself
+  ✓ resolveBrain: an explicit model overrides the roster default
+  ✓ resolveBrain: agent ids fall back to a ready brain, not "unknown engine"
+  ✓ resolveBrain: a NOT-ready brain is skipped when falling back
+  ✓ resolveBrain: the gemini agent-vs-brain ambiguity resolves brain-first
+  ✓ resolveBrain: no ready brain throws a fix-it message, never a silent empty
 
-45 passed, 0 failed
+51 passed, 0 failed
 ```
 
 ## Function

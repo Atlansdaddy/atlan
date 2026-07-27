@@ -113,6 +113,30 @@ export async function engineRoster() {
   return roster;
 }
 
+// ONE resolver for "the user picked an engine in the UI — which brain do I
+// actually call?", shared by editorAi and gitAiCommitMsg. Both arrived with
+// their own copy of this mapping, and a mapping that lives in two places is the
+// same drift that let the editor's guard lose `.fleet` (see guards.js).
+//
+// The distinction that matters: #modelSel lists AGENTS (claude/codex/copilot —
+// they have hands and run as CLIs) alongside BRAINS (PROVIDERS ids — chat-only,
+// no filesystem). Only brains can answer a /chat/completions call, so an agent
+// id must fall back to a ready brain rather than being passed to brainChat,
+// which would reject it as `unknown engine: claude` — a silent no-op the user
+// experiences as "the button does nothing".
+//
+// `fellBack` is returned rather than swallowed so callers can tell the user
+// which brain actually ran; picking a model and silently getting a different
+// one is exactly the kind of quiet lie the honest-readiness rule forbids.
+export async function resolveBrain(engine, model, roster) {
+  roster = roster || await engineRoster();
+  const hit = engine ? roster.find((r) => r.id === engine) : null; // roster ids ARE PROVIDERS ids
+  if (hit) return { provider: hit.id, model: model || hit.model, chosen: hit.label, fellBack: false };
+  const ready = roster.find((r) => r.ready);
+  if (!ready) throw new Error('No configured brain key found. Add a brain key (Gemini, OpenAI, …) in Doctor.');
+  return { provider: ready.id, model: ready.model, chosen: ready.label, fellBack: true };
+}
+
 export async function brainChat({ provider, model, history, send }) {
   const p = PROVIDERS[provider];
   if (!p) return send({ t: 'chat.err', msg: `unknown engine: ${provider}` });
