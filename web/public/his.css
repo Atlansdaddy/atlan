@@ -108,3 +108,46 @@
 
 /* The base sheet already blanks .bubbles under prefers-reduced-motion; these
    keyframes are additive, so that rule keeps covering them. */
+
+/* ── S10 · light palette (D5: per-template) ────────────────────────────────
+   This is what actually makes Glass a distinct skin. Without it the template
+   is nearly a no-op, because helis-d's DARK values are numerically identical
+   to Classic's: his --phone-grad ends #020c18 (= Classic --ground), his
+   --nav-bg is rgba(2,12,24,0.92) (= Classic's nav background), and his
+   --glass-surface is rgb(3,32,61) at 65% (= Classic --surface #03203D). The
+   dark half is a blur pass over the same colours; the light half is the design.
+
+   Scoped to [data-template="his"] so Classic stays byte-for-byte dark-only and
+   MidAtlantic keeps its brand palette. #themeBtn is spine and flips
+   data-theme globally, but only this template answers it — that's the
+   graceful-degradation case, not a bug. A global light mode is a separate
+   design pass across every surface. */
+:root[data-template="his"][data-theme="light"] {
+  --ground: #E8EFF6;
+  --surface: #FFFFFF;
+  --surface2: #F0F5FA;
+  --line: #C0D0E0;
+  --ink: #0D1B2A;
+  --muted: #5C7992;
+  --dim: #5C7992;
+  --accent: #0A7EA4;
+  --accent2: #065F80;
+  --accent-ink: #FFFFFF;
+  --teal: #0A7EA4;
+  --hot: #D94400;
+  --hot2: #FF6723;
+  --orange: #FF6723;
+  --ok: #1B9E68;
+  --warn: #C98600;
+  --err: #C83232;
+  --panel: #F5F8FC;
+  --fg: #0D1B2A;
+  --glass-bg: rgba(232, 239, 246, 0.78);
+  --glass-surface: rgba(255, 255, 255, 0.72);
+  --phone-grad: linear-gradient(180deg, #F0F5FA 0%, #FFFFFF 30%, #E8EFF6 100%);
+  --nav-bg: rgba(240, 245, 250, 0.94);
+}
+
+/* The rising bubbles are drawn for a dark ground; at full strength they read as
+   dirt on a light one. */
+[data-template="his"][data-theme="light"] .bubbles { opacity: .25 }
