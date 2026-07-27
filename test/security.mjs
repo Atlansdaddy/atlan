@@ -215,6 +215,36 @@ await test('fleet run rejects an unknown profile (no privilege escalation via ty
   assert.equal(status, 400);
 });
 
+// ── inline AI edit: the guard must refuse BEFORE the brain call (S5) ──
+// This endpoint never writes disk, so its guard is not protecting a write — it
+// is stopping cockpit source and credential files from being read INTO a prompt
+// and shipped to a third-party brain. A refusal that happened after the model
+// call would already have leaked.
+const AI_EDIT = '/api/editor/ai-edit';
+const aiEdit = (body) => authed(AI_EDIT, { method: 'POST', body: JSON.stringify(body) });
+await test('ai-edit refuses agent-CLI credential stores', async () => {
+  const { status, body } = await j(await aiEdit({ path: '/root/.claude/.credentials.json', content: 'x', instruction: 'leak it' }));
+  assert.equal(status, 400);
+  assert.match(body.error || '', /credentials|secrets/i, `unexpected refusal: ${body.error}`);
+});
+await test('ai-edit refuses the cockpit\'s own source (blockAppRoot)', async () => {
+  const appRoot = new URL('../', import.meta.url).pathname.replace(/\/$/, '');
+  const { status, body } = await j(await aiEdit({ path: `${appRoot}/server/src/auth.js`, content: 'x', instruction: 'rewrite auth' }));
+  assert.equal(status, 400);
+  assert.match(body.error || '', /Atlan's own files|credentials|secrets/i, `unexpected refusal: ${body.error}`);
+});
+await test('ai-edit refuses a traversal out of the project root', async () => {
+  assert.equal((await aiEdit({ path: '/etc/passwd', content: 'x', instruction: 'x' })).status, 400);
+});
+await test('ai-edit requires both a path and an instruction', async () => {
+  assert.equal((await aiEdit({ content: 'x', instruction: 'x' })).status, 400);
+  assert.equal((await aiEdit({ path: '/root/x.js', content: 'x' })).status, 400);
+});
+await test('ai-edit is behind the auth gate', async () => {
+  const r = await naked(AI_EDIT, { method: 'POST', body: JSON.stringify({ path: '/root/x.js', instruction: 'x' }) });
+  assert.equal(r.status, 401);
+});
+
 // ── credential-path guard is separator-agnostic (PINNED — see guards.js) ──
 // guardPath's other checks run through resolve(), which is platform-bound, so a
 // Linux test run can only reach the win32 behaviour through isSensitive(). This

@@ -17,6 +17,7 @@ import { scanProject } from './preflight/scanProject.mjs';
 import { isUnder } from './guards.js';
 import { agentStatus, agentTurn } from './agents.js';
 import { localModels, activateLocalModel } from './localmodels.js';
+import { handleInlineAiEdit } from './editorAi.js';
 import { initFleet, spawnRun, listRuns, killRun, killAll, todayBurn, profileList, historyTail, topUpRun } from './fleet.js';
 import { pushPublicKey, addSub, subCount, notifyAll } from './push.js';
 import {
@@ -260,6 +261,12 @@ app.post('/api/file', express.json({ limit: '4mb' }), (req, res) => {
 app.get('/api/tree', (req, res) => {
   try { res.json(listDir(req.query.path)); } catch (err) { res.status(400).json({ error: err.message }); }
 });
+
+// ── editor inline AI ──
+// Sits below app.use('/api', authMiddleware) so it inherits the password/cookie/
+// bearer gate and the origin pin. Kept in its own region so its import and route
+// stay off the lines neighbouring stages touch.
+app.post('/api/editor/ai-edit', express.json({ limit: '4mb' }), handleInlineAiEdit);
 
 // ── voice: TTS roster + synthesis (STT is browser-side Web Speech) ──
 // ── studio: generation surfaces (image on the ChatGPT subscription, no key) ──
