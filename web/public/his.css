@@ -1,0 +1,110 @@
+/* "His" — helis-d's glass template, the third skin alongside Classic and
+   MidAtlantic. Same contract as midatlantic.css: a variable-override + effects
+   layer keyed on [data-template="his"], never a rewrite of the base.
+
+   WHY RE-SCOPED. His branch edits these rules bare — `header`, `.phone`, `nav`,
+   `.msg.claude`, `.btn`, `body` — which would replace Classic's look for every
+   user rather than offering an alternative to it. His work predates six of our
+   surfaces, so his style.css also DELETES the .codeblock review-card styles the
+   pseudo-assistant renders into, the WCAG skip-link, and the whole Scan axis +
+   findings block. Taking that file would have silently removed all three.
+   Re-scoping keeps every effect he wrote and costs Classic nothing: with
+   data-template unset, not one selector here matches.
+
+   NOT here, on purpose:
+   - The light palette. It's the D5 decision and lands in S10, so this file is
+     dark-only for now and #themeBtn stays inert under it (D6).
+   - Debug pane styles. They ship with the debugger in S11 or not at all, so a
+     revert of that stage takes its CSS with it.
+   - Functional surface styles (.aimodal, .gitfile, diff-*). Those belong to the
+     shared sheet with the DOM they style — a skin must never be load-bearing
+     for whether a feature is usable.
+   - His `.msg pre` / `.copy-btn` code-block styling. It exists for the
+     formatMarkdown renderer we drop in S9, so nothing would render it, and its
+     copy button reveals on :hover — which never fires on a touch device, the
+     primary target. */
+
+:root[data-template="his"] {
+  /* raw rgba surfaces the blur layers sit on */
+  --glass-bg: rgba(2, 12, 24, 0.72);
+  --glass-surface: rgba(3, 32, 61, 0.65);
+  --phone-grad: linear-gradient(180deg, #04254A 0%, #03203D 22%, #021627 55%, #020c18 100%);
+  --nav-bg: rgba(2, 12, 24, 0.92);
+}
+
+[data-template="his"] body {
+  transition: background .3s ease, color .3s ease;
+}
+
+[data-template="his"] .phone {
+  background: var(--phone-grad);
+  transition: background .3s ease;
+}
+
+/* ── glass chrome: header, nav, assistant bubbles ── */
+[data-template="his"] header {
+  background: var(--glass-bg);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  transition: background .3s ease;
+}
+
+[data-template="his"] nav {
+  background: var(--nav-bg);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  transition: background .3s ease;
+}
+
+[data-template="his"] nav button { transition: color .15s }
+[data-template="his"] nav button:hover { color: var(--ink) }
+
+[data-template="his"] .msg.claude {
+  background: var(--glass-surface);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+/* ── motion ── */
+[data-template="his"] .screen.active { animation: hisScreenIn .25s ease both }
+@keyframes hisScreenIn {
+  from { opacity: 0; transform: translateY(6px) }
+  to   { opacity: 1; transform: translateY(0) }
+}
+
+[data-template="his"] .msg {
+  position: relative;
+  animation: hisMsgIn .2s ease both;
+}
+@keyframes hisMsgIn {
+  from { opacity: 0; transform: translateY(4px) }
+  to   { opacity: 1; transform: translateY(0) }
+}
+
+[data-template="his"] .chatlog { scroll-behavior: smooth }
+
+/* ── controls ── */
+[data-template="his"] .btn {
+  transition: background .15s, border-color .15s, transform .1s;
+}
+[data-template="his"] .btn:active { transform: scale(0.97) }
+[data-template="his"] .btn.hot:hover { background: var(--hot2) }
+[data-template="his"] .btn.ghost:hover { color: var(--ink) }
+/* pointer-events:none on a disabled control also stops the click landing on
+   anything underneath it, which the base opacity-only rule allows. */
+[data-template="his"] .btn:disabled { pointer-events: none }
+
+/* The theme button is spine, not skin (D6) — it renders under every template.
+   These are its His-skin looks; it stays inert until a template defines a light
+   block, which is the S10/D5 decision. */
+[data-template="his"] #themeBtn {
+  flex: 0 0 auto; width: 30px; height: 30px; border-radius: 50%;
+  border: 1px solid var(--line); background: transparent;
+  color: var(--dim); font-size: 14px; cursor: pointer;
+  transition: border-color .2s, color .2s;
+}
+[data-template="his"] #themeBtn:hover,
+[data-template="his"] #themeBtn:active { color: var(--teal); border-color: var(--teal) }
+
+/* The base sheet already blanks .bubbles under prefers-reduced-motion; these
+   keyframes are additive, so that rule keeps covering them. */
