@@ -15,8 +15,14 @@ const pick = (env, key, dflt) => process.env[env] ?? file[key] ?? dflt;
 export const FLEET_DIR = process.env.ATLAN_FLEET_DIR ?? join(REPO, '.fleet');
 export const APP_ROOT = REPO; // where .auth-token, .snapshots, .keys.enc live
 
-// Where the user's code projects are scanned from + the default build target
-export const PROJECTS_DIR = pick('ATLAN_PROJECTS', 'projectsDir', '/root');
+// Where the user's code projects are scanned from + the default build target.
+// `/root` is the phone/home-node home dir; win32 has no such path, so the
+// hardcoded default put PROJECTS_DIR somewhere that cannot exist and every
+// guardPath rejected. Ships in the SAME commit as the guards.js separator fix
+// on purpose: a win32 projects-root without a win32-aware SENSITIVE test is
+// exactly the fail-open combination.
+const DEFAULT_PROJECTS = process.platform === 'win32' ? process.cwd() : '/root';
+export const PROJECTS_DIR = pick('ATLAN_PROJECTS', 'projectsDir', DEFAULT_PROJECTS);
 export const DEFAULT_BUILD_PROJECT = pick('ATLAN_BUILD_PROJECT', 'defaultBuildProject', PROJECTS_DIR);
 
 // Ports

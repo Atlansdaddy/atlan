@@ -22,6 +22,15 @@ import { APP_ROOT, PROJECTS_DIR } from './config.js';
 // stores directly (not via guardPath), so blocking the editor path is safe.
 export const SENSITIVE = /(^|\/)\.(ssh|aws|gnupg|gcloud|docker|kube|copilot|codex|grok|gemini|claude)(\/|$)|(^|\/)\.config\/(gh|github-copilot)(\/|$)|(^|\/)(\.auth-token|\.keys\.enc|\.keysecret|\.fleet|\.env|id_rsa|id_ed25519)(\/|$)/;
 
+// SENSITIVE only knows `/` as a separator, so on win32 every credential path
+// arrives as `C:\Users\x\.claude\...` and the regex misses it — the guard fails
+// OPEN, the one direction a guard must never fail. Normalize a COPY for the
+// test; the returned path stays untouched so callers still get a native path.
+// (Linux is a no-op: no backslashes to replace.) Exported because guardPath's
+// other checks are platform-bound via resolve(), so this is the only handle a
+// Linux test run has on the win32 behaviour.
+export const isSensitive = (p) => SENSITIVE.test(String(p).replace(/\\/g, '/'));
+
 export function isUnder(p, root) {
   const r = root.endsWith('/') ? root : root + '/';
   return p === root || p.startsWith(r);
@@ -41,7 +50,7 @@ export function guardPath(p, { mustExist = true, blockAppRoot = false, verb = 'e
   if (blockAppRoot && isUnder(abs, APP_ROOT)) {
     throw new Error("Atlan's own files aren't editable here — this editor is for your projects, not the cockpit's source/state");
   }
-  if (SENSITIVE.test(abs)) throw new Error(`that path looks like credentials/secrets — not ${verb} here`);
+  if (isSensitive(abs)) throw new Error(`that path looks like credentials/secrets — not ${verb} here`);
   if (mustExist && !existsSync(abs)) throw new Error('no such path');
   // Symlink guard: resolve() doesn't follow links, so realpath the nearest
   // EXISTING ancestor (for a new file that's the parent dir) and re-check it stays
@@ -52,7 +61,7 @@ export function guardPath(p, { mustExist = true, blockAppRoot = false, verb = 'e
     const real = realpathSync(anc);
     if (!isUnder(real, PROJECTS_DIR)) throw new Error('a symlinked path escapes the project root — refused');
     if (blockAppRoot && isUnder(real, APP_ROOT)) throw new Error("a symlinked path resolves into Atlan's own files — refused");
-    if (SENSITIVE.test(real)) throw new Error('resolves to a credentials/secrets path — refused');
+    if (isSensitive(real)) throw new Error('resolves to a credentials/secrets path — refused');
   }
   return abs;
 }

@@ -14,7 +14,7 @@ _Free suites only. The E2E suite (real Claude runs) is opt-in — `RUN_PAID=1 no
 | Unit | Pure functions in isolation: safe-arith evaluator, checker engine, Persona+ compilers, schema builders, scheduler math, token compare. | ✅ 45/45 |
 | Function | Every HTTP endpoint contract + shape, plus data-store durability (corrupt/truncated JSON fails soft). (Spawns 1 tiny killed run.) | ✅ 25/25 |
 | Connection | Live WebSocket + PTY: authed connect, 4001 on bad token, malformed-frame survival, multi-client broadcast, tmux round-trip, reconnection. (Spawns 2 tiny killed runs.) | ✅ 6/6 |
-| Security/Penetration | Auth bypass, SSRF (preview + harness), secret exfiltration, path traversal, stored-XSS, oversized-body DoS, profile privilege-escalation. | ✅ 26/26 |
+| Security/Penetration | Auth bypass, SSRF (preview + harness), secret exfiltration, path traversal, stored-XSS, oversized-body DoS, profile privilege-escalation. | ✅ 29/29 |
 | Adversarial | Malformed/oversized/hostile input across all surfaces; profile tool-blocking; preflight honesty. | ✅ 29/29 |
 | Worker Hierarchy | Job = chain of checker-gated links; cheapest-tier-first, escalate-on-fail up the model ladder, blackboard wiring, human gate pause/resume, ladder-exhaustion error. Mock tier engines — no real spend. | ✅ 7/7 |
 | Attachments | Upload (image/file) + reference (file/folder) + path-traversal guard + oversize/empty reject + audio/video graceful degradation without a key. | ✅ 7/7 |
@@ -23,7 +23,7 @@ _Free suites only. The E2E suite (real Claude runs) is opt-in — `RUN_PAID=1 no
 | UI/UX | Headless Chromium drives the real cockpit: tabs, engine roster, doctor/preflight render, key entry no-leak, XSS-safe render. | ✅ 11/11 |
 | Tour/Onboarding | Drives all tour steps live — every step spotlights a real visible element; handbook opens/searches/relaunches. | ✅ 9/9 |
 
-**Total: 196 passed, 0 failed across 11 suites.**
+**Total: 199 passed, 0 failed across 11 suites.**
 
 ## Unit
 
@@ -167,8 +167,11 @@ SECURITY / PENETRATION SUITE
   ✓ XSS payload in a persona name is stored inert (textContent, not HTML)
   ✓ oversized JSON body is rejected, server stays up
   ✓ fleet run rejects an unknown profile (no privilege escalation via typo)
+  ✓ credential paths are refused with EITHER path separator
+  ✓ the raw regex alone still misses backslash paths (proves the fix is load-bearing)
+  ✓ ordinary project paths are not swept up by the normalization
 
-26 passed, 0 failed
+29 passed, 0 failed
 ```
 
 ## Adversarial

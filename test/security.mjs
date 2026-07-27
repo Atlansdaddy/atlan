@@ -215,5 +215,31 @@ await test('fleet run rejects an unknown profile (no privilege escalation via ty
   assert.equal(status, 400);
 });
 
+// ── credential-path guard is separator-agnostic (PINNED — see guards.js) ──
+// guardPath's other checks run through resolve(), which is platform-bound, so a
+// Linux test run can only reach the win32 behaviour through isSensitive(). This
+// block is pinned: it trips the gate if the normalization is ever reverted,
+// because dropping it makes the guard fail OPEN on win32 rather than closed.
+const { isSensitive, SENSITIVE } = await import('../server/src/guards.js');
+await test('credential paths are refused with EITHER path separator', async () => {
+  for (const p of [
+    '/root/.claude/.credentials.json',
+    'C:\\Users\\jviru\\.claude\\.credentials.json',
+    'C:\\Users\\jviru\\.config\\gh\\hosts.yml',
+    'C:\\Users\\jviru\\atlan\\.auth-token',
+    'C:\\Users\\jviru\\atlan\\.fleet\\auth.json',
+  ]) assert.ok(isSensitive(p), `not refused: ${p}`);
+});
+await test('the raw regex alone still misses backslash paths (proves the fix is load-bearing)', () => {
+  assert.equal(SENSITIVE.test('C:\\Users\\jviru\\.claude\\.credentials.json'), false);
+});
+await test('ordinary project paths are not swept up by the normalization', async () => {
+  for (const p of [
+    '/root/projects/app/index.js',
+    'C:\\Users\\jviru\\projects\\app\\index.js',
+    '/root/projects/claude-clone/src/main.js',
+  ]) assert.equal(isSensitive(p), false, `false positive: ${p}`);
+});
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
