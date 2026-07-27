@@ -68,6 +68,70 @@
     if (b.dataset.s === 's-doctor') { loadDoctor(); loadKeys(); loadPreflight(); loadLocalModels(); }
   }));
 
+  // Show a screen that has no nav button of its own (Git). The nav keeps the
+  // owning tab lit — Git is reached from the Editor, so Editor stays current
+  // rather than leaving the bar with nothing active.
+  function showScreen(id, navOwner) {
+    document.querySelectorAll('.screen').forEach((s) => s.classList.remove('active'));
+    $(id).classList.add('active');
+    if (navOwner) {
+      tabs.forEach((x) => { x.classList.remove('active'); x.removeAttribute('aria-current'); });
+      const owner = Array.from(tabs).find((t) => t.dataset.s === navOwner);
+      if (owner) { owner.classList.add('active'); owner.setAttribute('aria-current', 'page'); }
+    }
+    send({ t: 'ui.tab', tab: id });
+  }
+
+  // ── swipe between tabs ──
+  // helis-d's version listened on `document` with only a horizontal threshold,
+  // which fires while you're panning a terminal, dragging a CodeMirror
+  // selection, or scrolling a diff — the tab changes out from under you. Two
+  // guards: never start a swipe inside an interactive/scrollable surface, and
+  // require the gesture to be decisively horizontal.
+  const SWIPE_EXCLUDE = '#term, .editorpane, .CodeMirror, .gitdiff, textarea, select, input, pre, .aimodal, .edtree';
+  let swipeX = 0, swipeY = 0, swipeArmed = false;
+  document.addEventListener('touchstart', (e) => {
+    const t = e.changedTouches[0];
+    swipeX = t.screenX; swipeY = t.screenY;
+    swipeArmed = !e.target.closest?.(SWIPE_EXCLUDE);
+  }, { passive: true });
+  document.addEventListener('touchend', (e) => {
+    if (!swipeArmed) return;
+    const dx = e.changedTouches[0].screenX - swipeX;
+    const dy = e.changedTouches[0].screenY - swipeY;
+    if (Math.abs(dx) < 80) return;              // too short to be intentional
+    if (Math.abs(dy) > Math.abs(dx) * 0.6) return; // that was a scroll
+    swipeTab(dx < 0 ? 1 : -1);
+  }, { passive: true });
+  function swipeTab(dir) {
+    const visible = Array.from(tabs).filter((t) => t.offsetParent !== null);
+    const i = visible.findIndex((t) => t.classList.contains('active'));
+    if (i === -1) return;
+    const next = visible[Math.min(Math.max(i + dir, 0), visible.length - 1)];
+    if (next && next !== visible[i]) next.click();
+  }
+
+  // ── light/dark theme (spine — every template gets the toggle) ──
+  // Only the Glass template defines a light palette today, so under Classic and
+  // MidAtlantic this flips the attribute and nothing visibly changes. That's
+  // the graceful-degradation case, not a bug: the axis is global, the palettes
+  // are per-template.
+  const themeBtn = $('themeBtn');
+  if (themeBtn) {
+    const applyTheme = (t) => {
+      document.documentElement.setAttribute('data-theme', t);
+      themeBtn.textContent = t === 'light' ? '🌙' : '☀️';
+      themeBtn.title = t === 'light' ? 'switch to dark theme' : 'switch to light theme';
+      try { localStorage.setItem('theme', t); } catch (e) { /* private mode */ }
+    };
+    let saved = 'dark';
+    try { saved = localStorage.getItem('theme') || 'dark'; } catch (e) { /* private mode */ }
+    applyTheme(saved);
+    themeBtn.addEventListener('click', () => {
+      applyTheme(document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light');
+    });
+  }
+
   // ── Atlan alive: mood engine + halo canvas ──
   // Mood is real state, never decoration: calm=idle, building=agents/build
   // running, alarmed=doctor red/budget hot, proud=something surfaced.
@@ -989,6 +1053,170 @@
   $('fleetKillAll').addEventListener('click', () => {
     fetch('/api/fleet/kill', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: 'all' }) });
   });
+
+  // ── Inline AI edit (helis-d, Tier-2) ──
+  // Proposes a replacement into the CodeMirror buffer. Nothing writes disk —
+  // your manual Save is the gate, and it goes through the guarded /api/file.
+  $('edInlineAi')?.addEventListener('click', () => {
+    if (!edCurrentPath) return addMsg('err', 'open a file first');
+    const sel = cmEditor?.getSelection();
+    $('aiModalInput').value = '';
+    $('aiModalInput').placeholder = sel
+      ? 'what should the AI change in the selection?'
+      : 'what should the AI change in the whole file?';
+    $('aiModal').style.display = '';
+    $('aiModalInput').focus();
+  });
+  $('aiModalClose')?.addEventListener('click', () => { $('aiModal').style.display = 'none'; });
+  $('aiModalSubmit')?.addEventListener('click', () => {
+    const instruction = $('aiModalInput').value.trim();
+    if (!instruction) return;
+    const sel = cmEditor.getSelection();
+    // With no selection the model rewrites the ENTIRE file and his version
+    // dropped it straight over the buffer while keeping edCurrentPath — one
+    // reflexive Save and the real file is gone with no diff to look at. Make
+    // the destructive branch a deliberate choice.
+    if (!sel && !confirm('Replace the ENTIRE file with the AI\'s output?\n\nYour current unsaved edits will be lost. (Selecting text first edits just that part.)')) return;
+    $('aiModal').style.display = 'none';
+    const [engine, model] = ($('modelSel')?.value || '').split('|');
+    $('edInlineAi').disabled = true;
+    fetch('/api/editor/ai-edit', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ path: edCurrentPath, content: cmEditor.getValue(), selection: sel || null, instruction, engine, model }),
+    }).then((r) => r.json()).then((j) => {
+      $('edInlineAi').disabled = false;
+      if (j.error) return addMsg('err', j.error);
+      // One CM transaction = one undo, so a bad edit is a single ctrl-z.
+      cmEditor.operation(() => {
+        if (sel) cmEditor.replaceSelection(j.content);
+        else cmEditor.setValue(j.content);
+      });
+      $('edDirty').textContent = cmEditor.getValue() !== edClean ? '● unsaved' : '';
+      if (j.fellBack) addMsg('claude', `Inline AI ran on ${j.engine} — the engine you picked isn't a chat brain.`);
+    }).catch((e) => { $('edInlineAi').disabled = false; addMsg('err', String(e)); });
+  });
+
+  // ── Git panel (helis-d) ──
+  let gitActiveFile = null;
+  $('edGit')?.addEventListener('click', () => { showScreen('s-git', 's-editor'); initGit(); });
+  $('gitBack')?.addEventListener('click', () => { showScreen('s-editor', 's-editor'); });
+  const gitRepo = () => $('projSel').value;
+  const gitPost = (ep, body) => fetch('/api/git/' + ep, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ path: gitRepo(), ...body }),
+  }).then((r) => r.json());
+
+  function initGit() { gitRefresh(); }
+  function gitRefresh() {
+    $('gitNote').textContent = '';
+    fetch('/api/git/status?path=' + encodeURIComponent(gitRepo())).then((r) => r.json()).then((j) => {
+      const box = $('gitFilesList');
+      if (j.error) { box.innerHTML = ''; box.append(hintDiv(j.error)); return; }
+      if (!j.files.length) { box.innerHTML = ''; box.append(hintDiv('no changes, or not a git repo')); return; }
+      gitActiveFile = null;
+      box.innerHTML = '';
+      // Group off the porcelain X/Y columns the server now sends untrimmed —
+      // "M " (staged) and " M" (unstaged) are different states.
+      const groups = { staged: [], modified: [], deleted: [], untracked: [] };
+      for (const f of j.files) {
+        if (f.untracked) groups.untracked.push(f);
+        else if (f.status.includes('D')) groups.deleted.push(f);
+        else if (f.staged) groups.staged.push(f);
+        else groups.modified.push(f);
+      }
+      for (const [key, label] of [['staged', 'Staged'], ['modified', 'Modified'], ['deleted', 'Deleted'], ['untracked', 'Untracked']]) {
+        if (!groups[key].length) continue;
+        const hdr = document.createElement('div');
+        hdr.className = 'eyebrow'; hdr.textContent = label; hdr.style.marginTop = '4px';
+        box.append(hdr);
+        for (const f of groups[key]) box.append(gitRow(f, key));
+      }
+    }).catch(() => { $('gitFilesList').innerHTML = ''; $('gitFilesList').append(hintDiv('cockpit server unreachable')); });
+  }
+  function hintDiv(text) {
+    const d = document.createElement('div');
+    d.className = 'hint'; d.textContent = text;   // textContent, never innerHTML
+    return d;
+  }
+  function gitRow(f, group) {
+    const row = document.createElement('div');
+    row.className = 'gitfile';
+    const st = document.createElement('span');
+    // The class comes from the GROUP, not from raw status bytes: "??" is not a
+    // valid CSS class selector, so his .gfstatus.?? rule never matched anything.
+    st.className = 'gfstatus ' + (group === 'untracked' ? 'untracked' : (f.status.trim()[0] || 'M'));
+    st.textContent = f.status.trim() || '??';
+    const nm = document.createElement('span');
+    nm.className = 'gfname'; nm.textContent = f.file;
+    row.append(st, nm);
+    row.addEventListener('click', () => {
+      gitActiveFile = f.file;
+      $('gitDiffBox').style.display = '';
+      $('gitDiffTitle').textContent = f.file;
+      $('gitDiffContent').textContent = 'loading…';
+      fetch('/api/git/diff?path=' + encodeURIComponent(gitRepo()) + '&file=' + encodeURIComponent(f.file))
+        .then((r) => r.json()).then((d) => {
+          if (d.error) { $('gitDiffContent').textContent = d.error; return; }
+          $('gitDiffContent').innerHTML = gitColorDiff(d.diff);
+        });
+    });
+    return row;
+  }
+  function gitColorDiff(diff) {
+    if (!diff) return '<span class="diff-context">(no changes)</span>';
+    return diff.split('\n').map((l) => {
+      const cls = l.startsWith('@@') ? 'diff-hdr'
+        : (l.startsWith('+') && !l.startsWith('+++')) ? 'diff-add'
+          : (l.startsWith('-') && !l.startsWith('---')) ? 'diff-del' : 'diff-context';
+      return `<span class="${cls}">${escapeHtml(l)}</span>`;
+    }).join('\n');
+  }
+  $('gitRefresh')?.addEventListener('click', gitRefresh);
+  $('gitStageBtn')?.addEventListener('click', () => {
+    if (!gitActiveFile) return;
+    gitPost('stage', { file: gitActiveFile }).then((j) => { if (j.error) addMsg('err', j.error); gitRefresh(); });
+  });
+  $('gitUnstageBtn')?.addEventListener('click', () => {
+    if (!gitActiveFile) return;
+    gitPost('unstage', { file: gitActiveFile }).then((j) => { if (j.error) addMsg('err', j.error); gitRefresh(); });
+  });
+  $('gitCommitBtn')?.addEventListener('click', () => {
+    const msg = $('gitCommitMsg').value.trim();
+    if (!msg) return addMsg('err', 'enter a commit message');
+    gitPost('commit', { message: msg }).then((j) => {
+      if (j.error) return addMsg('err', j.error);
+      $('gitCommitMsg').value = '';
+      gitRefresh();
+      addMsg('claude', `Committed: "${msg}"`);
+    });
+  });
+  $('gitPushBtn')?.addEventListener('click', () => gitPost('push', {}).then((j) => { if (j.error) addMsg('err', j.error); else gitRefresh(); }));
+  $('gitPullBtn')?.addEventListener('click', () => gitPost('pull', {}).then((j) => { if (j.error) addMsg('err', j.error); else gitRefresh(); }));
+
+  // AI commit message — the one control here that sends your diff off the box,
+  // so the server's egress gate gets a real UI: name what it found, make the
+  // send a second deliberate act.
+  function gitAiMsg(confirmSend) {
+    const btn = $('gitAiMsgBtn');
+    btn.disabled = true; btn.textContent = '… generating …';
+    const [engine, model] = ($('modelSel')?.value || '').split('|');
+    gitPost('ai-commit-msg', { engine, model, ...(confirmSend ? { confirm: true } : {}) }).then((j) => {
+      btn.disabled = false; btn.textContent = '✨ AI Message';
+      if (j.error) return addMsg('err', j.error);
+      if (j.needsConfirm) {
+        const what = [
+          j.findings.paths.length ? `files: ${j.findings.paths.join(', ')}` : '',
+          j.findings.kinds.length ? `looks like: ${j.findings.kinds.join(', ')}` : '',
+        ].filter(Boolean).join(' · ');
+        $('gitNote').textContent = `⚠ ${j.note} (${what})`;
+        if (confirm(`${j.note}\n\n${what}\n\nSend this diff anyway?`)) gitAiMsg(true);
+        return;
+      }
+      $('gitNote').textContent = '';
+      $('gitCommitMsg').value = j.message;
+    }).catch((e) => { btn.disabled = false; btn.textContent = '✨ AI Message'; addMsg('err', String(e)); });
+  }
+  $('gitAiMsgBtn')?.addEventListener('click', () => gitAiMsg(false));
 
   // ── visual template picker — a variable-override skin chosen per device.
   // Default (empty value) is Atlan Classic; the pre-paint head script already

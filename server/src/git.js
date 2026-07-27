@@ -34,10 +34,20 @@ export async function getGitStatus(req, res) {
   try {
     const cwd = repoRoot(req.query.path);
     const stdout = await runGit(cwd, ['status', '--porcelain']);
-    const files = stdout.split('\n').filter(Boolean).map((line) => ({
-      file: line.slice(3).trim(),
-      status: line.slice(0, 2).trim(),
-    }));
+    // Porcelain status is TWO positional columns: X = index (staged), Y = work
+    // tree (unstaged). Trimming it — as the incoming version did — collapses
+    // "M " (staged) and " M" (unstaged) to the same "M", so the panel cannot
+    // tell you what you're about to commit. Send the raw pair and let the
+    // client read the positions.
+    const files = stdout.split('\n').filter(Boolean).map((line) => {
+      const xy = line.slice(0, 2);
+      return {
+        file: line.slice(3).trim(),
+        status: xy,
+        staged: xy[0] !== ' ' && xy[0] !== '?',
+        untracked: xy === '??',
+      };
+    });
     res.json({ files });
   } catch (err) {
     res.status(400).json({ error: err.message });
