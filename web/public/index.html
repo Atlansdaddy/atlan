@@ -117,6 +117,16 @@
       </div>
     </section>
 
+    <section class="screen" id="s-scan">
+      <div class="eyebrow">Scan — audit a project before you trust it</div>
+      <div class="projbar">
+        <select id="scanProjSel" aria-label="project to scan"></select>
+        <button class="btn hot" id="scanBtn">Run scan</button>
+      </div>
+      <div class="hint" id="scanMeta">Static analysis with the PreFlight engine. Nothing leaves the machine — findings tap to open in the editor.</div>
+      <div id="scanList" class="doctor-list"></div>
+    </section>
+
     <section class="screen" id="s-term">
       <div id="term"></div>
       <div class="hint">This is tmux session <code>atlan-main</code> — run <code>tmux attach -t atlan-main</code> in Termux to take over on the CLI, any time. What you do there shows here, and vice versa.</div>
@@ -346,13 +356,6 @@
       <div class="eyebrow" style="margin-top:6px">Preflight — must be green before any deploy or tunnel</div>
       <div id="preflightList" class="doctor-list"></div>
       <div class="hint" id="preflightVerdict"></div>
-      <div class="eyebrow" style="margin-top:6px">Scan — SAST audit of a project</div>
-      <div class="projbar">
-        <select id="scanProjSel" aria-label="project to scan"></select>
-        <button class="btn hot" id="scanBtn">Run scan</button>
-      </div>
-      <div class="hint" id="scanMeta">Static analysis with the PreFlight engine. Nothing leaves the machine — findings tap to open in the editor.</div>
-      <div id="scanList" class="doctor-list"></div>
       <div class="lore">ATLAN · your cockpit in the deep<br><span>“a steady light while you build.”</span></div>
     </section>
   </div>
@@ -361,6 +364,7 @@
     <button class="active" data-s="s-chat"><span class="ic">◆</span><span class="lb">Chat</span></button>
     <button data-s="s-preview"><span class="ic">▣</span><span class="lb">Preview</span></button>
     <button data-s="s-editor"><span class="ic">✎</span><span class="lb">Editor</span></button>
+    <button data-s="s-scan"><span class="ic">◎</span><span class="lb">Scan</span></button>
     <button data-s="s-term"><span class="ic">❯_</span><span class="lb">Term</span></button>
     <button data-s="s-fleet"><span class="ic">❖</span><span class="lb">Fleet</span></button>
     <button data-s="s-build"><span class="ic">⚒</span><span class="lb">Build</span></button>

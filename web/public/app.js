@@ -64,7 +64,8 @@
     if (b.dataset.s === 's-term') initTerm();
     if (b.dataset.s === 's-editor') initEditor();
     if (b.dataset.s === 's-fleet') loadFleet();
-    if (b.dataset.s === 's-doctor') { loadDoctor(); loadKeys(); loadPreflight(); loadLocalModels(); loadScan(); }
+    if (b.dataset.s === 's-scan') loadScan();
+    if (b.dataset.s === 's-doctor') { loadDoctor(); loadKeys(); loadPreflight(); loadLocalModels(); }
   }));
 
   // ── Atlan alive: mood engine + halo canvas ──
