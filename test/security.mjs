@@ -301,6 +301,28 @@ try {
   rmSync(scratch, { recursive: true, force: true });
 }
 
+// ── preview proxy cannot be pointed at itself (self-DoS) ──
+// The loopback check passes for the proxy's OWN port, so without an explicit
+// port check a user pasting the proxy URL into the preview bar wedges it: each
+// request spawns another against itself until the port stops answering at all.
+// Hit live 2026-07-28 — 502, then no response, and recovery meant a restart.
+await test('preview target refuses the proxy\'s own port', async () => {
+  const before = (await j(await authed('/api/preview/target'))).body.url;
+  const { status, body } = await j(await authed('/api/preview/target', {
+    method: 'POST', body: JSON.stringify({ url: `http://127.0.0.1:${PREVIEW_PORT}` }),
+  }));
+  assert.equal(status, 400, 'self-target was accepted');
+  assert.match(body.error || '', /preview proxy/i);
+  const after = (await j(await authed('/api/preview/target'))).body.url;
+  assert.equal(after, before, 'the target changed despite the refusal');
+});
+await test('preview target still accepts a normal local dev server', async () => {
+  const { status } = await j(await authed('/api/preview/target', {
+    method: 'POST', body: JSON.stringify({ url: 'http://127.0.0.1:5173' }),
+  }));
+  assert.equal(status, 200);
+});
+
 // ── inline AI edit: the guard must refuse BEFORE the brain call (S5) ──
 // This endpoint never writes disk, so its guard is not protecting a write — it
 // is stopping cockpit source and credential files from being read INTO a prompt

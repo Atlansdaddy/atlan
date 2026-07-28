@@ -40,7 +40,7 @@ import {
   compilePersona, compileCommand, templateSchema, toolSchema, harnessRun,
 } from './personas.js';
 
-import { PORT, PROJECTS_DIR, DEFAULT_BUILD_PROJECT } from './config.js';
+import { PORT, PREVIEW_PORT, PROJECTS_DIR, DEFAULT_BUILD_PROJECT } from './config.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const WEB = join(__dirname, '../../web/public');
@@ -316,6 +316,19 @@ app.post('/api/preview/target', (req, res) => {
   // Parse the host — hostname compares exactly, so 127.0.0.1.evil.com is rejected.
   if ((u.protocol !== 'http:' && u.protocol !== 'https:') || !LOCAL_HOSTS.has(u.hostname)) {
     return res.status(400).json({ error: 'local urls only (127.0.0.1 / localhost)' });
+  }
+  // Refuse to point the preview proxy at ITSELF. The host check above passes
+  // for :PREVIEW_PORT — it is loopback — but proxying to your own listener is
+  // an infinite self-proxy: the first request spawns a second, and so on until
+  // the port stops answering entirely. Observed live 2026-07-28: typing the
+  // proxy's own URL into the preview bar took it from 502 to no response at
+  // all, and the only recovery was restarting the server. Cheap to prevent,
+  // and a self-DoS a user can trigger by pasting a plausible URL is a defect,
+  // not a mistake on their part.
+  if (Number(u.port) === PREVIEW_PORT) {
+    return res.status(400).json({
+      error: `that IS the preview proxy (:${PREVIEW_PORT}) — pointing it at itself would loop. Give it the address your app actually listens on, e.g. http://127.0.0.1:5173`,
+    });
   }
   setPreviewTarget(u.origin);
   res.json({ url: u.origin });
