@@ -3,6 +3,9 @@
 **Written 2026-07-28.** Read this first if you're picking up cold, on the phone,
 or after a power cut. Everything below is verified state, not plans.
 
+> **The experiment is called CHARIOTS OF ATLANTIS.** If it works, that's the
+> game's name too. **Atlan gets a featured easter egg** — see §10.
+
 ---
 
 ## 0. THE PHONE RULE (read before running anything)
@@ -229,7 +232,166 @@ halt killed the one role whose job was catching the black screen.
    *identically*, or the cheap tier becomes the soft spot. More tiers makes the
    profile-projection work matter more, not less.
 
-## 9. Resuming on the phone
+## 9. CHARIOTS OF ATLANTIS — the ladder
+
+Named 2026-07-28. Four rungs; **each rung's real deliverable is the HARNESS, not
+the game.** A rung that ships a working slice and no reusable harness is a
+partial failure — that is exactly how attempt 2 produced a 20/20 on a black
+screen.
+
+| rung | slice | what it must hand upward |
+|---|---|---|
+| **1** | walls + a dungeon + characters + **endless battles** | the spec grammar, the walls, the personas, the play-bot |
+| **2** | a bigger place — progression, items, equipment, a boss | content schemas, ID allocation, the balance invariants |
+| **3** | a land — towns, shops, story threads, several dungeons | the link-checker, the vocabulary lock, the world bible |
+| **4** | **the golden chariot** — a full NES-FF-class clone: story, sound, sprites, depth, items, spells, effects, world assets | the result |
+
+**Why "endless battles" is rung 1** (John's pick, and it's better than starting
+with dungeons+town): a battle system *is* the systemic core — jobs, stats,
+damage, turn order, spells, status, targeting. Everything else is content
+arranged around it. And "endless" makes it an unbounded deterministic test
+surface: a bot can fight 10,000 battles headless, which tests balance
+invariants, softlocks, stat overflow and status interactions in a way a town
+never could.
+
+### The golden chariot, defined
+
+Two readings look alike; only one is achievable, so pin it:
+
+- ❌ **one prompt to a bare model** — won't work, and is the thing we're beating.
+- ✅ **one production run, no human turns, into a mature harness** — plausible,
+  and measurable.
+
+By rung 4 "one shot" means one shot into machinery three previous rungs built.
+
+**The honest unknown:** whether error **compounds or converges** over a long
+unattended run. That is not a tools question and nobody knows the answer. It is
+*the* experiment. Everything below rung 4 is engineering.
+
+### Theme is a consistency mechanism, not flavour
+
+A named premise seeds the vocabulary lock and gives every content generator the
+same gravity. "Generate 40 monsters" drifts; "generate 40 monsters for the
+drowned ruins of Atlantis" drifts much less.
+
+**The chariot should be a MECHANIC, not just a title** — a vessel carrying the
+party between regions, upgraded as you progress. That's the FF airship slot, and
+it maps onto the ladder exactly: rung 1 on foot in one dungeon, rung 2 the
+chariot reaches a bigger place, rung 3 it crosses a land. The game's progression
+spine and the experiment's rungs become the same shape, so each rung ships
+something the next one builds on instead of replacing.
+
+### CORRECTION (John, 2026-07-28): generation minimal, deterministic code maximal
+
+An earlier framing in §5 said FF1–3's "content is enormous — so generate and
+validate it." **That is wrong, and the correction matters more than the original
+point.** FF1 is a ~128KB ROM: roughly 128 monsters, ~100 items, 64 spells, 12
+jobs, ~60 maps. Small. What makes it feel large is *combinatorial depth*, not
+volume.
+
+**And most of what looks like content is actually FORMULA.** Stat growth is a
+curve plus a small per-job table. Monster stats fall out of a difficulty curve.
+Damage, hit and evasion are formulas. Shop inventories derive from progression
+stage. Encounter tables derive from zone difficulty. Item prices derive from
+power.
+
+So the architecture inverts:
+
+| | wrong (first framing) | right |
+|---|---|---|
+| models produce | thousands of content rows | a compact **design spec** — intent, names, flavour |
+| code produces | validation only | **the corpus**, expanded deterministically from that spec |
+| consistency | enforced after the fact by checkers | **structural** — a generator cannot drift |
+
+This is the strongest answer to the consistency fear in §10: if the corpus is
+*computed* from a small spec, there is nothing to drift. Checkers stop being the
+primary defence and become the backstop.
+
+It also changes tier allocation — the free tiers' job is no longer "generate 40
+monsters," it's "propose 12 monster *concepts*." Far less output, far easier to
+validate. And it makes rung 4 **more** achievable, not less: a one-shot run only
+has to get the design spec and the systems code right, not author a world.
+
+**The nuance worth keeping:** the interesting content is the *exceptions* to the
+formula. A generator gives the baseline; design lives in the ~10% that breaks it
+deliberately (the boss that ignores a resistance, the item that changes a rule).
+Keep the exception list small, explicit, and reviewable — that's the authored
+surface, and it should be the only one.
+
+## 10. The consistency layer (SEPARATE from orchestration)
+
+**Orchestration is "who does what, when." Consistency is "do their outputs
+cohere."** Different problem, different machinery. An org chart that runs
+perfectly can still yield two agents inventing the same spell ID and a third
+writing a door into a room that doesn't exist. John named consistency as his
+biggest fear; he's right, and most of the answer is deterministic.
+
+1. **Contracts as schemas, not prose.** JSON Schema per entity type. A model
+   can't drift from a schema a validator rejects. (ASSET-SPEC worked for sprite
+   dimensions for exactly this reason.)
+2. **IDs allocated by CODE, never by models.** Two agents independently coining
+   `spell_fire2` is the classic multi-agent collision. Namespace allocation is a
+   deterministic service, not a creative act.
+3. **Cross-reference link-checking.** Every item in a drop table exists; every
+   spell in a job list exists; every map exit lands somewhere. A graph validator
+   over the content corpus catches most "these two agents disagreed" failures.
+4. **Vocabulary lock.** A canonical terms file — every proper noun, place,
+   mechanic, status. New terms are *added deliberately*, never invented
+   in-flight; an unregistered term is a rejection. Cheapest high-value wall, and
+   almost nobody builds it.
+5. **The world bible is compiled once and only ever READ.** Drift comes from
+   re-derivation — two agents each inferring "what kind of world is this."
+   Fable writes it once; everything downstream cites it.
+6. **Prose voice resists automation.** Flavour text and dialogue can't be
+   schema-checked. Either one model writes ALL prose in a single serial pass
+   (consistency by construction), or a voice gauntlet seat scores against
+   exemplars. Start serial.
+
+Consistency *within one run* and *across rungs* are different problems. 1–5
+handle both; 6 mostly handles the first.
+
+### Atlan's easter egg
+
+Atlan appears in the game as a featured easter egg. It is **native, not bolted
+on**: the cockpit's own lore line already reads *"ATLAN · your cockpit in the
+deep — a steady light while you build."* A steady light in the deep, inside a
+game about a drowned civilisation, is a beacon that belongs in the setting — the
+tool that built the world appearing in it as a light that guides you.
+
+## 11. What we have vs. what's missing (asked and answered 2026-07-28)
+
+**Can we do it? Yes for rungs 1–3, with real confidence. Rung 4 is the open
+question, and that's the point.**
+
+**PROVEN, with receipts from 2026-07-27/28:** cross-engine execution
+(`agentExec`, live Codex, real token counts) · kernel-enforced gating (Landlock
+refusal) · phone containment (project untouchable with NO kernel gate) · the
+organizer (9 tests: graph order, halting gates, continue-but-record gates,
+durable record) · **personas + structured commands + checkers — `RENDER_VERDICT`
+ran on the FREE local 35B, 1,235 tokens, 9/9 checkers, and correctly diagnosed
+the checker's own blind spot** · 5 Claude tiers · 4 vendors authed.
+
+**MISSING — and John named it first: COMMUNICATION.** What exists is a
+*blackboard* (`{{role.output}}`, one-directional, design-time wired). What does
+not exist is agents talking to each other: a worker asking the manager a
+question mid-task, a manager steering a running subagent, two workers
+reconciling an overlap. Specific cost: Fable's documented strength is
+*asynchronous* subagents that stay in conversation and keep their context;
+`spawnRun` is fire-and-forget-then-poll, so we currently get the weaker half of
+what Fable is best at. **This is the right next build.**
+
+Also missing: `spawnRun` engine field; the consistency layer (§10); the render
+and play-bot gates.
+
+**Grok Build** belongs in the roster properly. Its `--allow` / `--deny` take
+**per-tool rules** — the closest shape to our profiles of any of the four CLIs —
+so once its tool names are verified it's the best candidate after Codex for a
+properly *gated* hands role. But its highest-value job is a **gauntlet seat**:
+it's a third vendor (Anthropic / OpenAI / xAI / Google), and vendor diversity is
+the strongest form of the perspective diversity the gauntlet runs on. Grok
+reviewing Claude's code is worth more than a fifth Claude seat.
+
+## 12. Resuming on the phone
 
 ```
 cd /root/atlan && git pull --rebase origin main
