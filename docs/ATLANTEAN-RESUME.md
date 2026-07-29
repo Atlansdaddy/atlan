@@ -6,6 +6,26 @@ or after a power cut. Everything below is verified state, not plans.
 > **The experiment is called CHARIOTS OF ATLANTIS.** If it works, that's the
 > game's name too. **Atlan gets a featured easter egg** — see §10.
 
+## THE DOCUMENT SET
+
+This file is **state** — where things are right now. The design lives in four
+companions, each whole and distinct, each ending in a **gap register** because a
+design document that claims completeness is lying:
+
+| document | answers |
+|---|---|
+| **`MACHINE.md`** | what the machine IS — circuit architecture, every component, deterministic control with oracle values, the car mapping, what it refuses to do. **16 gaps registered.** |
+| **`GROUNDING.md`** | how output is JUDGED — seven tiers × four qualification stages, traversal depth as the score, how subjective bars become comparable. **8 gaps registered.** |
+| **`METHOD.md`** | how we LEARN what the instruction set should say — calibration, ablation sweeps both directions, computed-not-generated analysis, feasibility, the value map. **9 gaps registered.** |
+| **`PRIOR-ART-JRPG.md`** | the form we are building, decomposed — mechanics, math, teams, ideology |
+| **`PRIOR-ART-ONESHOT.md`** | everyone who tried this before — the hits, the misses, the metrics |
+
+**SIX DECISIONS stand between here and a defensible rung 1**, all flagged OPEN
+in those registers: sweep interactions (METHOD #1) · evidence scope (METHOD #2) ·
+pool versioning (METHOD #3) · human gates (MACHINE #10) · what counts as a
+"reasonable composition" (GROUNDING #2) · gate weighting in traversal depth
+(GROUNDING #3).
+
 ---
 
 ## 0. THE PHONE RULE (read before running anything)
