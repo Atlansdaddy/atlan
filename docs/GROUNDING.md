@@ -8,7 +8,7 @@ Companions: `MACHINE.md` (how it is built) · `METHOD.md` (how we learn) ·
 `PRIOR-ART-JRPG.md` (where the bars come from) · `PRIOR-ART-ONESHOT.md` (what
 everyone else measured and got wrong).
 
-**§7 is the gap register for judgement.**
+**§9 is the gap register for judgement.**
 
 ---
 
@@ -187,7 +187,7 @@ at the end; if they moved, the run is void.
 |---|---|---|---|
 | 1 | **Tier 6 and 7 are specified but unbuilt** | PLANNED | Rungs 3 and 4 need them; rungs 0–2 do not. Build when the gate opens, not before. |
 | 2 | **"Reasonable composition" is undefined** | **OPEN** | Ito's all-Monk test needs a formal definition of which compositions must be able to finish. Every legal one? Every single-job one? Needs a decision before tier 4 can be implemented. |
-| 3 | **Gate weighting in traversal depth** | **OPEN** | Are all 12 gates worth one step each? Clearing hygiene is not the same achievement as clearing playable. Unweighted is simpler and less arguable; weighted is more informative. Undecided. |
+| 3 | **Gate weighting in traversal depth** | **CLOSED** | Decided 2026-07-28. **A gate is binary — no partial credit, ever.** The stored artifact is a **per-tier depth vector**; the canonical score is the **unweighted sum**, and every statistic computes on that so it can never be retroactively rescaled. Weighting becomes a **bracket** applied at analysis time and re-appliable to historical runs, since the raw vector is retained. Pre-register the canonical scalar (`METHOD.md` #9) so post-hoc weight-shopping cannot creep in. Rationale: weights are an un-versioned input to every stored verdict, and they compress signal in the gate range where all early data actually lives while amplifying it where there is none. |
 | 4 | **Blind-panel agreement threshold** | PLANNED | Majority of an odd panel, cross-vendor, with disagreement recorded rather than resolved. Panel size to be set by the diminishing-returns finding (past ~5 seats, correlated). |
 | 5 | **Silhouette distinctness metric** | PLANNED | Computable (alpha-mask IoU + palette distance) but the threshold is unset; calibrate against the FF1/DQ sprite set as a reference corpus. |
 | 6 | **Economy solvency check** | PLANNED | "Can afford required gear by the time you need it" needs a formal statement over the shop/drop/price tables. Straightforward once the schemas exist. |

@@ -10,6 +10,7 @@ the end of a long session, specifically so the next one starts warm.
 | file | what it gives you |
 |---|---|
 | `docs/ATLANTEAN-RESUME.md` | **current state** — branches, worktrees, running instances, what shipped, the phone rule |
+| `docs/BUILD-SHEET.md` | **what it is being built to DO** — the top of the top-down chain. Read before anything that picks a number |
 | `docs/MACHINE.md` | what the machine IS — components, architecture, what it refuses to do |
 | `docs/GROUNDING.md` | how output is JUDGED — tiers × stages, traversal depth |
 | `docs/METHOD.md` | how we LEARN what the instruction set should say |
@@ -38,11 +39,20 @@ one. `OPEN` means *John decides* — do not close it by picking an answer and
 proceeding. `PLANNED` means the resolution is agreed and it needs building.
 `CLOSED` means resolved in that document.
 
-**Six OPEN gaps block a defensible rung 1**, and they are the highest-value
-conversation available: sweep interactions (METHOD #1) · evidence scope
-(METHOD #2) · pool versioning (METHOD #3) · human gates (MACHINE #10) ·
-what counts as a "reasonable composition" (GROUNDING #2) · gate weighting in
-traversal depth (GROUNDING #3).
+**Three of the original six are resolved** (2026-07-28 evening): gate weighting
+(GROUNDING #3, **CLOSED**), uneven walls across tiers (MACHINE #16, **CLOSED** —
+it had been left off the original list of six despite blocking wall
+construction), human gates (MACHINE #10, **PLANNED**).
+
+**Still OPEN and blocking:** sweep interactions (METHOD #1) · evidence scope
+(METHOD #2) · pool versioning (METHOD #3) · what counts as a "reasonable
+composition" (GROUNDING #2). Full table, including the new `BUILD-SHEET.md`
+gaps, is in `ATLANTEAN-RESUME.md`.
+
+**Everything derives from `BUILD-SHEET.md`.** A threshold chosen locally —
+without citing what the rung above requires of it — is a design error even when
+the number looks sensible. That is principle #1, and it is the rule the whole
+doc set now hangs from.
 
 **The score is traversal depth, not pass/fail.** "Cleared 7 of 12 gates, stopped
 at the render gate" is the shape of a result. Binary scoring destroys the signal
@@ -135,9 +145,13 @@ root cause unfound.**
 1. Read `ATLANTEAN-RESUME.md`, then this file's §3.
 2. `git -C /root/atlan status -sb` and `git -C /root/atlan log --oneline -5` —
    confirm state matches the doc; the doc may be stale, the repo is not.
-3. Ask John which of the six OPEN gaps he wants to decide, **or** start building
-   the walls (`ground`), which is the next thing on the critical path and does
-   not depend on those decisions — only interpreting the results does.
+3. **Do the landing map** (`BUILD-SHEET.md` #9): walk every requirement in the
+   build sheet and land it as a **pool component** or a **wall**. Anything
+   landing in neither is decoration and gets cut. One pass yields the candidate
+   component list *and* the derived gate chain.
+4. Only then start building walls. **Do not use the twelve-gate chain sketched in
+   conversation** — it was assumed rather than derived, and is already known to
+   be missing a stress/soak gate.
 
 **Do not start by building game code.** The walls come first because the walls
 are the measuring instrument.

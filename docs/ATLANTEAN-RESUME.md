@@ -14,17 +14,41 @@ design document that claims completeness is lying:
 
 | document | answers |
 |---|---|
+| **`BUILD-SHEET.md`** | **what the machine is being built to DO** — the top of the top-down chain. Duty cycle, competitive bar, novelty boundary, qualification ladder, autonomy policy, win thresholds. **Every threshold below cites it; nothing below picks a number locally.** **10 gaps registered.** |
 | **`MACHINE.md`** | what the machine IS — circuit architecture, every component, deterministic control with oracle values, the car mapping, what it refuses to do. **16 gaps registered.** |
 | **`GROUNDING.md`** | how output is JUDGED — seven tiers × four qualification stages, traversal depth as the score, how subjective bars become comparable. **8 gaps registered.** |
 | **`METHOD.md`** | how we LEARN what the instruction set should say — calibration, ablation sweeps both directions, computed-not-generated analysis, feasibility, the value map. **9 gaps registered.** |
 | **`PRIOR-ART-JRPG.md`** | the form we are building, decomposed — mechanics, math, teams, ideology |
 | **`PRIOR-ART-ONESHOT.md`** | everyone who tried this before — the hits, the misses, the metrics |
 
-**SIX DECISIONS stand between here and a defensible rung 1**, all flagged OPEN
-in those registers: sweep interactions (METHOD #1) · evidence scope (METHOD #2) ·
-pool versioning (METHOD #3) · human gates (MACHINE #10) · what counts as a
-"reasonable composition" (GROUNDING #2) · gate weighting in traversal depth
-(GROUNDING #3).
+**Six decisions stood between here and a defensible rung 1. Three are now
+resolved** (2026-07-28 evening):
+
+| decision | state |
+|---|---|
+| gate weighting (GROUNDING #3) | **CLOSED** — gates binary; per-tier vector stored; canonical score unweighted; weighting is a *bracket* applied at analysis time |
+| uneven walls across tiers (MACHINE #16) | **CLOSED** — tier sets which *operation* and which *tools*, never the threshold |
+| human gates (MACHINE #10) | **PLANNED** — autonomy ladder with regression; policy agreed, component unbuilt |
+| sweep interactions (METHOD #1) | **OPEN** |
+| evidence scope (METHOD #2) | **OPEN** |
+| pool versioning (METHOD #3) | **OPEN** |
+| "reasonable composition" (GROUNDING #2) | **OPEN** — the last one blocking a rung-1 wall |
+
+MACHINE #16 was OPEN but had been **left off the original list of six** — worth
+knowing, since it was the one most directly blocking wall construction.
+
+**New in `BUILD-SHEET.md` and OPEN:** the reference car is unnamed (#1) · panel
+mechanics unset (#2) · headroom targets unset (#3) · the abbreviation (#4) ·
+intervention count not measured (#10).
+
+### NEXT: the landing map (`BUILD-SHEET.md` #9)
+
+Walk every requirement in the build sheet and land it as **pool component** or
+**wall**. Anything landing in neither is decoration and gets cut. That single
+pass produces the candidate component list *and* the derived gate chain together,
+and it is the bridge from documents to rung 1. **Do this before writing walls** —
+the twelve-gate chain sketched in conversation was assumed, not derived, and it
+is already known to be missing a stress/soak gate.
 
 ---
 
@@ -254,8 +278,11 @@ halt killed the one role whose job was catching the black screen.
 
 ## 9. CHARIOTS OF ATLANTIS — the ladder
 
-Named 2026-07-28. Four rungs; **each rung's real deliverable is the HARNESS, not
-the game.** A rung that ships a working slice and no reusable harness is a
+Named 2026-07-28. Four rungs — **but the rung count is dynamic** (John,
+2026-07-28): rungs are relational to project scope and may change on target type
+alone. Four is the current shape, not a constant. See `BUILD-SHEET.md` §9.
+
+**Each rung's real deliverable is the HARNESS, not the game.** A rung that ships a working slice and no reusable harness is a
 partial failure — that is exactly how attempt 2 produced a 20/20 on a black
 screen.
 

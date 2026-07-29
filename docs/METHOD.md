@@ -5,7 +5,7 @@
 the reason it exists, its ordering, its statistics, and what makes a result
 believable.
 
-**§8 is the gap register for method.**
+**§9 is the gap register for method.**
 
 ---
 

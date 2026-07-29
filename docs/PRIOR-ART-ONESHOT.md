@@ -100,6 +100,130 @@ even a purpose-built system gets roughly **one in five, given three tries.**
 **This is the honest bar: nobody one-shots a playable interactive application
 reliably. Published state of the art for playable-in-three is ~20%.**
 
+#### The oracle — and why we cannot use theirs
+
+Playability is judged by **PlayTester**, an LLM agent with three parts: a
+**Visual Observer** capturing screenshots, an **Action Executor** issuing real GUI
+operations (clicks, typing, scrolling), and a **Test Manager** using a
+vision-language model to plan the interaction. Two modes: **goal-driven** for
+games with explicit win conditions, **coverage-driven** for feature traversal.
+
+A failure is a **"silent logic flaw"** — code that throws nothing yet violates a
+fundamental requirement. Their canonical example is a Flappy Bird in which **the
+bird passes through the pipe**. That is attempt 2's failure class, named a year
+before we hit it.
+
+**But their oracle is a model.** `METHOD.md` §5 forbids a model reading results
+and reporting what mattered, and `MACHINE.md` §8 rules out self-critique as a
+wall. So: **adopt the definition, replace the oracle.** Our deterministic
+equivalent is the scripted play-bot plus GameGen-Verifier's keypoint injection
+(§3.1) — same question, reproducible answer.
+
+#### The leaderboard (Python subset, base models, no harness)
+
+| model | Exec@1 | Exec@3 | Play@1 | **Play@3** |
+|---|---|---|---|---|
+| Claude Sonnet 4 | 17.9% | 18.6% | 6.4% | **9.9%** |
+| Claude Sonnet 3.7 | 10.8% | 13.1% | 4.7% | **7.5%** |
+| DeepSeek-V3 (671B) | 11.7% | 15.1% | 5.0% | **7.2%** |
+| GPT-4o | 13.7% | 13.8% | 3.8% | **6.7%** |
+| GPT-5 | 17.4% | 17.5% | **6.6%** | 6.9% |
+| GLM-4.5 (355B) | 7.6% | 17.8% | 5.9% | **6.3%** |
+| Qwen3-Coder (480B) | 14.0% | 18.8% | 4.9% | **6.1%** |
+| Grok-3-mini | 13.9% | 16.6% | 4.6% | **5.8%** |
+| GPT-5-mini | 12.4% | 13.7% | 4.3% | **5.2%** |
+| GPT-4o-mini | 10.3% | 12.7% | 2.1% | **2.6%** |
+
+The six categories: **game emulation, classic games, game engine, standalone
+applications, desktop widgets, MMORPG games.**
+
+"Near-zero Play@3" concretely means **2.6%–9.9%**.
+
+#### The funnel — and the calibration prior it hands us
+
+```
+compiles        high
+  → executes    ~18%
+    → playable  ~6.6%   (one shot)
+```
+
+**That funnel is `GROUNDING.md` §3's tier structure, measured independently.**
+Tier 1 hygiene passes easily, tier 2 (runs) kills ~80%, tier 3 (playable) kills
+most of the remainder.
+
+It also gives `METHOD.md` §3 a **calibration prior**: full-size published tasks
+land near 0.07 at tier 3, deep in floor-effect territory. The 0.2–0.8 informative
+band therefore requires a substantial shrink, and now there is a number behind
+that instead of an instinct.
+
+#### What the harness bought — the most relevant number in the literature
+
+| model | Play@3 base | Play@3 in PlayCoder | lift |
+|---|---|---|---|
+| Claude Sonnet 4 | 9.9% | **20.3%** | 2.05× |
+| Qwen3-Coder (480B) | 6.1% | **18.9%** | **3.10×** |
+
+Exec@3 moved 18.6% → 36.8% and 18.8% → **38.1%**.
+
+> **A harness is worth 2–3× on playability with the model held fixed.**
+
+That is this project's entire thesis, measured by someone else and published at
+FSE'2026.
+
+#### The surprises
+
+1. **Claude Sonnet 4's 47% cliff** — Exec@3 18.6% → Play@3 9.9%. Half of
+   everything that *ran* was not playable. The paper's headline: syntactic
+   validity gives no assurance of interactive correctness.
+2. **Qwen3-Coder won inside the harness** — top Exec@3 at 38.1%, from a base 38%
+   below Sonnet 4's, so the harness lifted it 3.1× against 2.05×. The paper's
+   reading: **parameter scale correlates weakly with GUI-specific reasoning.**
+   That is the evidence behind our tier allocation and the free-tier strategy.
+3. **GLM-4.5's k-sensitivity** — Exec@1 7.6% → Exec@3 17.8%, a 2.3× jump from two
+   extra tries alone. Variance is model-dependent, which bears directly on
+   `METHOD.md` #6: one seed budget across all tiers will be wrong for some.
+
+### 2.5 GameCraft-Bench: complete games in a real engine
+
+*Can Agents Build Playable Games End-to-End in a Real Game Engine?*
+([arXiv 2606.17861](https://arxiv.org/html/2606.17861v1)).
+
+**140 tasks across 15 game families** in **Godot 4**. Agents get a spec, an
+editable workspace and shared assets, and must return a complete project **plus
+replayable input traces**. Pipeline: task packaging → generation → build gate →
+trace replay → scoring by a multimodal judge (GPT-4.5) against hidden rubrics.
+
+`Score = BUILD × (0.15×M + 0.35×D + 0.15×V + 0.35×A)` — mechanics, depth,
+visuals, art.
+
+| model | overall | mechanics | depth | visuals | art |
+|---|---|---|---|---|---|
+| Claude Opus 4.7 | **41.46%** | 55.34% | 39.48% | 42.78% | 36.86% |
+| GPT-5.5 | 39.49% | 54.36% | 38.61% | 41.84% | 32.94% |
+| Kimi-K2.6 | 30.65% | 39.76% | 28.07% | 33.66% | 27.99% |
+| MiMo-V2.5-Pro | 24.10% | — | — | — | — |
+| GLM-5.1 | 18.29% | — | — | — | — |
+| MiniMax-M2.7 | 10.95% | — | — | — | — |
+| DeepSeek-V4-Pro | **2.15%** | — | — | — | — |
+
+**Two findings that change our design:**
+
+1. **Every strong agent is best at core mechanics and worst at content depth and
+   art.** They build a working loop and fail to fill a world. That is the
+   *opposite* of the usual assumption, and it is direct support for
+   `ATLANTEAN-RESUME.md` §9's correction — **generation minimal, deterministic
+   code maximal** aims code precisely at the measured weakness while leaving
+   models the thing they measurably do best.
+2. **DeepSeek-V4-Pro scored 2.15% by ignoring the demonstration-trace
+   requirement entirely.** A contract failure, not a capability failure. A model
+   that will not honour the harness protocol scores zero regardless of how good
+   it is — which is the argument for the ADC in `MACHINE.md` §2: structured
+   commands with checkers, and no value entering control flow except through one.
+
+**Note it is not comparable to Play@3.** GameCraft-Bench's 41% is a rubric score
+from a model judge; PlayEval's 20.3% is a playability rate. Different
+measurements — never put them on one axis.
+
 ### 2.3 V-GameGym: top models ~45%
 
 2,219 curated Pygame samples, **70 models evaluated**, top performers succeeding
