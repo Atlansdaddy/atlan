@@ -163,10 +163,21 @@ That is the point, and it is why early rungs should be **mined rather than
 judged**.
 
 ### Where attempt 2 sits
-Not a failure — an **arrival at the documented frontier**. It cleared the
-compile barrier that stopped 10,400 single-pass runs (frontier models + a
-written spec + JS is a far easier regime than 7B-on-Unity), and then landed
-exactly on the Play@k barrier nobody has cleared.
+
+**Retracted 2026-08-02.** The previous claim — that it "landed exactly on the
+Play@k barrier nobody has cleared" — was a category error.
+
+**Its contract never asked for a game.** `ASSET-SPEC.md` specified assets,
+shaders, a draw-call budget, a fixed timestep and a frame-time target, with
+nothing about a player, rules or a win condition. The artifact is a 512-sprite
+lit rendering benchmark, correctly built; `check.mjs`'s 20/20 honestly verified
+the contract that existed. Writeup:
+`findings/attempt-2-was-never-asked-for-a-game.md`.
+
+It did clear the compile barrier that stopped 10,400 single-pass runs, and it
+renders correctly on a real driver. **But nothing playable was requested, so
+Play@k was never measured** — not failed, not approached. The first honest
+measurement is still ahead.
 
 ## 8. The value map — the point, not the consolation
 

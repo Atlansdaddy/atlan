@@ -206,17 +206,91 @@ wrong on a real kernel.
 | # | what happened |
 |---|---|
 | 1 | Designed only. Never ran — the machinery couldn't express cross-engine delegation. |
-| 2 | **Ran.** `check.mjs` 20/20, **black screen.** Halted on budget at 978k/900k, so the adversarial verifier never ran. |
+| 2 | **Ran.** Built a **renderer benchmark**, correctly, to a renderer spec that never asked for a game. `check.mjs` 20/20 — honest. The reported **black screen was a broken probe**. Halted on budget at 978k/900k, so the adversarial verifier never ran. **Says nothing about building a game.** |
 | 3 | Next. Dungeon-crawler RPG, FF1–3 class. Not started. |
 
-**Attempt 2's real lesson:** every static check passed on a build that draws
-nothing. 104 frames, 208 draw calls, correct ortho projection, three lights,
-ambient `0.12/0.13/0.20`, all four textures decode correctly — and 0/480000 lit
-pixels read via `gl.readPixels` from inside the live GL context. Not a screenshot
-artefact. Root cause not yet found; the lighting math zeroes out somewhere.
+### CORRECTION 2026-08-02: attempt 2 was never asked for a game
+
+Full writeup: `docs/findings/attempt-2-was-never-asked-for-a-game.md` · receipt:
+`docs/evidence/atlantis-2d-renders-2026-08-02.png`.
+
+**`ASSET-SPEC.md` — the pre-registered contract — does not ask for a game.** Its
+six sections specify asset dimensions, coordinate conventions, shader rules, a
+draw-call and allocation budget, a fixed timestep, and p95 frame time. **Not one
+line about a player, input, rules, an objective, or a win condition.**
+
+The artifact is 512 sprites bouncing off the viewport edges over a lit tiled
+floor. `step()` is: copy to prev, integrate, reflect at bounds. That is all of it.
+**It is a rendering benchmark, and a competent one** — 11 modules, correct
+batching, zero frame allocation, deterministic sim, working normal-mapped
+lighting on a real driver.
+
+So the fleet built exactly what was contracted, and `check.mjs` checked exactly
+what the contract said. **20/20 was honest.**
+
+**The trap:** `ASSET-SPEC` uses the word *game* throughout — *"an AI-built game,"
+"not a passing game"* — while specifying only rendering. The word carried an
+expectation the specification never encoded, and **no checker can catch a
+requirement that was never written.**
+
+**This is principle #1 failing exactly as `BUILD-SHEET.md` §0 predicted.**
+`ASSET-SPEC` is a *billet spec* — excellent material properties and machining
+tolerances, with no statement of what part the billet becomes or what vehicle the
+part goes in. So the fleet optimised the billet and hit every tolerance, and
+nobody could say whether the result was any good, because *good for what* was
+never written down.
+
+> **A component built to a perfect component spec, with no vehicle spec above
+> it, is a perfect component for no particular vehicle.**
+
+**What attempt 2 tells us:** a fleet given a tight technical contract produces a
+decomposed, correct, performant renderer. **What it does not tell us:** anything
+at all about building a game. There was no gameplay requirement, so there is no
+evidence either way.
+
+### The smaller correction: there was no black screen either
+
+Five probes against the same unmodified tree:
+
+| probe | result |
+|---|---|
+| `check.mjs` (static) | 20/20 |
+| `gpucheck.mjs` (real driver, correct read) | **8/8** |
+| screenshot | **fully rendered scene** — 512 normal-mapped sprites, all three lights |
+| `readPixels` **inside** the rAF turn | **478,376 / 480,000 lit** |
+| `readPixels` **outside** the rAF turn | **0 / 480,000** ← the original probe |
+
+**Root cause:** `preserveDrawingBuffer: false` (the correct production setting)
+means the drawing buffer is invalidated once presented. A `readPixels` issued
+after the rAF callback returns reads an already-presented buffer — zeros.
+
+**The tell was in the recorded data and nobody read it.** The probe reported
+`0,0,0` for every pixel, but the clear colour is `(4, 5, 10)` in 8-bit. **Not
+even `gl.clear()` appeared.** A frame that renders nothing is still the clear
+colour; a frame of pure zeros is *no buffer at all*.
+
+**Consequences:** attempt 2's traversal depth was never measured, so it cannot be
+said to have stopped at tier 2 — or anywhere. And most tier 3–4 gates are
+**inapplicable** to an artifact with no rules, which is the §above point, not this
+one. The correction removes a false failure without supplying a pass.
+
+### The defect class this exposes — a VACUOUS FAILURE
+
+`GROUNDING.md` §2 has always said **a gate must be unable to pass because a
+feature is absent.** Nobody wrote the converse, and the converse cost more:
+
+> **A gate must be unable to FAIL because of how it measures.**
+
+Worse than a vacuous pass in one specific way: a vacuous pass leaves you
+over-confident about work that exists and later gates can still catch it. A
+vacuous failure sends you hunting a bug that was never there — here it burned the
+remaining budget and killed the verifier whose job was to catch exactly this.
+
+> **A single probe reporting a catastrophic result is a claim, not a finding.**
 
 **Four vacuous passes found in one day** (checks that go green because a feature
-is *absent*): two in Atlan's own suite, two in `check.mjs`. Assume more exist.
+is *absent*): two in Atlan's own suite, two in `check.mjs`. Assume more exist —
+and now assume vacuous *failures* exist too.
 
 ---
 
@@ -317,8 +391,13 @@ halt killed the one role whose job was catching the black screen.
 ## 8. Open items
 
 1. **Attempt 3 not started.** Walls first, then personas, then build.
-2. **atlantis-2d renders nothing** — root cause unfound.
-3. **`check.mjs` is blind to a black screen** — needs the render gate.
+2. ~~**atlantis-2d renders nothing** — root cause unfound.~~ **CLOSED
+   2026-08-02 — it renders. The probe was broken, not the renderer.** See §4.
+3. **`check.mjs` is blind to what the screen shows** — still true, and the render
+   gate is still needed. But it must be written to read **inside the rAF turn**,
+   or against a context with `preserveDrawingBuffer: true`; the naive form
+   produces the false negative documented in §4. In-frame is preferred, since it
+   measures the shipping configuration rather than a different one.
 4. **Debugger parked** — needs a server-side `debug.start` approval gate.
 5. **`spawnRun` has no `engine` field** — fleet still Claude-only. The primitive
    (`agentExec`) exists; the product decision (walls for a non-Claude fleet run)

@@ -15,7 +15,8 @@ everyone else measured and got wrong).
 ## 1. Two orthogonal axes
 
 Judgement is a **matrix**, not a list. Confusing the two axes is how attempt 2
-scored 20/20 on a black screen.
+scored 20/20 while nobody could say whether it was playable — and, as it turned
+out, while nobody could say whether it *rendered* either (§2).
 
 - **TIER** — *what dimension* is measured (hygiene → comparative). §3.
 - **STAGE** — *at what level of integration* (bench → full trip). §4.
@@ -23,7 +24,7 @@ scored 20/20 on a black screen.
 "Does the shader work", "does the shader work with the sim", and "does the whole
 thing complete a lap" are three different questions with three different answers.
 
-## 2. The rule that generates every gate
+## 2. The rules that generate every gate
 
 > **A gate must be unable to pass because a feature is absent.**
 
@@ -31,6 +32,43 @@ Four vacuous passes were found in a single day (two in Atlan's own suite, two in
 `check.mjs`) — checks that went green because the thing they tested wasn't there.
 Every gate below is written so that absence is a failure, and the standing
 assumption is that **more exist and have not been found yet**.
+
+### The converse, added 2026-08-02
+
+> **A gate must be unable to FAIL because of how it measures.**
+
+Call it a **vacuous failure**, and it cost more than any vacuous pass found so
+far. Attempt 2's "black screen" was one: `gl.readPixels` issued after the rAF
+callback returned, on a context with `preserveDrawingBuffer: false`, read an
+already-presented buffer and returned zeros. **The renderer was correct.** Four
+days of belief, five documents, and the run's remaining budget went into hunting
+a defect that did not exist. Receipt:
+`findings/attempt-2-was-never-asked-for-a-game.md` §6.
+
+A vacuous failure is the more dangerous of the two. A vacuous pass leaves you
+over-confident about work that *exists*, and a later gate can still catch it. A
+vacuous failure sends you hunting something that was never there, and nothing
+downstream will correct it — the run is already dead.
+
+Both have the same root: **a check whose result is determined by the harness
+rather than by the artifact.**
+
+Three obligations follow, and they apply to every gate in §3:
+
+1. **Both directions must be observed before a gate is trusted.** Demonstrate it
+   red on a deliberately broken build *and* green on a known-good one. A gate
+   that has never been seen doing both is an unvalidated instrument, and its
+   readings — in either direction — are not yet evidence.
+2. **A catastrophic reading requires a second, independent probe.** One probe
+   reporting disaster is a claim, not a finding. The screenshot that disproved
+   the black screen took under a minute.
+3. **Read the raw reading, not just the verdict.** The failing probe reported
+   `0,0,0` on every pixel while the clear colour was `(4,5,10)` — self-refuting
+   to anyone who looked, recorded verbatim, never read.
+
+**A pre-emptive denial in a finding is a smell.** *"Not a screenshot artefact"*
+was asserted rather than tested, and it made the disproving check *less* likely
+to be run.
 
 Corollaries:
 - **compile rate is a vanity metric.** Ten SOTA code LLMs achieve near-zero
@@ -43,7 +81,7 @@ Corollaries:
 | tier | asks | how measured | basis |
 |---|---|---|---|
 | **1 · Hygiene** | parses; assets conform; schemas validate; **every index resolves** | pure code | the 81-of-99 error class; ROM tables crashed on a dangling index |
-| **2 · Runs** | boots; **lit pixels > 0**; fixed step present; dt clamped; no per-frame allocation | pure code + `gl.readPixels` | attempt 2 died here at 20/20 |
+| **2 · Runs** | boots; **lit pixels > 0**; fixed step present; dt clamped; no per-frame allocation | pure code + `gl.readPixels` **read inside the rAF turn** — see below | attempt 2 was *reported* dead here; the probe was wrong (§2) |
 | **3 · Playable** | bot completes the slice; every dungeon provably reachable *and exitable*; no softlock; win state achievable | graph search + play-bot | Play@k — the barrier nobody has cleared |
 | **4 · Balanced** | **no composition degenerate**; **every reasonable composition can finish**; XP curve monotonic; accuracy monotonic in Hit%; no zone-N one-shot; every spell learnable; every key item obtainable; economy solvent | invariants + **state injection** | **Ito's two-sided test**; the FF1 accuracy clamp |
 | **5 · Paced** | encounters ≈ minimum to next XP threshold; battle-length p50/p95; grind ratio; time-to-first-decision | derived numbers | the documented "lazy maps + high encounter rate" failure |

@@ -216,9 +216,29 @@ frontier sits: published state of the art for playable-in-three-tries is roughly
 **20% Play@3** after a purpose-built intervention, and ten SOTA models score
 near-zero without one (`METHOD.md` §7).
 
-Attempt 2 is the proof that this is the real barrier and not a formality:
-**20/20 on `check.mjs`, 5 of 12 gates, black screen.** Every static check green on
-a build that draws nothing.
+Attempt 2 was cited here as proof of that barrier — *"20/20 on `check.mjs`, 5 of
+12 gates, black screen."* **Retracted 2026-08-02, and the retraction is this
+document's own best evidence.**
+
+`ASSET-SPEC.md`, the pre-registered contract, **never asked for a game**. It
+specified assets, shaders, a draw-call budget, a fixed timestep and a frame-time
+target — a *billet spec*, with no statement of what part the billet becomes or
+what vehicle the part goes in. So the fleet optimised the billet, hit every
+tolerance, and produced a 512-sprite rendering benchmark. `check.mjs` verified
+that contract faithfully: **20/20 was honest.** The black screen on top of it was
+a broken probe. Writeup:
+`findings/attempt-2-was-never-asked-for-a-game.md`.
+
+> **A component built to a perfect component spec, with no vehicle spec above
+> it, is a perfect component for no particular vehicle.**
+
+That is principle #1 (§0) demonstrated at a cost of one full attempt, and it is
+why this document exists.
+
+The barrier is still real — near-zero Play@3 across ten SOTA models is other
+people's measurement on other builds. What changed is that **we never approached
+it.** Attempt 2 is off the Play@k axis entirely. **Our first Play@k measurement
+has not happened yet.**
 
 **A car that does not finish has no time, and a car with no time cannot be
 compared to anything.** Track completion is therefore the *entry condition* for
@@ -560,7 +580,9 @@ constant — which supersedes the fixed-four framing in `ATLANTEAN-RESUME.md` §
 | 3 | **Headroom targets are unset** | **OPEN** | §4 requires headroom be measured. What multiple of nominal must it survive to qualify? A limit that is merely recorded is a gauge; a limit with a target is a gate. |
 | 4 | **The abbreviation is undecided** | **OPEN** | `PRIOR-ART-JRPG.md` §13.11 — `CoA` will land in IDs, file prefixes and the vocabulary lock whether chosen or not. FF's team chose the abbreviation first, then the name. |
 | 5 | **Composition scope at rung 1** | **OPEN** | Carried from `GROUNDING.md` #2. Jobs-only is exhaustive at 35 cases with 4 jobs in 4 slots; rung 2 introduces equipment and the space explodes, needing a collapse rule. |
-| 6 | **Graceful error is required but unspecified** | PLANNED | A blown motor must be autopsy-able. Attempt 2 blew up and root cause is *still* unfound — the lesson the failure was supposed to buy was lost. Every gate failure must capture enough state to diagnose it; currently only `iterate`'s stuck/exhausted classification does. |
+| 6 | **Graceful error is required but unspecified** | PLANNED | A blown motor must be autopsy-able. Every gate failure must capture enough state to diagnose it; currently only `iterate`'s stuck/exhausted classification does. *Attempt 2's "unfound root cause" turned out to be a broken probe (2026-08-02) — which sharpens rather than removes the requirement: what was missing was not instrumentation but a **second independent probe**.* |
+| 11 | **Nothing checks that a spec COVERS its goal** | **OPEN** | `check.mjs` asks *does the build meet the spec*. Nothing asks *does the spec cover the goal*. Attempt 2 passed 20/20 against a contract with no gameplay requirement in it, and no checker can catch a requirement that was never written. The derivation chain in §9 is the intended answer; it needs to become a gate, most naturally in the **inspection** family. |
+| 12 | **Rung 1's gameplay requirements are a phrase, not a contract** | **OPEN** | "Endless battles" carries an expectation nothing encodes. Turn order, action legality, win/lose conditions and what the bot must be able to *do* need writing in the same hard-requirement register `ASSET-SPEC` used for `64×64 RGBA` — or rung 1 repeats attempt 2's scope gap with better walls. |
 | 7 | **No soak/stress gate exists in the chain** | **CLOSED** | Resolved by the derived chain (`LANDING-MAP.md` §5). Three of §4's four dyno questions are now gates — `determinism.sameSeedSameTranscript`, `stress.survives`, `stress.throughput`. The fourth (`stress.headroom`) is a **gauge, not a gate**, until #3 sets targets; build and run it anyway, because its readings are the honest basis for choosing them. |
 | 8 | **Provenance is claimed, not yet verifiable end-to-end** | PLANNED | §2 makes auditability part of the result. Transcript, assembly hash and production record exist separately; nothing yet composes them into a single answer to "who built this line." |
 | 9 | **No landing map from requirement → component or wall** | **CLOSED** | Done 2026-07-31 — see `LANDING-MAP.md`. Outputs: a **26-gate** derived rung-1 chain (the assumed twelve was under half, and omitted the stress and inspection families entirely), a 15-item candidate component list, and 7 protocol items. **It also broke §0's rule** — four requirements land in neither a component nor a wall and none is decoration, so two more landing sites are needed (**producer**, **protocol**). Amendment proposed in `LANDING-MAP.md` §0 and **not yet applied here** — see that document's gap #7. |

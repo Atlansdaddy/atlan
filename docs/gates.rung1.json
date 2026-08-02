@@ -8,7 +8,8 @@
   "notes": {
     "depth": "Only entries with counted=true contribute to traversal depth. Inspection gates are conformance, not performance - they are pass/void via fuse and are excluded from the denominator.",
     "gauges": "Entries with kind=gauge record a number and never pass or fail. A limit that is only recorded is a gauge; a limit with a target is a gate.",
-    "blocked": "Entries with blockedBy set cannot be written until that decision closes. They are counted in the denominator so the score does not silently inflate when they land."
+    "blocked": "Entries with blockedBy set cannot be written until that decision closes. They are counted in the denominator so the score does not silently inflate when they land.",
+    "selfTest": "Every gate must be observed BOTH red on a deliberately broken build and green on a known-good one before its readings count as evidence. A gate seen doing only one is an unvalidated instrument. Added 2026-08-02 after a vacuous failure - a gate that fails because of HOW it measures - cost attempt 2 its remaining budget."
   },
   "gates": [
     { "id": "parse",                            "tier": 1, "family": "hygiene",    "counted": true,  "kind": "gate",  "asserts": "every source file parses" },
@@ -20,7 +21,7 @@
     { "id": "corpus.reproducible",              "tier": 1, "family": "hygiene",    "counted": true,  "kind": "gate",  "asserts": "the corpus regenerates byte-identical from the spec; a hand-edited row fails" },
 
     { "id": "boot",                             "tier": 2, "family": "runs",       "counted": true,  "kind": "gate",  "asserts": "the artifact starts" },
-    { "id": "render.litPixels",                 "tier": 2, "family": "runs",       "counted": true,  "kind": "gate",  "asserts": "lit pixels > 0 read via gl.readPixels from inside the live GL context", "note": "attempt 2 died here at 20/20 on check.mjs" },
+    { "id": "render.litPixels",                 "tier": 2, "family": "runs",       "counted": true,  "kind": "gate",  "asserts": "lit pixels > 0 read via gl.readPixels INSIDE the requestAnimationFrame turn, before the callback returns", "mustNot": "read after the rAF callback returns. With preserveDrawingBuffer:false (the correct production setting) the buffer is invalidated once presented and readPixels returns zeros forever - the vacuous failure that cost attempt 2 (findings/attempt-2-was-never-asked-for-a-game.md)", "selfTest": "must be demonstrated red on a deliberately broken build AND green on a known-good build before any reading from it is treated as evidence", "sanity": "an all-zero read is not a black render - it is no buffer at all, because gl.clear alone would leave the clear colour" },
     { "id": "loop.fixedStep",                   "tier": 2, "family": "runs",       "counted": true,  "kind": "gate",  "asserts": "fixed timestep present and dt clamped" },
     { "id": "alloc.noPerFrameGrowth",           "tier": 2, "family": "runs",       "counted": true,  "kind": "gate",  "asserts": "no per-frame allocation growth" },
 

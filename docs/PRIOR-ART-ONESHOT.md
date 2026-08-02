@@ -314,21 +314,35 @@ the whole story of attempt 2.
 
 ## 5. Where attempt 2 actually sits
 
-Not a failure — **an arrival at the documented frontier.**
+**RETRACTED 2026-08-02.** This section previously read *"landed exactly on the
+Play@k barrier that nobody has cleared."* **Attempt 2 is not on the Play@k axis
+at all**, and putting it there was a category error.
+
+`ASSET-SPEC.md`, the pre-registered contract, **never asked for a game** — it
+specified assets, shaders, a draw-call budget, a fixed timestep and a frame-time
+target, and nothing about a player, rules, or a win condition. The artifact is a
+512-sprite lit rendering benchmark. Full writeup:
+`findings/attempt-2-was-never-asked-for-a-game.md`.
 
 | | published baseline | attempt 2 |
 |---|---|---|
 | compiles | 0/10,400 single-pass (7B–30B, Unity) | ✅ compiled, ran, 208 draw calls/frame |
-| static checks | — | ✅ 20/20 |
-| **playable** | **near-zero Play@3 across 10 SOTA models** | ❌ black screen |
+| static checks | — | ✅ 20/20 — **honest**, it verified the contract that existed |
+| **executes / renders** | ~18% Exec@3 across 10 SOTA models | ✅ 478,376/480,000 lit pixels, three lights, normal mapping correct |
+| **playable** | near-zero Play@3 across 10 SOTA models | **N/A — nothing playable was requested** |
 
-We cleared the compile barrier — plausibly because frontier models plus a written
-spec plus JS is a far easier regime than 7B-on-Unity — and then landed **exactly
-on the Play@k barrier that nobody has cleared.**
+**Play@k measures whether a generated artifact can be played end to end.** Attempt
+2 produced nothing playable because nothing playable was specified. That is not a
+failure against the barrier; it is not a measurement against the barrier.
 
-That reframes the whole thing. We are not debugging a botched run; we are
-standing on the known edge, with a machine (multi-tier fleet, deterministic
-walls, gauntlet) that no published attempt has assembled.
+The secondary correction — the reported black screen was a broken probe reading
+an already-presented drawing buffer — is real but minor next to this.
+
+What survives: the machine (multi-tier fleet, deterministic walls, gauntlet) that
+no published attempt has assembled, and evidence that a fleet **hits a tight
+technical contract well**. What changes: **our first Play@k measurement has not
+happened yet.** Every comparison to the published numbers in §2 is, for now, a
+comparison we have not earned.
 
 ---
 

@@ -63,14 +63,37 @@ that early rungs depend on.
 set → scale → one-shot. Jumping ahead to "build the game" is *the* failure mode
 and is how attempt 2 happened.
 
-**Attempt 2 is not an embarrassment to fix.** It scored 20/20 on a black screen
-— which is the documented Play@k barrier that ten SOTA models also fail. It is a
-frontier arrival, not a botch. Do not treat it as a bug hunt.
+**Attempt 2 was never asked for a game** (corrected 2026-08-02 —
+`findings/attempt-2-was-never-asked-for-a-game.md`). `ASSET-SPEC.md`, the
+pre-registered contract, specifies assets, shaders, a draw-call budget, a fixed
+timestep and a frame-time target — and **nothing about a player, rules, or a win
+condition**. The artifact is a 512-sprite lit rendering benchmark, built
+correctly. **20/20 was honest.** The reported black screen was a broken probe
+(`readPixels` after the rAF callback returned, on a `preserveDrawingBuffer:
+false` context — it read an already-presented buffer). Screenshot in `evidence/`.
 
-**Vacuous passes are the recurring enemy.** Four were found in a single day —
-two in Atlan's own suite, two in `check.mjs`, plus one in the sweep analysis
-where a *perfect* effect was reported as "NULL, smaller than noise." Assume more
-exist. Every gate must be **unable to pass because a feature is absent**.
+**Do not repeat any of the old framings.** It did not "die at tier 2," it is not
+a "frontier arrival," and it is not on the Play@k axis at all. It says nothing
+about whether a fleet can build a game, because it was never asked to.
+
+**It is `BUILD-SHEET.md` §0's principle #1 failing, with a receipt:** a perfect
+component spec with no vehicle spec above it yields a perfect component for no
+particular vehicle.
+
+**Vacuous passes are the recurring enemy — and so are vacuous FAILURES.** Four
+passes were found in a single day (two in Atlan's suite, two in `check.mjs`),
+plus one in the sweep analysis where a *perfect* effect was reported as "NULL,
+smaller than noise." Then the black screen turned out to be the converse. Both
+rules are load-bearing:
+
+- a gate must be **unable to pass because a feature is absent**
+- a gate must be **unable to fail because of how it measures**
+
+And three obligations follow: observe every gate **both** red and green before
+trusting it · **a catastrophic reading needs a second independent probe** — one
+probe reporting disaster is a claim, not a finding · **read the raw reading, not
+the verdict** (the failing probe reported all-zero pixels while the clear colour
+was `(4,5,10)` — self-refuting, recorded, never read).
 
 **The analysis is never model-generated.** No model reads sweep results and
 reports what mattered. That contaminates the measurement with the thing being
