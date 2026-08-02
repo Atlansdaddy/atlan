@@ -15,6 +15,7 @@ design document that claims completeness is lying:
 | document | answers |
 |---|---|
 | **`BUILD-SHEET.md`** | **what the machine is being built to DO** — the top of the top-down chain. Duty cycle, competitive bar, novelty boundary, qualification ladder, autonomy policy, win thresholds. **Every threshold below cites it; nothing below picks a number locally.** **10 gaps registered.** |
+| **`LANDING-MAP.md`** | **where every requirement lands** — the derived 26-gate rung-1 chain, the candidate component list, the protocol items. Closes BUILD-SHEET #9. **7 gaps registered.** |
 | **`MACHINE.md`** | what the machine IS — circuit architecture, every component, deterministic control with oracle values, the car mapping, what it refuses to do. **16 gaps registered.** |
 | **`GROUNDING.md`** | how output is JUDGED — seven tiers × four qualification stages, traversal depth as the score, how subjective bars become comparable. **8 gaps registered.** |
 | **`METHOD.md`** | how we LEARN what the instruction set should say — calibration, ablation sweeps both directions, computed-not-generated analysis, feasibility, the value map. **9 gaps registered.** |
@@ -41,44 +42,96 @@ knowing, since it was the one most directly blocking wall construction.
 mechanics unset (#2) · headroom targets unset (#3) · the abbreviation (#4) ·
 intervention count not measured (#10).
 
-### NEXT: the landing map (`BUILD-SHEET.md` #9)
+### DONE 2026-07-31: the landing map — see `LANDING-MAP.md`
 
-Walk every requirement in the build sheet and land it as **pool component** or
-**wall**. Anything landing in neither is decoration and gets cut. That single
-pass produces the candidate component list *and* the derived gate chain together,
-and it is the bridge from documents to rung 1. **Do this before writing walls** —
-the twelve-gate chain sketched in conversation was assumed, not derived, and it
-is already known to be missing a stress/soak gate.
+Every requirement walked and landed. Three outputs and one correction:
+
+- **A derived rung-1 gate chain of 26 gates.** The assumed twelve was under half,
+  and omitted the **stress** and **inspection** families entirely.
+- **15 candidate pool components**, all unproven, none admissible without an
+  `ADOPT` verdict. C7 (*code expands the corpus*) and C8 (*propose concepts, not
+  rows*) are the generation-minimal thesis stated as testable components.
+- **7 protocol items** — obligations on the method, not the artifact, including
+  the bare-model baseline arm that makes a matched comparison to published Play@1
+  possible at all.
+- **The build sheet's own rule broke.** §0 admits only *component* or *wall*;
+  four requirements land in neither and none is decoration. Two more sites are
+  needed — **producer** (code that expands the spec) and **protocol**. Amendment
+  proposed, **not yet applied** (`LANDING-MAP.md` #7).
+
+### NEXT
+
+1. **Ratify the four-site rule** (`LANDING-MAP.md` #7) — the sheet is cited as
+   authority everywhere, so its rule should be right before more is built on it.
+2. **Decide `GROUNDING.md` #2** — `composition.twoSided` is now the *only*
+   rung-1 gate that cannot be written. It is the highest-value open decision.
+3. **Version the gate chain** (`LANDING-MAP.md` #1) — deriving it moved the depth
+   denominator from 12 to 26, so scores are incomparable across revisions unless
+   the chain is hashed and recorded per run.
+4. Then build walls, starting with the tier-1 seven, which are unblocked.
 
 ---
 
-## 0. THE PHONE RULE (read before running anything)
+## 0. THE ENVIRONMENT RULE (read before running anything)
 
-**On the phone, cap the intelligence tier at roughly the on-node 30B-MoE class
-(qwen3.6-35B-A3B).** Concretely:
+**Corrected 2026-07-31.** This was written phone-side as a hardcoded *"on the
+phone, cap at the 30B-MoE class."* That bakes a conclusion in where the reasoning
+and a **detection** belong. A throttled cloud box has the phone's problem; a
+phone on a charger partly does not. **Device identity is not the input — measured
+capability is.**
 
-| on the phone, use | do NOT use on the phone |
-|---|---|
-| local on-phone model (brains) | Claude Fable 5 |
-| Gemini 3.6 Flash (free tier) | Claude Opus 5 at `xhigh` / `max` |
-| Claude **Haiku 4.5** / **Sonnet 5** (hands) | long-horizon autonomous runs |
-| Codex for short build loops | anything expected to run > a few minutes |
+### Probe three things, derive three policies
 
-**Why, so the rule survives being questioned later:**
+| probe | answers | derives |
+|---|---|---|
+| **kernel sandbox** — behaviourally | can agents be *gated*, or only *contained*? | gating mode; whether `enginePolicy` may run at all |
+| **process durability** | can a long-horizon run survive to completion? | run-duration ceiling; whether autonomous runs are permitted |
+| **power/thermal envelope** | does sustained high effort trigger shedding? | effort ceiling and therefore tier ceiling |
 
-1. **Fable 5 turns run for minutes** on hard tasks — that is documented, expected
-   behaviour, not a hang. A phone session cannot reliably hold one: Android's
-   thermal governor sheds background apps, and the whole Termux/proot tree can be
-   force-killed at once (this has happened, see HANDOFF.md recovery playbook).
-2. **No kernel sandbox exists on proot** — no user namespaces, so no CLI's OS
-   sandbox can initialise. The phone runs agents *contained* (disposable git
-   worktree + diff gate + scrubbed env), never *gated*. A bigger model with hands
-   on the weaker boundary is the wrong trade.
-3. **Thermals** — a long high-effort run heats the phone, which triggers the very
-   shedding that kills the run.
+Plus cores and RAM for the concurrency cap.
 
-The phone is the host and gets the full toolset — this is a *tier* cap, not a
-feature cap. Same surfaces, smaller workers.
+### Probe by BEHAVIOUR, not by feature flag
+
+Measured on this node 2026-07-31: `/sys/kernel/security/lsm` reads **`n/a`** —
+and yet Landlock demonstrably enforces here (`codex exec -s workspace-write`
+against a canary returns `Read-only file system`, receipt in §3). **A declarative
+probe would have wrongly downgraded a kernel-gated host to contained-only.**
+
+So the gating probe is a **canary test**: under the CLI's own sandbox flag,
+attempt a write outside the workspace and assert refusal. Behaviour is
+authoritative; a flag file is a hint.
+
+### Fail-safe direction when a probe cannot answer
+
+- **gating** — absence of proof of a kernel sandbox ⇒ treat as **ungated**.
+  Assuming a boundary you do not have is the dangerous error.
+- **thermal** — absence of thermal telemetry ⇒ unconstrained **only** when there
+  is no battery. WSL reports zero thermal zones and no power supply, which is
+  correct for a desktop and would be a **false negative on a laptop**. Known
+  limitation; do not treat silence as headroom when a battery is present.
+
+### Measured profiles
+
+| | this node (WSL2) | phone (Termux/proot) |
+|---|---|---|
+| userns | **YES** (max 127780) | no |
+| kernel gating | **YES** — Landlock, by canary | none available |
+| pid 1 / durability | **systemd running** | no init; whole proot tree force-killable at once |
+| battery / thermal zones | **none / 0** | present / present |
+| cores · RAM | **32 · 32 GB** | few · little |
+| ⇒ gating mode | **gated** | **contained** (worktree + diff gate + scrubbed env) |
+| ⇒ run ceiling | long autonomous runs OK | short bounded loops only |
+| ⇒ tier ceiling | full roster | ~the on-node 30B-MoE class |
+
+**The named profile is an output, not an input.** "Phone" is shorthand for
+*{no userns, no init, battery present, thermal zones present, few cores}* — and
+any host matching that shape gets the same policy regardless of what it is.
+
+**It remains a TIER cap, never a FEATURE cap.** Every host gets the full toolset
+and the same surfaces; constrained hosts get smaller workers and shorter leashes.
+
+Probe script: `/root/probe-host.sh` (not yet in the repo — it is code, so it
+lands on a branch when the policy is implemented).
 
 ---
 
@@ -445,5 +498,6 @@ cd /root/atlan && git pull --rebase origin main
 cat docs/ATLANTEAN-RESUME.md
 ```
 
-Then apply **§0** — cap the tier. The work doesn't change; the workers get
-smaller.
+Then apply **§0** — run the probe, let the caps derive from what it reads. The
+work doesn't change; on a constrained host the workers get smaller and the
+leashes get shorter.

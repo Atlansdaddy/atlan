@@ -11,6 +11,7 @@ the end of a long session, specifically so the next one starts warm.
 |---|---|
 | `docs/ATLANTEAN-RESUME.md` | **current state** — branches, worktrees, running instances, what shipped, the phone rule |
 | `docs/BUILD-SHEET.md` | **what it is being built to DO** — the top of the top-down chain. Read before anything that picks a number |
+| `docs/LANDING-MAP.md` | **where every requirement lands** — the derived 26-gate rung-1 chain, the candidate components, the protocol items |
 | `docs/MACHINE.md` | what the machine IS — components, architecture, what it refuses to do |
 | `docs/GROUNDING.md` | how output is JUDGED — tiers × stages, traversal depth |
 | `docs/METHOD.md` | how we LEARN what the instruction set should say |
@@ -78,8 +79,11 @@ measured. Same reason walls are code and gauntlet review is cross-model.
 ## 4. Settled — do not re-litigate
 
 - **Atlantean** = *of Atlantis*. The team are Atlanteans; the project is Atlantis.
-- **Phone tier cap** — on the phone, cap at ~the on-node 30B-MoE class. It is a
-  TIER cap, never a FEATURE cap. Three reasons in `ATLANTEAN-RESUME.md` §0.
+- **Environment rule** — the tier/gating policy is **detected, not hardcoded**.
+  Probe kernel sandbox (behaviourally, via canary — a flag file lies), process
+  durability, and power/thermal envelope; the caps derive from the readings.
+  Device identity is not the input. It remains a TIER cap, never a FEATURE cap.
+  `ATLANTEAN-RESUME.md` §0, with both profiles measured.
 - **One-shot** = one production run, no human turns, into a mature harness.
   *Not* one prompt to a bare model.
 - **Fable 5 = manager/orchestrator. Opus 5 = coder.** Evidence in
@@ -145,13 +149,14 @@ root cause unfound.**
 1. Read `ATLANTEAN-RESUME.md`, then this file's §3.
 2. `git -C /root/atlan status -sb` and `git -C /root/atlan log --oneline -5` —
    confirm state matches the doc; the doc may be stale, the repo is not.
-3. **Do the landing map** (`BUILD-SHEET.md` #9): walk every requirement in the
-   build sheet and land it as a **pool component** or a **wall**. Anything
-   landing in neither is decoration and gets cut. One pass yields the candidate
-   component list *and* the derived gate chain.
-4. Only then start building walls. **Do not use the twelve-gate chain sketched in
-   conversation** — it was assumed rather than derived, and is already known to
-   be missing a stress/soak gate.
+3. **The landing map is done** (`LANDING-MAP.md`, 2026-07-31). The rung-1 chain
+   is **26 gates**, derived. **Do not use the twelve-gate chain sketched in
+   conversation** — it was assumed, was under half the real size, and omitted the
+   stress and inspection families entirely.
+4. Three things want deciding before more is built on them: the four-site landing
+   rule (`LANDING-MAP.md` #7), `GROUNDING.md` #2 (the only unbuildable rung-1
+   gate), and gate-chain versioning (`LANDING-MAP.md` #1).
+5. **The tier-1 seven are unblocked** and are the place to start building walls.
 
 **Do not start by building game code.** The walls come first because the walls
 are the measuring instrument.

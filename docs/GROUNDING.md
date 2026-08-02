@@ -106,7 +106,7 @@ about which condition was better.
 
 > **The score is how far along the chain the trip got.**
 
-`cleared 7 of 12 gates, stopped at the render gate` is a graded result with real
+`cleared 9 of 26 gates, stopped at the render gate` is a graded result with real
 resolution. It means:
 
 - a run that never finishes **still produces signal**
@@ -122,14 +122,36 @@ It also answers *to what ends the strengths are*: **where runs consistently
 stall is where the system is weak; how far they reliably get is where it is
 strong.** That falls straight out of recording depth per run instead of a bit.
 
+### Two things depth must carry, added 2026-07-31
+
+**1. The chain is versioned, and the version is part of the score.** Deriving the
+rung-1 chain from the build sheet moved the denominator from 12 to 26
+(`LANDING-MAP.md` §5). A depth is therefore **meaningless without the chain it was
+measured against** — `9/26` and `7/12` are not comparable, and a chain edited
+between runs silently rewrites the history of every prior verdict. This is exactly
+the staleness defect `METHOD.md` #3 registers for the component pool, sitting in
+the scorer where nobody was watching. **The chain is content-hashed and the hash
+is recorded with every run.** The canonical chain lives in `gates.rung1.json`, not
+in prose — a scorer that reimplements the chain from a document will drift from it.
+
+**2. Inspection gates are not counted in depth.** They ask a different question:
+conformance, not performance (`BUILD-SHEET.md` §8). Novelty, regime
+comparability, frame read-only, tamper, provenance — a failure in any of these
+means the run is **void**, routed to `fuse`, not scored lower. Mixing them into
+the denominator would make an illegal car read as a slow one, and would let a
+conformance failure be traded off against a performance gain.
+
 ### Reporting shape
 
 ```
-depth        7 / 12
+chain        gates.rung1@a3f19c2      (26 gates, hashed)
+depth        9 / 26
+depth_vector t1: 7/7  t2: 2/4  t3: 0/2  t4: 0/10  stress: 0/3
 stopped_at   render.litPixels
 tier_reached 2
 stage        full-trip
 how          stuck        (same signature 2x — more iterations will not help)
+inspection   pass         (conformance — not part of depth)
 ```
 
 `how` comes from `iterate`'s classification and is part of the score:

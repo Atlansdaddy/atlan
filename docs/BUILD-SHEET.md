@@ -71,15 +71,33 @@ is compiled** from a pool of small, individually-proven components.
 That fixes this document's audience. **The build sheet is read by the prompt
 compiler, not by a builder.** Which puts a hard test on every line in it:
 
-> **Every requirement here must terminate in either a pool component or a wall.**
+> **Every requirement here must terminate in a pool component, a wall, a
+> producer, or a protocol item.**
 
 - a **pool component** — something the instruction set tells the fleet, which has
   earned an `ADOPT` verdict from a sweep before it may enter an assembly
 - a **wall** — something deterministic code checks, written so that it cannot
   pass because a feature is absent
+- a **producer** — deterministic code that *expands* the compact spec into the
+  corpus. It builds; it does not check
+- a **protocol item** — an obligation on the experimental method rather than on
+  the artifact: a sweep arm, a pre-registration, a reporting rule
 
-A requirement landing in neither is decoration. It will not survive to the car,
-and under the minimality rule it gets **cut, not carried**.
+A requirement landing in none of the four is decoration. It will not survive to
+the car, and under the minimality rule it gets **cut, not carried**.
+
+**Corrected 2026-07-31.** This rule originally admitted only *component* or
+*wall*. Walking the sheet (`LANDING-MAP.md`) found four requirements that land in
+neither and are not decoration — the rule as written would have cut load-bearing
+work. Two failures in particular:
+
+- **"code supplies the corpus"** is the most load-bearing line in §5 and is
+  neither an instruction nor a check. Filing it as a wall would have been wrong in
+  a way that matters: **a wall that generates its own input is a vacuous pass by
+  construction.**
+- **the bare-model baseline arm** (§2) belongs to the sweep, not the car. It is
+  the only thing that makes a matched comparison to published Play@1 possible, and
+  the binary rule would have discarded it.
 
 This also makes the build sheet the **domain source of candidate components**.
 `METHOD.md` §4's candidate table is currently harness-shaped — reference example
@@ -543,7 +561,7 @@ constant — which supersedes the fixed-four framing in `ATLANTEAN-RESUME.md` §
 | 4 | **The abbreviation is undecided** | **OPEN** | `PRIOR-ART-JRPG.md` §13.11 — `CoA` will land in IDs, file prefixes and the vocabulary lock whether chosen or not. FF's team chose the abbreviation first, then the name. |
 | 5 | **Composition scope at rung 1** | **OPEN** | Carried from `GROUNDING.md` #2. Jobs-only is exhaustive at 35 cases with 4 jobs in 4 slots; rung 2 introduces equipment and the space explodes, needing a collapse rule. |
 | 6 | **Graceful error is required but unspecified** | PLANNED | A blown motor must be autopsy-able. Attempt 2 blew up and root cause is *still* unfound — the lesson the failure was supposed to buy was lost. Every gate failure must capture enough state to diagnose it; currently only `iterate`'s stuck/exhausted classification does. |
-| 7 | **No soak/stress gate exists in the chain** | PLANNED | §4's four dyno questions are not represented in the twelve-gate draft. The chain must be re-derived from this sheet rather than assumed. |
+| 7 | **No soak/stress gate exists in the chain** | **CLOSED** | Resolved by the derived chain (`LANDING-MAP.md` §5). Three of §4's four dyno questions are now gates — `determinism.sameSeedSameTranscript`, `stress.survives`, `stress.throughput`. The fourth (`stress.headroom`) is a **gauge, not a gate**, until #3 sets targets; build and run it anyway, because its readings are the honest basis for choosing them. |
 | 8 | **Provenance is claimed, not yet verifiable end-to-end** | PLANNED | §2 makes auditability part of the result. Transcript, assembly hash and production record exist separately; nothing yet composes them into a single answer to "who built this line." |
-| 9 | **No landing map from requirement → component or wall** | PLANNED | §0 requires every line here to terminate in a pool component or a wall. That mapping is unwritten, so it is not yet known which requirements are decoration. Producing it yields the candidate component list *and* the derived gate chain in one pass — it is the bridge from this document to rung 1. |
+| 9 | **No landing map from requirement → component or wall** | **CLOSED** | Done 2026-07-31 — see `LANDING-MAP.md`. Outputs: a **26-gate** derived rung-1 chain (the assumed twelve was under half, and omitted the stress and inspection families entirely), a 15-item candidate component list, and 7 protocol items. **It also broke §0's rule** — four requirements land in neither a component nor a wall and none is decoration, so two more landing sites are needed (**producer**, **protocol**). Amendment proposed in `LANDING-MAP.md` §0 and **not yet applied here** — see that document's gap #7. |
 | 10 | **Interventions are not counted** | **OPEN** | §8 sets the *policy* — autonomy earned per stage, revoked on consistency loss, reset to the last stage that held. What is still unspecified is the *measurement*: traversal depth records distance and nothing records interventions, so depth-9-with-two-touches outranks depth-8-untouched. Needs a decision on whether intervention count is a second axis or a modifier on depth. |

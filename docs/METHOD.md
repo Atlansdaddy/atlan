@@ -168,13 +168,25 @@ compile barrier that stopped 10,400 single-pass runs (frontier models + a
 written spec + JS is a far easier regime than 7B-on-Unity), and then landed
 exactly on the Play@k barrier nobody has cleared.
 
-## 8. Even failure produces a value map
+## 8. The value map — the point, not the consolation
+
+**Reframed 2026-07-31 (John).** This section previously read as *value if the
+game fails entirely*. That is inverted. **The deliverable is the system and the
+data it produces; the game is the proving ground** — the hardest test case
+available at this scale, chosen because a system that can build a coherent RPG
+end to end can be pointed at other work. The transferability below is the
+**claim under test**, not a fallback. See `BUILD-SHEET.md` §1.
 
 Every subsystem carries a **transferability tag**, and the sweep records two
 things: did it move the score *on this game*, and what **class of problem** does
 it solve independently.
 
-| subsystem | value if the game fails entirely |
+**The claim is testable and cheap to test:** point the machine at a non-game
+build sheet and see how far it gets. The machine is agnostic by construction, so
+a different destination should just work — and where it does not is where an RPG
+assumption leaked into machinery that was supposed to be form-independent.
+
+| subsystem | value independent of this game |
 |---|---|
 | circuit layer | deterministic multi-agent orchestration with real protection — any agent pipeline |
 | sweep + analysis | measuring whether a prompt fragment earns its place — every LLM product |
