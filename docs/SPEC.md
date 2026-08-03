@@ -7,7 +7,8 @@ One sentence: **Claude Code in a phone IDE with a live preview sandbox, Mid-Atla
 
 ```
 ┌─ Browser (PWA, 127.0.0.1:4589) ────────────────────────────┐
-│  Chat · Preview(iframe sandbox) · Fleet · Build · Doctor    │
+│  Chat · Preview · Editor · Term · Fleet · Build · Doctor ·  │
+│  Scan · Git   (nine tabs)                                   │
 │  Atlan mood engine (canvas) · xterm.js Terminal pane        │
 └──────────────▲ WebSocket (events) ▲ HTTP (files/assets) ────┘
 ┌─ atlan-server (Node 22, proot) ─────────────────────────────┐
@@ -47,7 +48,11 @@ One sentence: **Claude Code in a phone IDE with a live preview sandbox, Mid-Atla
 2. **PTY (everything else + raw claude)** — engine CLI inside tmux; GUI renders via xterm.js; `tmux attach -t atlan-<name>` from Termux = the escape hatch. GUI parses what it can (JSON output modes where CLIs offer them).
 
 ## Engine roster (docs/engines/*.md for verified facts)
-- Claude Code (agent, primary) · Codex CLI (agent) · Gemini CLI (agent) · Qwen Code / Vibe / Kimi Code (agent CLIs, later)
+*Corrected 2026-08-02 — this list still said "Gemini CLI" and omitted Grok and
+Copilot, while the diagram above had it right. Ground truth is `agents.js:114–133`.*
+- Claude Code (agent, primary, Agent SDK) · **Codex** CLI · **Antigravity** CLI ·
+  **Grok Build** CLI · **GitHub Copilot** CLI — all four non-Claude run headless
+  in tmux-backed PTYs. Qwen Code / Vibe / Kimi Code remain "later".
 - API brains (12): local (llama-server) · gemini · openai · deepseek · kimi · grok · mistral · groq · together · openrouter · fireworks · cohere — one OpenAI-compat adapter
 - Local free: llama-server (Qwen3.5-2B upgrade path), LiteRT Gemma 4 E2B app-side later
 
@@ -74,10 +79,12 @@ One sentence: **Claude Code in a phone IDE with a live preview sandbox, Mid-Atla
 - **M6 atlan-alive** ✓ mood engine on real state (halo canvas, orbiting agents), time greetings, night dimming
 - **Auth layer** ✓ password (scrypt) + httpOnly `SameSite=Strict` session cookie on /api + /apk + WS (timing-safe, throttled, sessions hashed at rest, revoked on password change); bearer header for automation only; preflight blocker cleared — 0 blockers
 - **Onboarding** ✓ 28-step in-app spotlight tour + searchable handbook + `docs/HANDOFF.md`
-- **Test campaign** ✓ 151 tests / 10 suites green; `docs/RECEIPTS.md` auto-generated
+- **Test campaign** ✓ **219 tests / 11 suites green** (2026-08-02; was 151/10 when written); `docs/RECEIPTS.md` auto-generated
 - **Post-M6** ✓ chat streaming + live thinking; password auth + sessions; forkable config layer; worker hierarchy (engine + UI); message attachments; live code editor; UI/a11y pass; Apache-2.0 + watermark
 
-### Backlog (post-handoff)
+### Backlog (post-handoff) — status refreshed 2026-08-02
 - Persona in Chat (not just fleet/routines); M5d worker hierarchy (frontier writes scope → local Qwen executes under grammar constraint → checkers verify → escalate)
-- Builder/verifier Bash sandboxing (currently unscoped within project — honest caveat in-app)
+- ~~Builder/verifier Bash sandboxing~~ → **partially shipped.** `ATLAN_SANDBOX=1` wires the SDK's OS confinement into autonomous fleet Bash where the host has user namespaces (`config.js:47–55`, `fleet.js:189`); it degrades honestly on proot. **Still open: the exec-mode CLI path** (`agents.js`, `studio.js`) passes bypass flags unconditionally with no host probe.
 - Atlan-as-APK dogfood wrapper; Cloudflare Tunnel + Access exposure (only when John chooses)
+- **Brains cannot receive images** — `brains.js` has no multimodal path at all; agents get a file pointer, chat-only brains get a path they cannot open. See `DOGFOOD-FINDINGS-2026-07-26.md`.
+- **Front-end split** — `web/public/app.js` is 2,012 lines in one scope.

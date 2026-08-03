@@ -1,5 +1,7 @@
 # Atlan — setup (for a fresh clone)
 
+*Verified 2026-08-02: every referenced script exists (`bin/atlan-serve.sh`, `bin/termux-boot.sh`, plus `bin/atlan-watchdog.sh`), and the ports match `config.js` (cockpit 4589, preview 4590).*
+
 Atlan runs its own Node server and you drive it from a browser at `http://127.0.0.1:4589`. **Where the server can run decides how you use it** — read the platform table first.
 
 ## Which path is yours?

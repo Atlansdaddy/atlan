@@ -1,5 +1,9 @@
 # `canUseTool` is not a security gate in the Claude Agent SDK
 
+**Status: STILL VALID — re-verified 2026-08-02 against `@anthropic-ai/claude-agent-sdk` 0.3.210.** The mitigation is present in Atlan at `fleet.js:178,183` (`settingSources: []` + per-profile `disallowedTools`) and `claudeEngine.js:88`, where the comment correctly labels `settingSources:[]` a security boundary rather than a preference.
+
+**Per this doc's own rule 3 (re-check on upgrade):** 0.3.220 is available and Atlan is deliberately pinned to 0.3.210. **Re-run the adversarial test in §"What to verify" before taking that bump** — auto-approval behaviour is an implementation detail and this finding is exactly the kind that silently regresses.
+
 *A transferable finding from building Atlan (Mid-Atlantic AI). If you build agents on `@anthropic-ai/claude-agent-sdk` and treat `canUseTool` as your permission boundary, you have a hole right now. Here's the mechanism, the proof, and the fix.*
 
 ## TL;DR

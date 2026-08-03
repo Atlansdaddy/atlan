@@ -4,6 +4,11 @@
 > future capability slots into the contracts described here instead of sprawling
 > into a junk drawer. The *Purpose* section is John's to own and redline — the
 > rest is the technical spine.
+>
+> **Counts verified against code 2026-08-02.** Tab count, engine roster, brain
+> providers and template list are the things that rot first here — each had
+> drifted since the helis-d merge. When you add a surface, an engine or a skin,
+> update "What exists today" in the same commit.
 
 ---
 
@@ -109,7 +114,9 @@ one thing.
 
 The full agentic coding CLIs, run under the user's subscription, with real hands
 (read/edit files, run tools, build): **Claude Code, Codex, Antigravity, Grok
-Build**. Claude is gated per-tool via permission cards. The other four are **not
+Build, GitHub Copilot CLI** *(Copilot added to the roster and missing from this
+list until 2026-08-02; the engine branches are `agents.js:114–133`)*. Claude is
+gated per-tool via permission cards. The other four are **not
 gated today** — Atlan launches them with their approvals bypassed
 (`--dangerously-bypass-approvals-and-sandbox`, `--dangerously-skip-permissions`,
 `--always-approve`, `--allow-all`), and the cockpit never sees their individual
@@ -226,13 +233,17 @@ toolchains Atlan doesn't ship itself — safely, on the user's terms.
 
 ## What exists today vs. planned (honest)
 
-**Load-bearing today:** the seven tabs (Chat · Preview · Editor · Term · Fleet ·
-Build · Doctor); the engine registry with five agent/local engines (Claude Code,
-Codex, Antigravity, Grok Build, local `llama-server`) plus per-engine model
-tiers; BYO-key chat brains (OpenAI-compat, 11 providers); the worker hierarchy
+**Load-bearing today** *(counts re-verified against the code 2026-08-02)*: the
+**nine tabs** (Chat · Preview · Editor · Term · Fleet · Build · Doctor · **Scan** ·
+**Git**) — Scan and Git arrived with the helis-d merge and this line still said
+"seven" until 2026-08-02; the engine registry with **six** agent/local engines
+(Claude Code, Codex, Antigravity, Grok Build, **GitHub Copilot CLI**, local
+`llama-server`) plus per-engine model tiers; BYO-key chat brains (OpenAI-compat,
+**11** cloud providers — gemini, openai, deepseek, kimi, grok, mistral, groq,
+together, openrouter, fireworks, cohere — plus `local`); the worker hierarchy
 with deterministic checkers and the local→cheap-cloud→frontier ladder; permission
 cards; budgets that halt; the editor + preview review loop; voice I/O; the
-visual-template system (Classic + MidAtlantic).
+visual-template system (**three** skins: Classic, MidAtlantic, **Glass (helis-d)**).
 
 **Planned (this architecture's forward edge):** brains-as-subscription-chat
 (Class 2 on the user's own login, not just BYO-key); chat/studio output wired into

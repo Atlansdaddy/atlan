@@ -4,6 +4,8 @@
 
 *Re-audited against live source 2026-07-24: all 8 code-level "Fixed" rows re-verified present (no regressions); 3 roadmapped items advanced by the durability batch (ReDoS, atomic writes, sandbox opt-in) and moved below; front-end monolith line count corrected (grew, not shrank).*
 
+**Re-audited again 2026-08-02.** Three rows in the roadmap table were stale — the preview proxy had been gated eight days earlier, the atomic-writes row duplicated a row already in "Fixed", and the `app.js` line count was still the pre-correction number despite the 2026-07-24 note above saying it had been corrected. All three fixed below. `SECURITY.md` was re-verified the same day and had **diverged from this file** in both directions: it understated ReDoS (recorded here as fixed, there as open) and it overstated the preview proxy. Two documents describing one codebase must be reconciled against the code, not against each other.
+
 ## ✅ Fixed (confirmed by ≥2 models, code-level, regression-tested)
 | Finding | Who | Fix |
 |---|---|---|
@@ -28,15 +30,15 @@
 | Finding | Who | Plan |
 |---|---|---|
 | Bash native OS-sandbox on proot (real confinement, not opt-in) | all | Opt-in mechanism now shipped (see 2026-07-24 above); the *remaining* gap is proot itself having no user namespaces. Real fix = run the server on a native/WSL2 host, or a native sandboxed worker (worktree ≠ sandbox). |
-| Preview proxy (:4590) unauthenticated loopback | all | Add auth to the proxy, or gate it; on Android any app reaches it. |
+| Preview proxy (:4590) unauthenticated loopback | all | **Mitigated 2026-07-24 (`7caee01`), row was stale until 2026-08-02.** `previewOriginOk()` (`preview.js`) rejects non-loopback `Host` (DNS-rebinding) and cross-site `Origin` (cross-site fetch/WS) — the browser-reachable vectors are shut. **Residual, and it is the mobile-primary one:** a NATIVE local app can forge `Host` and omit `Origin`; on Android any installed app with INTERNET permission reaches loopback. Only a URL secret closes that, deliberately avoided. Same residual class as the `/api/auth/setup` row below. |
 | Budgets are post-step, not stream-level (single turn can overshoot) | all | **Mitigated (2026-07-24).** `canUseTool` now reserves `TURN_RESERVE` (default 16k, capped at ½ budget) so it stops authorizing new turns *below* the raw budget — overshoot is bounded to ~one in-flight turn instead of a whole generation. Unit-tested. Further tightening available via the SDK's `taskBudget`/`maxBudgetUsd` (model self-paces) — opt-in, pending a beta-support check on the proot stack. |
 | TOCTOU on path guards | Claude, ChatGPT | Low severity single-user; real fix needs openat2/dir-fd confinement. |
 | First-run `/api/auth/setup` race | ChatGPT, Grok | **Mitigated (2026-07-24).** Setup now requires local ownership: an allow-listed browser Origin (frictionless first run) OR the automation bearer (`.auth-token`, 0600 — the "local-only token"). A no-Origin local process can no longer claim the instance. Unit + live 403 regression. Residual: a native app can forge Origin (same class as the preview-proxy residual); a browser-side setup-token field is the further hardening, deferred while the front-end is redesigned. |
 | **Self-repair gates insufficient as specified** — worktree isn't an execution sandbox; gate code must be immutable *relative to what it gates*; human rubber-stamp under fatigue | all | Folded into `VAULT-DESIGN.md`: Stage 2 stays "AI-assisted patch proposal" (not autonomous) until it runs in a real sandbox with an external immutable test oracle + gate code the loop can't touch. Off by default. |
 | Vault dedup ≠ knowledge lifecycle (contradiction/supersession/decay) | ChatGPT | Design SQLite-canonical store + entity IDs + valid_from/until + supersedes edges (beyond ADD/UPDATE/MERGE). |
-| Front-end monolith (`app.js` ~1300 lines, one scope) is the real scaling wall | Claude, Grok, Gemini, ChatGPT | Split into ES modules + a central state store (no bundler needed). The "no-build" call was right for proot fragility, wrong as a *scaling* argument. |
-| Single Node process owns control plane + execution | ChatGPT | Split execution workers from the control plane before more features. |
-| Synchronous FS writes without atomic rename/locking (sessions, personas, ledger) | ChatGPT, Grok | Atomic writes + move state to SQLite. |
+| Front-end monolith (`app.js`, one scope) is the real scaling wall | Claude, Grok, Gemini, ChatGPT | **Getting worse, measured 2026-08-02: 1,583 lines at review → 2,012 now (+27%).** Split into ES modules + a central state store (no bundler needed). The "no-build" call was right for proot fragility, wrong as a *scaling* argument — and phone-first makes this sharper, not softer, since this file gets edited on a phone. Every feature added before the split makes the split harder. |
+| Single Node process owns control plane + execution | ChatGPT | Split execution workers from the control plane before more features. **Ties to the phone→home-node offload path** (`SECURITY.md`): the accessory host is the natural first execution worker. |
+| State should move to SQLite (sessions, personas, ledger) | ChatGPT, Grok | *Atomic writes shipped 2026-07-24 — see the Fixed table; this row previously duplicated it and is now scoped to the remaining half.* SQLite migration still deferred. |
 | ToS: Agent-SDK-on-subscription is unsupported-risk, not "advisory" | all | Reframed honestly: official CLI = supported; SDK-on-subscription = may break/enforce; API-key = the supported path. |
 
 ## Convergent verdict (all four, paraphrased)

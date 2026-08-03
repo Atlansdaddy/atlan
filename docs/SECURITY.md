@@ -1,8 +1,23 @@
 # Atlan security posture (honest)
 
-*Updated 2026-07-22 after a four-model adversarial review (ChatGPT, Claude, Gemini, Grok). This doc is kept truthful on purpose — earlier versions drifted from the code, which reviewers rightly flagged.*
+**Status: VERIFIED against code 2026-08-02.** Written 2026-07-22 after a four-model adversarial review (ChatGPT, Claude, Gemini, Grok); every claim below was re-checked line-by-line on 2026-08-02 and three were found stale (preview proxy, ReDoS, Bash sandbox — all corrected in place). This doc is kept truthful on purpose — earlier versions drifted from the code, which reviewers rightly flagged, and drift recurred within two weeks. Re-verify on every security-relevant change.
 
 **Atlan is loopback-only.** Cockpit :4589, preview proxy :4590, llama-server :8080 bind 127.0.0.1. Nothing is reachable from the internet. The in-app **Preflight** (Doctor tab) gates any exposure.
+
+## Primary host is the PHONE
+
+**Atlan is a phone-first mobile development and agentic workstation.** Android/Termux/proot is the *primary* target; a PC/WSL2 home node is an **accessory that extends the mobile workstation**, never the other way round. Every default below is chosen for the phone, and a capability the phone lacks is an *addition* on a bigger host — not a correction of the phone.
+
+That matters here because the boundary genuinely differs by host, and the difference is **detected, not assumed**:
+
+| | phone (Termux/proot) — PRIMARY | home node (Linux/WSL2) — ACCESSORY |
+|---|---|---|
+| user namespaces | none | present |
+| kernel-enforced Bash sandbox | **unavailable** | available (bubblewrap/seccomp; Landlock verified for `codex -s`) |
+| agent confinement | *contained* — tool profile, path guards, worktree | can additionally be *gated* by the kernel |
+| long autonomous runs | thermally/OOM fragile | fine |
+
+**The accessory's real job:** `SECURITY.md` has always said untrusted autonomous shell work needs a real sandboxed host. The phone cannot be that host. **The home node can be the place the phone offloads to** — which makes the mobile workstation safer without moving the cockpit off the phone.
 
 ## The honest threat model (read this first)
 The realistic risk is **not** "someone on the internet connects to port 4589." It's **local**:
@@ -19,13 +34,20 @@ The realistic risk is **not** "someone on the internet connects to port 4589." I
 - **Keys:** AES-256-GCM at rest, 0600 secret, last-4 only. Honest limit: decryptable by design (the app must send keys to providers).
 - **Deterministic checkers:** exact membership (not substring), safe arithmetic (no `eval`), constrained decoding.
 
-## Known, still-open gaps (from the review — not hidden)
-- **Bash is NOT OS-sandboxed on proot.** Builder/verifier Bash is host execution as the Termux user — gated by tool *profile*, not the OS. The "writes scoped to project" claim is true only for the SDK Write/Edit tools, **not** Bash. Honest labels: Scout = SDK-read-only; Builder/Verifier = full host execution.
-- **Preview proxy (:4590) is unauthenticated loopback** — any app on the phone can reach it; treat any local service it can proxy as exposed.
-- **Budgets are post-step, not stream-level** — a single in-flight turn can overshoot its cap before the halt; the aggregate caps bound the account, not one runaway step.
-- **regex checkers can ReDoS** (user-authored patterns on model output) — self-inflicted, single-user, but an unbounded-time op. RE2/timeout is the fix.
-- **TOCTOU** on path guards (check-then-use) — low severity single-user.
-- **Self-repair (designed, not built):** a git worktree is source-tree hygiene, not an execution sandbox — verifying a malicious patch runs its code. Stage 2 must run in a real sandbox with an *immutable, external* test oracle and gate/checker code the loop can never touch. Until then it's **AI-assisted patch proposal**, not autonomous self-repair. Off by default.
+## Known gaps — status verified 2026-08-02
+
+Each carries its real state. "Partial" means a vector was closed and a narrower one remains; saying "open" for those understates work already done, and saying "closed" would overstate it.
+
+- **OPEN · Bash is not OS-sandboxed on the phone.** Builder/verifier Bash is host execution as the Termux user — gated by tool *profile*, not the OS. "Writes scoped to project" is true of the SDK Write/Edit tools, **not** Bash. Honest labels: Scout = SDK-read-only; Builder/Verifier = full host execution. **Unfixable on proot** (no user namespaces) and correctly so — see the next line for what *is* available.
+- **PARTIAL · OS sandbox exists for the fleet, opt-in.** `ATLAN_SANDBOX=1` (`config.js:47–55`) passes the Agent SDK's `sandbox` option on autonomous fleet runs (`fleet.js:189`), confining Bash via bubblewrap/seccomp **where the host has user namespaces**. `failIfUnavailable:false` so it degrades honestly on proot rather than lying about the boundary; the Doctor reports which it got. Off by default; deliberately not applied to interactive Chat, which is human card-gated. **Remaining gap: the exec-mode CLI path is not covered** — `agents.js:117,118,122` and `studio.js:68` pass `--dangerously-bypass-approvals-and-sandbox` / `--dangerously-skip-permissions` **unconditionally**, with no host probe and no opt-in. All four exec-mode CLIs expose native gating flags. `sandboxOption()` is the pattern to copy; `enginePolicy.js` on `feat/cross-engine-orchestration` is the unmerged implementation.
+- **PARTIAL · Preview proxy (:4590).** *Was* an open unauthenticated loopback; **gated 2026-07-24 (`7caee01`)** with an anti-rebinding **Host + Origin** check (`preview.js` `previewOriginOk()`). Closed: DNS-rebinding and cross-site fetch/WS — the browser-reachable vectors. **Still open: a NATIVE local app can forge Host and omit Origin.** On Android that is the realistic threat, since any installed app with INTERNET permission reaches loopback. Only a secret token stops it, which is deliberately kept out of the URL.
+- **PARTIAL · Budgets are post-step, not stream-level.** Mitigated 2026-07-24: `TURN_RESERVE` (`config.js:45`, default 16k, capped at ½ budget via `fleet.js:20`) stops authorizing new turns *below* the raw budget, bounding overshoot to roughly one in-flight turn instead of a whole generation. Residual: that one turn.
+- **CLOSED · regex checkers can ReDoS.** Shut at **authoring**, not at runtime: `unsafeRegex()` (`personas.js:106`) walks the pattern and rejects quantified groups containing a quantifier — the catastrophic-backtracking shape — so `upsertCommand` throws and such a pattern can never be saved (`personas.js:147`). Unit-tested (`test/unit.mjs:219–225`). A 10k input cap remains as a backstop (`personas.js:213`). RE2 or an engine-level timeout is still the ideal, but the door is shut. *This line said "open" until 2026-08-02 while `REVIEW-FINDINGS.md` already recorded the fix — the two docs had diverged.*
+- **OPEN · TOCTOU on path guards** (check-then-use) — low severity single-user; a real fix needs openat2/dir-fd confinement.
+- **OPEN by design · Self-repair.** A git worktree is source-tree hygiene, not an execution sandbox — verifying a malicious patch runs its code. Stage 2 must run in a real sandbox with an *immutable, external* test oracle and gate/checker code the loop can never touch. Until then it is **AI-assisted patch proposal**, not autonomous self-repair. Off by default.
+- **OPEN · Debugger (unmerged).** helis-d's CDP bridge forwards raw client commands to the V8 inspector and takes a client-supplied `scriptPath`. Correctly parked. Note an allowlist of "stepping + setBreakpoint" is **still RCE** — `Debugger.evaluateOnCallFrame` and conditional breakpoints both evaluate arbitrary JS.
+
+**Verified present in code 2026-08-02** (spot-checked, all pass): origin pinning on non-GET `/api` (`index.js:62`) and WS upgrade (`index.js:413`) · session tokens sha256 at rest (`auth.js:72`) · realpath symlink guard (`guards.js:61`) · `settingSources:[]` + `disallowedTools` (`fleet.js:178,183`) · daily token cap + concurrency cap (`fleet.js:140,143`) · AES-256-GCM key store (`keys.js:48`) · `atomicWrite` temp+rename preserving 0600 (`fsutil.js:9`) · `ATLAN_SECURE_COOKIE` / `ATLAN_ORIGIN` (`auth.js:95,117`).
 
 ## Exposure plan (only after Preflight green)
 - Workers/Pages **cannot** host the server (needs real Linux: tmux, node-pty, Claude Code). Only the static shell is Wrangler-deployable.

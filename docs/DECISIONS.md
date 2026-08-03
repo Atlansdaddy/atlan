@@ -1,5 +1,12 @@
 # Decisions log — gaps closed on John's behalf
 
+> **This is an append-only LOG, not a status page.** Entries are dated and kept
+> even when later reversed — see the auth entry marked SUPERSEDED and the
+> token-in-URL revert. **Do not rewrite history here**; supersede it in place and
+> say why. For current state read `ARCHITECTURE.md` and `SECURITY.md`.
+> *Reviewed 2026-08-02: entries accurate as history; one operationally stale
+> line corrected at the end.*
+
 John's overnight brief said: *"if I didn't say a testing type or specify something here, either ask or close the gaps."* He was asleep, so I closed them with defaults that match his standing preferences (honesty over polish, deterministic walls, don't oversell). Each is reversible — flagged if you'd want to revisit.
 
 ## Testing types — what I added beyond what he named
@@ -67,4 +74,4 @@ Ran the 3 `docs/FLEET-TESTERS.md` agents as read-only subagents (no fleet spend,
 3. **Chat permission-card bypass** — `claudeEngine.js` lacked `settingSources: []` (fleet had it), so accumulated allow-rules ran tools with no card. Fixed: added it.
 4. **Azure SSML injection** — `voice` field interpolated into `name="…"` unescaped. Fixed: `xmlEscape(name)`.
 5. **JDK-11-as-21 + broken-tmux-green** (doctor.js) — same brittle-detection class as the Piper bug. Fixed via version-field parse / `^tmux \d`.
-Plus doc honesty fixes (README test count → 11 suites; Preview "loopback" not just "127.0.0.1"). Findings captured in `vault/atlan/adversarial-tester-pass-2026-07-22.md`. Suite 173/0. **These fixes are in source but NOT yet live on John's running instance — they apply on next server restart (deferred so as not to interrupt his live exploration).**
+Plus doc honesty fixes (README test count → 11 suites; Preview "loopback" not just "127.0.0.1"). Findings captured in `vault/atlan/adversarial-tester-pass-2026-07-22.md`. Suite 173/0 *(now 219/0 across 11 suites, 2026-08-02)*. ~~These fixes are in source but NOT yet live on John's running instance — they apply on next server restart.~~ **Long since live** — the instance has restarted many times since 2026-07-22. Struck 2026-08-02 because an un-dated "not yet live" line is the kind a reader acts on months later.
