@@ -21,6 +21,29 @@ import { agyBin, grokBin, copilotBin } from './agents.js';
 // interactive path — threading, resume, live tool frames, mood. This owns the
 // batch path: one prompt, one answer, a token count, and a hard timeout.
 
+/**
+ * Kill a spawned CLI and everything it started.
+ *
+ * `child.kill()` signals ONE pid. These CLIs run shells and tool children, so
+ * a plain SIGTERM left descendants alive while the fleet reported the run
+ * killed — a kill guarantee that was not one. Signalling the negative pid hits
+ * the whole process group (the child is spawned `detached`, so it leads one),
+ * and SIGKILL follows if SIGTERM is ignored.
+ *
+ * Exported for testing: the escalation is the part most likely to rot.
+ */
+export function killTree(child, { graceMs = 3000 } = {}) {
+  if (!child?.pid) return false;
+  const signal = (sig) => {
+    try { process.kill(-child.pid, sig); return true; }      // whole group
+    catch { try { child.kill(sig); return true; } catch { return false; } } // group gone → try the pid
+  };
+  const sent = signal('SIGTERM');
+  const t = setTimeout(() => { if (child.exitCode === null && child.signalCode === null) signal('SIGKILL'); }, graceMs);
+  t.unref?.();  // never hold the event loop open on a process that already left
+  return sent;
+}
+
 const BIN = {
   codex: () => 'codex',
   antigravity: () => agyBin() ?? 'agy',
@@ -122,9 +145,24 @@ export async function agentExec({
   const useContainment = contain === true || (contain === null && !host.ok);
 
   let gate, workspace = null, runDir = cwd;
-  if (host.ok && !useContainment) {
-    // Throws unless the engine can honestly enforce this profile here.
+  if (host.ok) {
+    // KERNEL FIRST, ALWAYS — even when containment is also requested.
+    //
+    // This used to be `if (host.ok && !useContainment)`, so asking for
+    // containment on a sandbox-capable host silently DOWNGRADED the run to the
+    // bypass path with allowUnsandboxed forced true, discarding both the
+    // kernel gate and the caller's explicit refusal preference. It also made
+    // the documented 'kernel+atlan' boundary unreachable — the code advertised
+    // a combination it could never produce.
+    //
+    // Now the two boundaries compose the way the boundary string always said
+    // they did: the kernel decides the gate, containment adds the disposable
+    // workspace on top. (Cross-vendor adversarial review, 2026-08-02.)
     gate = policyArgs(engine, profile, { allowUnsandboxed });
+    if (useContainment) {
+      workspace = openContained(cwd, engine);
+      runDir = workspace.dir;
+    }
   } else {
     // No kernel boundary. The CLI runs with its own gate off — that is the
     // only thing that starts under proot — but it is pointed at a disposable
@@ -140,10 +178,21 @@ export async function agentExec({
   return new Promise((resolve, reject) => {
     const child = spawn(bin, args, {
       cwd: runDir,
+      // Own process GROUP. These CLIs spawn shells and tool children; killing
+      // only the immediate process left descendants running while the fleet
+      // reported the run killed. detached:true makes the child a group leader
+      // so a negative-PID signal reaches the whole tree.
+      detached: true,
       // Secrets are dropped from the child's environment on EVERY path, not
       // just the contained one. A gated agent has no more business reading
       // ATLAN_TOKEN than an ungated one.
-      env: { ...scrubbedEnv(process.env), ...extraEnv },
+      // SCRUB LAST, not first. `{...scrubbed, ...extraEnv}` let any caller
+      // re-introduce exactly the credentials scrubbedEnv had just removed —
+      // passing `{ ATLAN_TOKEN: '…' }` as extraEnv put it straight back on the
+      // child. Merging first and scrubbing the RESULT makes the guarantee hold
+      // at the API boundary rather than only for callers who behave.
+      // (Cross-vendor adversarial review, 2026-08-02.)
+      env: scrubbedEnv({ ...process.env, ...extraEnv }),
       stdio: ['ignore', 'pipe', 'pipe'],   // stdin ignored: codex otherwise
     });                                    // blocks reading it as prompt input
     // Hand the child to the caller so a long batch run stays killable. The
@@ -152,7 +201,7 @@ export async function agentExec({
     // silent asymmetry the profile work exists to prevent.
     try { onSpawn?.(child); } catch { /* a bad callback must not kill the run */ }
     let out = '', err = '', killed = null;
-    const timer = setTimeout(() => { killed = `timeout after ${timeoutMs}ms`; child.kill('SIGTERM'); }, timeoutMs);
+    const timer = setTimeout(() => { killed = `timeout after ${timeoutMs}ms`; killTree(child); }, timeoutMs);
 
     child.stdout.on('data', (d) => { out += d; });
     child.stderr.on('data', (d) => { err += d.toString().slice(0, 4000); });
@@ -166,9 +215,15 @@ export async function agentExec({
     child.on('close', (code) => {
       clearTimeout(timer);
       if (killed) return finish(() => reject(new Error(`${engine}: ${killed}`)));
-      const parsed = parse === 'codex-json' ? parseCodexJson(out)
-        : parse === 'grok-json' ? parseGrokJson(out)
-          : { text: out.trim(), tokens: 0 };
+      // `tokensKnown` is the honest half of this. copilot and antigravity emit
+      // plain text with NO usage numbers, and reporting that as `tokens: 0` let
+      // a caller burn unlimited tokens while the ledger recorded nothing —
+      // choosing one of those engines was a free pass past both the per-run
+      // budget and the daily cap. An unknown count must be UNKNOWN, not zero.
+      // (Cross-vendor adversarial review, 2026-08-02.)
+      const parsed = parse === 'codex-json' ? { ...parseCodexJson(out), tokensKnown: true }
+        : parse === 'grok-json' ? { ...parseGrokJson(out), tokensKnown: true }
+          : { text: out.trim(), tokens: 0, tokensKnown: false };
       if (!parsed.text && code !== 0) {
         return finish(() => reject(new Error(`${engine} exited ${code}: ${(err || out).trim().slice(0, 300)}`)));
       }
@@ -183,6 +238,10 @@ export async function agentExec({
       finish(() => resolve({
         text: parsed.text,
         tokens: parsed.tokens,
+        // false ⇒ this engine reports no usage; `tokens` is a floor of 0 and
+        // means "not measured", never "cost nothing". Callers that keep a
+        // ledger MUST branch on this rather than trusting the number.
+        tokensKnown: parsed.tokensKnown,
         engine,
         // Callers MUST be able to tell a gated run from an ungated one. A
         // budget ledger or a receipt that cannot distinguish them is lying by

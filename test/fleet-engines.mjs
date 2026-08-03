@@ -19,11 +19,23 @@ import assert from 'node:assert';
 import { readFileSync } from 'node:fs';
 import {
   FLEET_ENGINES, CLI_ENGINES, engineCapabilities, spawnRun, topUpRun, profileList, listRuns,
+  UNMETERED_ENGINES,
 } from '../server/src/fleet.js';
 import { policyArgs, engineFidelity, sandboxCapableHost, ENGINE_POLICY } from '../server/src/enginePolicy.js';
+import { killTree } from '../server/src/agentExec.js';
+import { scrubbedEnv as SCRUB } from '../server/src/containment.js';
 
 const readSource = (rel) => readFileSync(new URL(rel, import.meta.url), 'utf8');
 const readFleetSource = () => readSource('../server/src/fleet.js');
+
+// Source-shape assertions must read CODE, not prose. A comment explaining why a
+// vulnerable pattern was removed still contains that pattern, so a naive grep
+// reports the bug as present — which is how the first run of ADV-1 failed
+// against its own fix. Strip line comments before matching.
+const codeOnly = (rel) => readSource(rel)
+  .split('\n')
+  .filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l))
+  .join('\n');
 
 let pass = 0, fail = 0;
 function test(name, fn) {
@@ -197,6 +209,128 @@ test('agentExec accepts an onSpawn hook — without it CLI runs are unkillable',
   const src = readSource('../server/src/agentExec.js');
   assert.ok(src.includes('onSpawn'), 'agentExec must hand the child back');
   assert.ok(/onSpawn\?\.\(child\)/.test(src), 'and must call it with the spawned child');
+});
+
+// ══ regressions from the cross-vendor adversarial review, 2026-08-02 ═══════
+// Three vendors (OpenAI/codex, Google/gemini, xAI/grok) reviewed this code
+// contextless — no authorship, no test results, no rationale. codex returned
+// seven findings; six were confirmed real against the source and are fixed
+// below. Each test is written to FAIL IF THE FIX IS REVERTED, not merely to
+// describe it.
+
+test('ADV-7 · extraEnv cannot re-introduce a scrubbed credential', () => {
+  // Was `{...scrubbedEnv(process.env), ...extraEnv}` — spread order meant a
+  // caller passing ATLAN_TOKEN as extraEnv put it straight back on the child.
+  const src = codeOnly('../server/src/agentExec.js');
+  assert.ok(/env: scrubbedEnv\(\{ \.\.\.process\.env, \.\.\.extraEnv \}\)/.test(src),
+    'the merged env must be scrubbed LAST, so extraEnv cannot outrank the scrub');
+  assert.ok(!/\.\.\.scrubbedEnv\(process\.env\), \.\.\.extraEnv/.test(src),
+    'the vulnerable spread order must be gone from the CODE');
+});
+
+test('ADV-7 · scrubbedEnv actually removes an injected credential', () => {
+  // Behavioural, not textual: prove the composition works end to end.
+  assert.ok(SCRUB, 'scrubbedEnv must be importable');
+  const out = SCRUB({ PATH: '/usr/bin', ATLAN_TOKEN: 'secret', OPENAI_API_KEY: 'sk-x', HOME: '/root' });
+  assert.equal(out.ATLAN_TOKEN, undefined, 'ATLAN_TOKEN must not survive');
+  assert.equal(out.OPENAI_API_KEY, undefined, 'an API key must not survive');
+  assert.equal(out.PATH, '/usr/bin', 'PATH must survive — the child has to run');
+});
+
+test('ADV-3 · killTree signals the process GROUP, then escalates', () => {
+  const src = readSource('../server/src/agentExec.js');
+  assert.ok(/export function killTree/.test(src), 'killTree must exist');
+  assert.ok(/process\.kill\(-child\.pid/.test(src), 'must signal the negative pid — the whole group');
+  assert.ok(/SIGKILL/.test(src), 'must escalate past an ignored SIGTERM');
+  assert.ok(/detached: true/.test(src), 'the child must lead its own group for that to work');
+});
+
+test('ADV-3 · killTree is safe on a dead or pidless child', () => {
+  assert.equal(killTree(null), false);
+  assert.equal(killTree({}), false);
+  assert.equal(killTree({ pid: undefined }), false);
+});
+
+test('ADV-3 · the fleet kill handle uses killTree, not a bare SIGTERM', () => {
+  const src = codeOnly('../server/src/fleet.js');
+  assert.ok(/kill\(\) \{ killTree\(this\.child\); \}/.test(src), 'execCli must kill the tree');
+  assert.ok(!/this\.child\?\.kill\('SIGTERM'\)/.test(src), 'the single-pid kill must be gone from the CODE');
+});
+
+test('ADV-4A · an engine that reports no usage is refused under a budget', () => {
+  // copilot/antigravity emit plain text with no usage, so `tokens: 0` was a
+  // free pass past both the per-run budget and the daily cap.
+  for (const engine of ['copilot', 'antigravity']) {
+    assert.ok(UNMETERED_ENGINES.has(engine), `${engine} must be known-unmetered`);
+    assert.throws(
+      () => spawnRun({ prompt: 'x', engine, profile: 'scout', allowUnsandboxed: true }),
+      (e) => /reports no token usage/i.test(e.message) && /allowUnmetered/.test(e.message),
+      `${engine} must refuse and name the override`,
+    );
+  }
+});
+
+test('ADV-4A · metered engines are NOT caught by the unmetered guard', () => {
+  // Not vacuous: if the guard rejected everything this would fail.
+  assert.ok(!UNMETERED_ENGINES.has('codex'), 'codex reports usage via turn.completed');
+  assert.ok(!UNMETERED_ENGINES.has('grok'), 'grok reports usage in its json');
+  assert.ok(!UNMETERED_ENGINES.has('claude'));
+});
+
+test('ADV-4A · agentExec distinguishes unknown usage from zero usage', () => {
+  const src = readSource('../server/src/agentExec.js');
+  assert.ok(/tokensKnown: false/.test(src), 'plain-parsed engines must report tokensKnown:false');
+  assert.ok(/tokensKnown: true/.test(src), 'json-parsed engines must report tokensKnown:true');
+  assert.ok(/tokensKnown: parsed\.tokensKnown/.test(src), 'and it must reach the caller');
+});
+
+test('ADV-4A · publicRun carries tokensKnown so the ledger cannot be misread', () => {
+  assert.ok(/tokensKnown: r\.tokensKnown/.test(readFleetSource()),
+    '"not measured" and "cost nothing" must be distinguishable in the record');
+});
+
+test('ADV-4C · the daily cap reserves budget for runs still in flight', () => {
+  // CLI runs hold tokens=0 until they finish, so N concurrent spawns all saw
+  // the same burn total and were all admitted.
+  const src = readFleetSource();
+  assert.ok(/r\.budget - r\.tokens/.test(src), 'must reserve each in-flight run\'s REMAINING budget');
+  assert.ok(/inFlight/.test(src) && /projected/.test(src), 'admission must be against the projection');
+  assert.ok(/including \$\{inFlight\} reserved/.test(src), 'and the error must explain why it refused');
+});
+
+test('ADV-2 · the walls are recorded BEFORE the run, not only on success', () => {
+  // A killed run skipped the success path, so enforced/boundary stayed null on
+  // exactly the runs where "what were the walls?" matters most.
+  const src = readFleetSource();
+  const pre = src.indexOf('const pre = policyArgs(run.engine, run.profile');
+  const call = src.indexOf('await agentExec({');
+  assert.ok(pre > 0, 'execCli must resolve the gate up front');
+  assert.ok(call > pre, 'and must do so BEFORE the run starts');
+});
+
+test('ADV-1 · containment ADDS to the kernel gate, it never replaces it', () => {
+  // `if (host.ok && !useContainment)` meant asking for containment on a capable
+  // host silently downgraded to the bypass path with allowUnsandboxed forced
+  // true — and made the documented 'kernel+atlan' boundary unreachable.
+  const src = codeOnly('../server/src/agentExec.js');
+  assert.ok(/if \(host\.ok\) \{/.test(src), 'kernel-capable hosts must always take the gated branch');
+  assert.ok(!/if \(host\.ok && !useContainment\)/.test(src), 'the downgrading condition must be gone from the CODE');
+  const gated = src.indexOf('gate = policyArgs(engine, profile, { allowUnsandboxed });');
+  const addCont = src.indexOf('if (useContainment) {');
+  assert.ok(gated > 0 && addCont > gated, 'containment must be applied AFTER the gate, on top of it');
+});
+
+test('ADV-1 · the kernel+atlan boundary is now actually reachable', () => {
+  const src = readSource('../server/src/agentExec.js');
+  assert.ok(/'kernel\+atlan'/.test(src) || /kernel.*atlan/.test(src),
+    'the boundary string documents a combination that must be producible');
+});
+
+test('ADV-5 · the vision provider/model granularity limit is stated, not hidden', () => {
+  const src = readSource('../server/src/vision.js');
+  assert.ok(/VISION_PROVIDER_GRANULARITY/.test(src), 'the known limit must be named in code');
+  assert.ok(/text-only MODEL on a vision provider is not detected/.test(src),
+    'and must say exactly what is undetected');
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);

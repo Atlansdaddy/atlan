@@ -13,8 +13,16 @@ import { dirname } from 'node:path';
 //  3. Idle = zero tokens — nothing runs unless spawned (or, M5c, scheduled).
 const __dirname = dirname(fileURLToPath(import.meta.url));
 import { FLEET_DIR, DAILY_TOKEN_CAP, MAX_CONCURRENT_RUNS, TURN_RESERVE, sandboxOption } from './config.js';
-import { agentExec } from './agentExec.js';
+import { agentExec, killTree } from './agentExec.js';
 import { engineFidelity, policyArgs } from './enginePolicy.js';
+
+// Engines that report no usage numbers at all. Admitting one under a token
+// budget would be a promise nothing can keep: the run burns real tokens and the
+// ledger records zero, so both the per-run budget and the global daily cap are
+// bypassed by simply choosing that engine. They are refused under a budget
+// unless the caller explicitly accepts an unmetered run.
+// (Cross-vendor adversarial review, 2026-08-02.)
+export const UNMETERED_ENGINES = new Set(['copilot', 'antigravity']);
 
 // ── engines ───────────────────────────────────────────────────────────────
 // The fleet was Claude-only: spawnRun called the Agent SDK directly, so every
@@ -177,6 +185,9 @@ function publicRun(r) {
     enforced: r.enforced ?? null,       // was the profile actually enforced?
     boundary: r.boundary ?? null,       // kernel | atlan | kernel+atlan | none
     budgetEnforcement: r.budgetEnforcement ?? 'mid-run',
+    // false ⇒ this engine reports no usage, so `tokens` is "not measured",
+    // never "cost nothing". A ledger reader must be able to tell those apart.
+    tokensKnown: r.tokensKnown ?? true,
     proposal: r.proposal ?? null,       // contained runs produce a diff, not a result
   };
 }
@@ -199,6 +210,7 @@ export function spawnRun({
   prompt, profile = 'scout', cwd = '/root', model = null, budget = 150000,
   resume = null, resumedFrom = null, source = null,
   engine = 'claude', allowUnsandboxed = false, contain = null, timeoutMs = 480000,
+  allowUnmetered = false,
 }) {
   const prof = PROFILES[profile];
   if (!prof) throw new Error(`unknown profile: ${profile}`);
@@ -215,14 +227,34 @@ export function spawnRun({
   if (engine !== 'claude') {
     policyArgs(engine, profile, { allowUnsandboxed });
   }
+  // An engine that cannot report usage cannot be held to a budget. Saying so
+  // beats recording zero and letting the ledger lie.
+  if (UNMETERED_ENGINES.has(engine) && !allowUnmetered) {
+    throw new Error(`${engine} reports no token usage, so a budget cannot be enforced or recorded — its spend would be invisible to the daily cap. Pass allowUnmetered to run it anyway (the run will be labelled unmetered).`);
+  }
   // Aggregate guards (peer review): cap concurrency + a global daily token
   // ceiling that all runs draw from — so N concurrent runs can't multiply past
   // the wall. todayBurn() already folds in live runs' current spend.
   if (MAX_CONCURRENT_RUNS > 0 && active.size >= MAX_CONCURRENT_RUNS) {
     throw new Error(`too many runs in flight (${active.size}/${MAX_CONCURRENT_RUNS}) — let some finish or KILL ALL`);
   }
-  if (DAILY_TOKEN_CAP > 0 && todayBurn().tokens >= DAILY_TOKEN_CAP) {
-    throw new Error(`daily token cap reached (${todayBurn().tokens}/${DAILY_TOKEN_CAP}) — resets tomorrow, or raise ATLAN_DAILY_TOKEN_CAP`);
+  if (DAILY_TOKEN_CAP > 0) {
+    // Count what is COMMITTED plus what is already PROMISED to in-flight runs.
+    //
+    // todayBurn() folds in a live run's tokens-so-far, which works for the
+    // Claude path (usage streams in per turn) and fails for the CLI path, where
+    // tokens stay 0 until the single batch call returns. So N concurrent CLI
+    // runs each saw the same burn total and were all admitted, collectively
+    // blowing far past the cap. Reserving each in-flight run's remaining budget
+    // closes that — admission is now against the worst case, not the observed.
+    // (Cross-vendor adversarial review, 2026-08-02.)
+    const inFlight = runs
+      .filter((r) => r.status === 'running')
+      .reduce((sum, r) => sum + Math.max(0, r.budget - r.tokens), 0);
+    const projected = todayBurn().tokens + inFlight;
+    if (projected >= DAILY_TOKEN_CAP) {
+      throw new Error(`daily token cap would be exceeded (${projected}/${DAILY_TOKEN_CAP}, including ${inFlight} reserved by runs still in flight) — let some finish, or raise ATLAN_DAILY_TOKEN_CAP`);
+    }
   }
   budget = Math.min(2_000_000, Math.max(1000, Number(budget) || 150000));
   const run = {
@@ -255,9 +287,20 @@ export function spawnRun({
 // output parsing) already lives in agentExec, and duplicating any of it here
 // would give us two places for the same guarantee to drift.
 async function execCli(run) {
-  const handle = { child: null, kill() { try { this.child?.kill('SIGTERM'); } catch { /* already gone */ } } };
+  const handle = { child: null, kill() { killTree(this.child); } };
   active.set(run.id, handle);
   event(run, `⚙ ${run.engine} · ${run.profile}`);
+  // Record the walls BEFORE the run, not after it resolves. A run killed (or
+  // crashed) mid-flight skips the success path, so deferring this left
+  // enforced/boundary null on exactly the runs where "what were the walls?" is
+  // the most important question. agentExec re-reports both on success and we
+  // overwrite with its authoritative answer.
+  // (Cross-vendor adversarial review, 2026-08-02.)
+  try {
+    const pre = policyArgs(run.engine, run.profile, { allowUnsandboxed: run.allowUnsandboxed });
+    run.enforced = pre.enforced;
+    run.boundary = pre.enforced ? 'kernel' : 'none';
+  } catch { /* spawnRun already validated this; a throw here must not lose the run */ }
   try {
     const res = await agentExec({
       engine: run.engine,
@@ -271,6 +314,7 @@ async function execCli(run) {
       onSpawn: (child) => { handle.child = child; },
     });
     run.tokens = res.tokens ?? 0;
+    run.tokensKnown = res.tokensKnown !== false;
     run.enforced = res.enforced;
     run.boundary = res.boundary;
     run.proposal = res.proposal ?? null;

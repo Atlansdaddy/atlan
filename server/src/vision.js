@@ -44,6 +44,20 @@ export const IMAGE_MIME = {
  */
 export const VISION_PROVIDERS = new Set(['gemini', 'openai', 'openrouter', 'grok', 'mistral', 'together', 'fireworks']);
 
+// KNOWN LIMIT, stated rather than hidden (cross-vendor adversarial review,
+// 2026-08-02): this gates on the PROVIDER, not the MODEL. An aggregator like
+// openrouter serves both vision and text-only models, so picking a text-only
+// model on a vision-capable provider still sends the image parts. A provider
+// that 400s is visible and fine; one that returns 200 while ignoring the image
+// reproduces the original silent-drop, one layer up.
+//
+// It is not fixable here — there is no reliable cross-provider capability
+// lookup by model id, and inventing one would be a table that silently rots.
+// The honest mitigations are: keep this set conservative, and treat a reply
+// that never references the image as the user's signal to switch models. If a
+// per-model source of truth ever exists, this is the hook for it.
+export const VISION_PROVIDER_GRANULARITY = 'provider-level; a text-only MODEL on a vision provider is not detected';
+
 /** Largest image we will inline. Base64 inflates ~33%, and request bodies are capped. */
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 

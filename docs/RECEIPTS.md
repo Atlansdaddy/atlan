@@ -21,13 +21,13 @@ _Free suites only. The E2E suite (real Claude runs) is opt-in — `RUN_PAID=1 no
 | Attachments | Upload (image/file) + reference (file/folder) + path-traversal guard + oversize/empty reject + audio/video graceful degradation without a key. | ✅ 7/7 |
 | Code Editor | File read/write/tree scoped to the project, folders-first listing, noise-dir hiding, secrets + traversal + folder-as-file guards. | ✅ 16/16 |
 | Voice & Providers | TTS roster honesty (readiness tracks keys, roadmap items never claim ready), TTS input validation + clean degradation, SSML XML-escaping (no injection), Polly SigV4 signer, and the 12-provider AI-model spread. | ✅ 15/15 |
-| Fleet engines | The fleet is configurable across engines, and the run record cannot lie about it: per-engine capability roster (which profiles each can actually enforce HERE, mid-run vs pre-flight budget, resumable or not), refusal BEFORE a run exists when an engine cannot honestly enforce a profile, ungated runs reachable only by explicit acknowledgement, budget/concurrency/daily caps ahead of the engine branch, and KILL ALL working on both handle shapes. | ✅ 19/19 |
+| Fleet engines | The fleet is configurable across engines, and the run record cannot lie about it: per-engine capability roster (which profiles each can actually enforce HERE, mid-run vs pre-flight budget, resumable or not), refusal BEFORE a run exists when an engine cannot honestly enforce a profile, ungated runs reachable only by explicit acknowledgement, budget/concurrency/daily caps ahead of the engine branch, and KILL ALL working on both handle shapes. | ✅ 33/33 |
 | Vision / multimodal | Chat-only brains can receive image BYTES (OpenAI-compat image_url parts) instead of a filesystem path they cannot open, and a text-only provider REFUSES the turn rather than silently sending it text-only — the failure mode that let this bug hide for a week. Data-URL construction, size/format/empty guards, last-user-turn targeting, no-mutation-of-caller-history, and per-file error reporting. | ✅ 26/26 |
 | Cross-engine orchestration | Profile→native-flag projection per CLI, refusal when an engine cannot enforce a profile, credential scrubbing from the child env, and Atlan-side containment (disposable git worktree + diff gate) proving the real project stays untouchable — including a simulated proot host where no kernel sandbox exists. Live engine calls are opt-in via RUN_LIVE=1. | ✅ 8/8 |
 | UI/UX | Headless Chromium drives the real cockpit: tabs, engine roster, doctor/preflight render, key entry no-leak, XSS-safe render. | ✅ 11/11 |
 | Tour/Onboarding | Drives all tour steps live — every step spotlights a real visible element; handbook opens/searches/relaunches. | ✅ 9/9 |
 
-**Total: 308 passed, 0 failed across 15 suites.**
+**Total: 322 passed, 0 failed across 15 suites.**
 
 ## Unit
 
@@ -401,8 +401,22 @@ FLEET ENGINES SUITE
   ✓ publicRun exposes engine, enforced, boundary and budgetEnforcement
   ✓ killRun handles BOTH handle shapes, so KILL ALL is a real guarantee
   ✓ agentExec accepts an onSpawn hook — without it CLI runs are unkillable
+  ✓ ADV-7 · extraEnv cannot re-introduce a scrubbed credential
+  ✓ ADV-7 · scrubbedEnv actually removes an injected credential
+  ✓ ADV-3 · killTree signals the process GROUP, then escalates
+  ✓ ADV-3 · killTree is safe on a dead or pidless child
+  ✓ ADV-3 · the fleet kill handle uses killTree, not a bare SIGTERM
+  ✓ ADV-4A · an engine that reports no usage is refused under a budget
+  ✓ ADV-4A · metered engines are NOT caught by the unmetered guard
+  ✓ ADV-4A · agentExec distinguishes unknown usage from zero usage
+  ✓ ADV-4A · publicRun carries tokensKnown so the ledger cannot be misread
+  ✓ ADV-4C · the daily cap reserves budget for runs still in flight
+  ✓ ADV-2 · the walls are recorded BEFORE the run, not only on success
+  ✓ ADV-1 · containment ADDS to the kernel gate, it never replaces it
+  ✓ ADV-1 · the kernel+atlan boundary is now actually reachable
+  ✓ ADV-5 · the vision provider/model granularity limit is stated, not hidden
 
-19 passed, 0 failed
+33 passed, 0 failed
 ```
 
 ## Vision / multimodal
