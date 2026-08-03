@@ -1,5 +1,9 @@
 # MERGE-PLAN-helis.md — Integration Run-Sheet for helis-d's `feature/inline-ai-git-ui-debugger`
 
+> **POINT-IN-TIME RECORD — merge run-sheet for the helis-d contribution. The merge landed; the Debugger stayed parked.** Kept as evidence and annotated, never
+> rewritten (see `DOC-STATUS-CONVENTION.md`). For current state read
+> `ARCHITECTURE.md` and `SECURITY.md`.
+
 **Status:** executable plan · not yet started · work happens on an isolated integration worktree, nothing reaches `main` until John names a push state
 **Contribution:** remote `helis` → `https://github.com/helis-d/atlan.git`, branch `feature/inline-ai-git-ui-debugger` (+1001 / −94, 10 files: 3 net-new server modules + colliding frontend)
 **Reviewed against:** `main` @ `80f0e0f` (the review baseline). **Live `main` tip is now `aa05695`** — main has moved since the review; **rebase the integration branch on the live tip, re-verify the six preserved surfaces still exist, and re-run the pre-merge baseline gate before trusting any line-number anchor below.**

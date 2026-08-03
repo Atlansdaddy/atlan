@@ -1,5 +1,9 @@
 # Session recap — 2026-07-25 evening → 2026-07-27
 
+> **POINT-IN-TIME RECORD — session recap, 2026-07-27.** Kept as evidence and annotated, never
+> rewritten (see `DOC-STATUS-CONVENTION.md`). For current state read
+> `ARCHITECTURE.md` and `SECURITY.md`.
+
 Phone-side session. Started with the cockpit dead after an overnight reboot,
 ended with multimodal generation working on-device and four of five CLI engines
 authed. Seven commits, `23e4955 → 0bb5150`, all pushed. Working tree clean.

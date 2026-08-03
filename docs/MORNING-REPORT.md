@@ -1,5 +1,9 @@
 # Morning report — Atlan overnight sprint (2026-07-18 → 20)
 
+> **POINT-IN-TIME RECORD — overnight sprint report, 2026-07-18 to 20.** Kept as evidence and annotated, never
+> rewritten (see `DOC-STATUS-CONVENTION.md`). For current state read
+> `ARCHITECTURE.md` and `SECURITY.md`.
+
 Good morning, John. You said "goal this all" and went to bed. Here's exactly what happened, what needs you, and what's next. Nothing here is oversold — the receipts back every claim.
 
 ## What shipped (all pushed to Atlansdaddy/atlan, commit-by-commit)

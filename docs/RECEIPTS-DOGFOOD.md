@@ -1,5 +1,9 @@
 # Dogfood receipts — 2026-07-26T13:08:01.350Z
 
+> **POINT-IN-TIME RECORD — raw dogfood table, regenerated per run.** Kept as evidence and annotated, never
+> rewritten (see `DOC-STATUS-CONVENTION.md`). For current state read
+> `ARCHITECTURE.md` and `SECURITY.md`.
+
 Run: `RUN_DOGFOOD=1 node test/dogfood.mjs` against `http://127.0.0.1:4589`, cwd `/root/atlan`.
 Engines ready at run time: codex, local, gemini, claude.
 

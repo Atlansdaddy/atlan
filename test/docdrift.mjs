@@ -91,6 +91,20 @@ test('every visual template offered in the UI is NAMED in ARCHITECTURE.md', () =
 });
 
 // ── the convention itself ──────────────────────────────────────────────────
+test('the suite count in run-all.mjs matches what REVIEW-FOR-AI.md claims', () => {
+  // REVIEW-FOR-AI.md is PUBLIC copy handed to external reviewers, so a stale
+  // number there is the most costly kind. It said 152 tests / 10 suites long
+  // after the suite had grown past it.
+  const runAll = read('./run-all.mjs');
+  const declared = (runAll.match(/^\s{2}\['/gm) || []).length;
+  assert.ok(declared >= 10, `only ${declared} suites parsed — selector likely wrong`);
+  const claim = read('../docs/REVIEW-FOR-AI.md').match(/(\d+)\s+suites/);
+  assert.ok(claim, 'REVIEW-FOR-AI.md must state a suite count');
+  // run-all declares PAID conditionally, so allow the claim to be within one.
+  assert.ok(Math.abs(Number(claim[1]) - declared) <= 1,
+    `REVIEW-FOR-AI.md claims ${claim[1]} suites, run-all.mjs declares ${declared}`);
+});
+
 test('DOC-STATUS-CONVENTION.md exists and defines all four statuses', () => {
   const conv = read('../docs/DOC-STATUS-CONVENTION.md');
   for (const s of ['OPEN', 'PLANNED', 'PARTIAL', 'CLOSED']) {
