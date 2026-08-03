@@ -233,10 +233,14 @@ toolchains Atlan doesn't ship itself — safely, on the user's terms.
 
 ## What exists today vs. planned (honest)
 
-**Load-bearing today** *(counts re-verified against the code 2026-08-02)*: the
-**nine tabs** (Chat · Preview · Editor · Term · Fleet · Build · Doctor · **Scan** ·
-**Git**) — Scan and Git arrived with the helis-d merge and this line still said
-"seven" until 2026-08-02; the engine registry with **six** agent/local engines
+**Load-bearing today** *(counts re-verified against the code 2026-08-02, and
+asserted by `test/docdrift.mjs` so they cannot drift again)*: the **eight tabs**
+(Chat · Preview · Editor · Term · Fleet · Build · Doctor · **Scan**) — Scan
+arrived with the helis-d merge and this line said "seven" until 2026-08-02.
+**Git** is a *panel*, not a tab: it has a section (`s-git`) but no nav button,
+so it is reached from within the editor surface rather than the top-level
+nav — a distinction the first draft of this correction got wrong and the drift
+test caught. The engine registry with **six** agent/local engines
 (Claude Code, Codex, Antigravity, Grok Build, **GitHub Copilot CLI**, local
 `llama-server`) plus per-engine model tiers; BYO-key chat brains (OpenAI-compat,
 **11** cloud providers — gemini, openai, deepseek, kimi, grok, mistral, groq,

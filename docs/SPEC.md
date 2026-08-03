@@ -8,7 +8,7 @@ One sentence: **Claude Code in a phone IDE with a live preview sandbox, Mid-Atla
 ```
 ┌─ Browser (PWA, 127.0.0.1:4589) ────────────────────────────┐
 │  Chat · Preview · Editor · Term · Fleet · Build · Doctor ·  │
-│  Scan · Git   (nine tabs)                                   │
+│  Scan   (eight tabs; Git is a panel, not a tab)             │
 │  Atlan mood engine (canvas) · xterm.js Terminal pane        │
 └──────────────▲ WebSocket (events) ▲ HTTP (files/assets) ────┘
 ┌─ atlan-server (Node 22, proot) ─────────────────────────────┐

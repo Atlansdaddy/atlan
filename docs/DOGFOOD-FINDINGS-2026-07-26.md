@@ -1,5 +1,15 @@
 # Dogfood findings — 2026-07-26
 
+> **POINT-IN-TIME RECORD.** Findings as observed on 2026-07-26 — kept as
+> evidence, not rewritten. **Later status is annotated inline; the original
+> wording stays.**
+>
+> **Resolved since:** the §"OPEN — brains cannot receive images at all" finding
+> was **fixed 2026-08-02** (`server/src/vision.js`, `test/vision.mjs`, 26
+> assertions). Images now travel as OpenAI-compat `image_url` bytes and a
+> text-only provider refuses the turn rather than silently dropping the image.
+> **Still open:** `saveRef` misclassifying images attached by path.
+
 First dogfood run using fixtures with **known ground truth** rather than
 eyeballed output. Harness: `test/dogfood.mjs` (`RUN_DOGFOOD=1`). Raw table:
 `docs/RECEIPTS-DOGFOOD.md` (regenerated each run — this file is the durable part).
