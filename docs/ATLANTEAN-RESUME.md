@@ -404,9 +404,14 @@ halt killed the one role whose job was catching the black screen.
    does not.
 6. **Two branches unpushed** (§1).
 7. **Beyond-SAST cockpit scanning** — design discussion never had.
-8. **Uneven walls risk:** a Haiku builder and an Opus builder must be gated
-   *identically*, or the cheap tier becomes the soft spot. More tiers makes the
-   profile-projection work matter more, not less.
+8. ~~**Uneven walls risk.**~~ **CLOSED 2026-07-31 as `MACHINE.md` #16** — tier
+   sets which *operation* an agent is assigned and which *tools* it gets, never
+   the threshold. Thresholds are per-component, derived top-down, blind to the
+   builder.
+9. **Rung 1 has no gameplay contract** (`BUILD-SHEET.md` #12) — "endless battles"
+   is a phrase, not a specification. **This is the one most likely to waste the
+   next attempt**, because it is the exact gap that produced attempt 2.
+10. **Nothing checks that a spec covers its goal** (`BUILD-SHEET.md` #11).
 
 ## 9. CHARIOTS OF ATLANTIS — the ladder
 

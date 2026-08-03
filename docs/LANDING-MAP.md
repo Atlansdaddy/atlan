@@ -226,4 +226,4 @@ These would have been cut by the original rule. All are live.
 | 4 | **`composition.twoSided` is blocked** | **OPEN** | Carried from `GROUNDING.md` #2. It is now the **only** rung-1 gate that cannot be written, which makes it the highest-value open decision. |
 | 5 | **`stress.headroom` has no target** | **OPEN** | Carried from `BUILD-SHEET.md` #3. Build and run it as a gauge now; the readings are the honest basis for setting the target later. |
 | 6 | **Term-count wall is brittle** | PLANNED | The two-to-three-terms requirement is enforced by instruction (C2) and only weakly by AST inspection. If it matters, it needs a better mechanism than parsing. |
-| 7 | **`BUILD-SHEET.md` §0's rule is wrong as written** | **OPEN** | It admits two landing sites; four are needed. Amendment proposed in §0 above — needs ratifying before the sheet is cited as authority again. |
+| 7 | **`BUILD-SHEET.md` §0's rule is wrong as written** | **CLOSED** | Applied 2026-07-31. §0 now admits four landing sites — pool component, wall, **producer**, **protocol** — and records both failure cases that forced it. |
