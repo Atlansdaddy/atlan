@@ -12,6 +12,7 @@ _Free suites only. The E2E suite (real Claude runs) is opt-in — `RUN_PAID=1 no
 | Suite | What it proves | Result |
 |---|---|---|
 | Unit | Pure functions in isolation: safe-arith evaluator, checker engine, Persona+ compilers, schema builders, scheduler math, token compare. | ✅ 51/51 |
+| Web Lib | The front-end's pure logic, extracted from app.js so Node can reach it: fenced-code parsing (incl. streaming and boundary cases), HTML escaping, diff colouring, base64url, day/night and greeting bands. Previously untestable — the only front-end coverage was Playwright driving the UI. | ✅ 36/36 |
 | Function | Every HTTP endpoint contract + shape, plus data-store durability (corrupt/truncated JSON fails soft). (Spawns 1 tiny killed run.) | ✅ 25/25 |
 | Connection | Live WebSocket + PTY: authed connect, 4001 on bad token, malformed-frame survival, multi-client broadcast, tmux round-trip, reconnection. (Spawns 2 tiny killed runs.) | ✅ 6/6 |
 | Security/Penetration | Auth bypass, SSRF (preview + harness), secret exfiltration, path traversal, stored-XSS, oversized-body DoS, profile privilege-escalation. | ✅ 43/43 |
@@ -23,7 +24,7 @@ _Free suites only. The E2E suite (real Claude runs) is opt-in — `RUN_PAID=1 no
 | UI/UX | Headless Chromium drives the real cockpit: tabs, engine roster, doctor/preflight render, key entry no-leak, XSS-safe render. | ✅ 11/11 |
 | Tour/Onboarding | Drives all tour steps live — every step spotlights a real visible element; handbook opens/searches/relaunches. | ✅ 9/9 |
 
-**Total: 219 passed, 0 failed across 11 suites.**
+**Total: 255 passed, 0 failed across 12 suites.**
 
 ## Unit
 
@@ -85,6 +86,53 @@ UNIT SUITE
   ✓ resolveBrain: no ready brain throws a fix-it message, never a silent empty
 
 51 passed, 0 failed
+```
+
+## Web Lib
+
+The front-end's pure logic, extracted from app.js so Node can reach it: fenced-code parsing (incl. streaming and boundary cases), HTML escaping, diff colouring, base64url, day/night and greeting bands. Previously untestable — the only front-end coverage was Playwright driving the UI.
+
+```
+$ node test/weblib.mjs
+WEB LIB SUITE
+  ✓ escapeHtml neutralises every HTML-significant character
+  ✓ escapeHtml escapes quotes, so it is safe inside an attribute
+  ✓ escapeHtml coerces non-strings instead of throwing
+  ✓ escapeHtml is not double-escaping-safe, and that is intentional
+  ✓ parseMessageParts returns plain prose as a single text part
+  ✓ parseMessageParts splits prose and a fenced block with a language tag
+  ✓ parseMessageParts treats a fence with no language as code, lang empty
+  ✓ parseMessageParts does NOT eat a first line that is real code
+  ✓ parseMessageParts accepts a 24-char tag exactly at the boundary
+  ✓ parseMessageParts rejects a 25-char tag on the fence line
+  ✓ parseMessageParts drops the newline after a BARE fence
+  ✓ parseMessageParts keeps an UNTERMINATED fence as code (streaming)
+  ✓ parseMessageParts drops empty prose segments but keeps empty code
+  ✓ parseMessageParts handles several fenced blocks in one message
+  ✓ parseMessageParts strips exactly one trailing newline from code
+  ✓ parseMessageParts accepts dotted and plus language tags
+  ✓ parseMessageParts never throws on non-string input
+  ✓ langToExt maps known languages, case-insensitively
+  ✓ langToExt returns empty string for unknown or missing hints
+  ✓ langToExt cannot be tricked into returning an inherited Object property
+  ✓ every LANG_EXT value is a bare extension, no dot, no path
+  ✓ colorDiffHtml labels added, removed, header and context lines
+  ✓ colorDiffHtml treats +++ and --- as FILE HEADERS, not add/delete
+  ✓ colorDiffHtml escapes diff content — a diff can contain HTML
+  ✓ colorDiffHtml reports empty input rather than rendering nothing
+  ✓ colorDiffHtml preserves line count
+  ✓ urlBase64ToUint8Array decodes unpadded base64url
+  ✓ urlBase64ToUint8Array translates the -_ alphabet back to +/
+  ✓ urlBase64ToUint8Array returns a real Uint8Array of the right length
+  ✓ isNight covers 22:00 through 06:30 across the midnight wrap
+  ✓ isNight excludes the day, with exact boundaries
+  ✓ greetingFor returns a distinct line for each band
+  ✓ greetingFor boundaries land in the later band
+  ✓ greetingFor covers all 24 hours with no gap
+  ✓ hueFor returns the mood hue, and falls back to calm when unknown
+  ✓ every MOOD_HUE value is a valid RGB triplet
+
+36 passed, 0 failed
 ```
 
 ## Function

@@ -1,0 +1,275 @@
+// weblib.mjs — unit tests for the pure front-end modules in web/public/lib/.
+//
+// These are the FIRST unit tests any front-end code in this repo has had. Until
+// now `web/public/app.js` was a 2,000-line IIFE: every helper below was inline
+// and unreachable from Node, so the only coverage was Playwright driving the
+// whole UI — slow, and it only reaches the paths a click reaches.
+//
+// The extraction rule these enforce: pure decisions live in lib/, DOM wiring
+// stays in app.js. If a test here needs `document`, the extraction was wrong.
+
+import assert from 'node:assert';
+
+import {
+  escapeHtml, parseMessageParts, langToExt, LANG_EXT, colorDiffHtml,
+  urlBase64ToUint8Array,
+} from '../web/public/lib/text.js';
+import { isNight, greetingFor, hueFor, MOOD_HUE } from '../web/public/lib/ambient.js';
+
+// `atob` is a browser global. Node 16+ provides it, but assert it exists rather
+// than let one test fail cryptically if that ever changes.
+assert.equal(typeof atob, 'function', 'atob must be available to test base64url decoding');
+
+let pass = 0, fail = 0;
+function test(name, fn) {
+  try { fn(); pass++; console.log(`  ✓ ${name}`); }
+  catch (err) { fail++; console.log(`  ✗ ${name} — ${err.message}`); }
+}
+
+console.log('WEB LIB SUITE');
+
+// ── escapeHtml ─────────────────────────────────────────────────────────────
+test('escapeHtml neutralises every HTML-significant character', () => {
+  assert.equal(escapeHtml('<script>'), '&#60;script&#62;');
+  assert.equal(escapeHtml('a & b'), 'a &#38; b');
+  assert.equal(escapeHtml(`"'`), '&#34;&#39;');
+});
+
+test('escapeHtml escapes quotes, so it is safe inside an attribute', () => {
+  // Named entities would not cover ' — numeric is why this is attribute-safe.
+  const out = escapeHtml('" onload="alert(1)');
+  assert.ok(!out.includes('"'), 'a raw double quote would break out of an attribute');
+});
+
+test('escapeHtml coerces non-strings instead of throwing', () => {
+  assert.equal(escapeHtml(null), 'null');
+  assert.equal(escapeHtml(42), '42');
+  assert.equal(escapeHtml(undefined), 'undefined');
+});
+
+test('escapeHtml is not double-escaping-safe, and that is intentional', () => {
+  // Documents real behaviour so a future "fix" is a deliberate decision:
+  // callers must escape exactly once.
+  assert.equal(escapeHtml('&#60;'), '&#38;#60;');
+});
+
+// ── parseMessageParts ──────────────────────────────────────────────────────
+test('parseMessageParts returns plain prose as a single text part', () => {
+  const p = parseMessageParts('just talking');
+  assert.deepEqual(p, [{ type: 'text', content: 'just talking', lang: '' }]);
+});
+
+test('parseMessageParts splits prose and a fenced block with a language tag', () => {
+  const p = parseMessageParts('before\n```js\nconst a = 1;\n```\nafter');
+  assert.equal(p.length, 3);
+  assert.deepEqual(p[0], { type: 'text', content: 'before\n', lang: '' });
+  assert.deepEqual(p[1], { type: 'code', content: 'const a = 1;', lang: 'js' });
+  assert.equal(p[2].type, 'text');
+});
+
+test('parseMessageParts treats a fence with no language as code, lang empty', () => {
+  const p = parseMessageParts('```\nraw\n```');
+  assert.equal(p[0].type, 'code');
+  assert.equal(p[0].lang, '');
+  assert.equal(p[0].content, 'raw');
+});
+
+test('parseMessageParts does NOT eat a first line that is real code', () => {
+  // The guard is ^[\w+.-]{1,24}$ — "const a = 1;" has spaces so it is not a tag.
+  const p = parseMessageParts('```const a = 1;\nmore\n```');
+  assert.equal(p[0].content, 'const a = 1;\nmore');
+  assert.equal(p[0].lang, '');
+});
+
+test('parseMessageParts accepts a 24-char tag exactly at the boundary', () => {
+  // The tag sits ON the fence line — '```tag\ncode'. Writing '```\ntag' instead
+  // makes the first line empty, which is a bare fence, not a tagged one.
+  const tag = 'a'.repeat(24);
+  const p = parseMessageParts('```' + tag + '\ncode\n```');
+  assert.equal(p[0].lang, tag);
+  assert.equal(p[0].content, 'code');
+});
+
+test('parseMessageParts rejects a 25-char tag on the fence line', () => {
+  const tag = 'a'.repeat(25);
+  const p = parseMessageParts('```' + tag + '\ncode\n```');
+  assert.equal(p[0].lang, '', '25 chars exceeds the 24-char bound');
+  assert.equal(p[0].content, tag + '\ncode', 'the over-long line stays as code');
+});
+
+test('parseMessageParts drops the newline after a BARE fence', () => {
+  // Regression: the inline version left it, so untagged blocks rendered with a
+  // leading blank line while tagged ones did not.
+  assert.equal(parseMessageParts('```\nraw\n```')[0].content, 'raw');
+  assert.equal(parseMessageParts('```   \nraw\n```')[0].content, 'raw', 'trailing spaces on the fence line still count as bare');
+});
+
+test('parseMessageParts keeps an UNTERMINATED fence as code (streaming)', () => {
+  // While a model is mid-stream the closing fence has not arrived yet; showing
+  // the partial block as code is the forgiving behaviour we want.
+  const p = parseMessageParts('text\n```py\nprint(1)');
+  assert.equal(p[1].type, 'code');
+  assert.equal(p[1].lang, 'py');
+  assert.equal(p[1].content, 'print(1)');
+});
+
+test('parseMessageParts drops empty prose segments but keeps empty code', () => {
+  const p = parseMessageParts('```js\n```');
+  assert.equal(p.length, 1, 'no empty text parts around the fence');
+  assert.equal(p[0].type, 'code');
+  assert.equal(p[0].content, '');
+});
+
+test('parseMessageParts handles several fenced blocks in one message', () => {
+  const p = parseMessageParts('a```js\n1\n```b```py\n2\n```c');
+  assert.deepEqual(p.map((x) => x.type), ['text', 'code', 'text', 'code', 'text']);
+  assert.deepEqual(p.filter((x) => x.type === 'code').map((x) => x.lang), ['js', 'py']);
+});
+
+test('parseMessageParts strips exactly one trailing newline from code', () => {
+  const p = parseMessageParts('```js\ncode\n\n```');
+  assert.equal(p[0].content, 'code\n', 'only the final newline is removed');
+});
+
+test('parseMessageParts accepts dotted and plus language tags', () => {
+  for (const tag of ['c++', 'objective-c', 'asp.net']) {
+    const p = parseMessageParts('```' + tag + '\nx\n```');
+    assert.equal(p[0].lang, tag, `should accept ${tag}`);
+  }
+});
+
+test('parseMessageParts never throws on non-string input', () => {
+  assert.doesNotThrow(() => parseMessageParts(null));
+  assert.doesNotThrow(() => parseMessageParts(undefined));
+  assert.doesNotThrow(() => parseMessageParts(7));
+});
+
+// ── langToExt ──────────────────────────────────────────────────────────────
+test('langToExt maps known languages, case-insensitively', () => {
+  assert.equal(langToExt('JavaScript'), 'js');
+  assert.equal(langToExt('PY'), 'py');
+  assert.equal(langToExt('markdown'), 'md');
+});
+
+test('langToExt returns empty string for unknown or missing hints', () => {
+  assert.equal(langToExt('brainfuck'), '');
+  assert.equal(langToExt(''), '');
+  assert.equal(langToExt(undefined), '');
+  assert.equal(langToExt(null), '');
+});
+
+test('langToExt cannot be tricked into returning an inherited Object property', () => {
+  // A bare `LANG_EXT[hint]` lookup would return a function for 'constructor'.
+  assert.equal(langToExt('constructor'), '');
+  assert.equal(langToExt('toString'), '');
+  assert.equal(langToExt('__proto__'), '');
+});
+
+test('every LANG_EXT value is a bare extension, no dot, no path', () => {
+  for (const [k, v] of Object.entries(LANG_EXT)) {
+    assert.match(v, /^[a-z0-9]+$/, `${k} → ${v} should be a bare extension`);
+  }
+});
+
+// ── colorDiffHtml ──────────────────────────────────────────────────────────
+test('colorDiffHtml labels added, removed, header and context lines', () => {
+  const html = colorDiffHtml('@@ -1 +1 @@\n+added\n-removed\n unchanged');
+  assert.ok(html.includes('class="diff-hdr"'));
+  assert.ok(html.includes('class="diff-add"'));
+  assert.ok(html.includes('class="diff-del"'));
+  assert.ok(html.includes('class="diff-context"'));
+});
+
+test('colorDiffHtml treats +++ and --- as FILE HEADERS, not add/delete', () => {
+  // The most likely silent regression: a wrong colour still looks like a diff.
+  const html = colorDiffHtml('--- a/x.js\n+++ b/x.js');
+  assert.ok(!html.includes('diff-add'), '+++ is a header, not an addition');
+  assert.ok(!html.includes('diff-del'), '--- is a header, not a deletion');
+  assert.equal((html.match(/diff-context/g) || []).length, 2);
+});
+
+test('colorDiffHtml escapes diff content — a diff can contain HTML', () => {
+  const html = colorDiffHtml('+<img onerror=alert(1)>');
+  assert.ok(!html.includes('<img'), 'diff payload must not become live markup');
+  assert.ok(html.includes('&#60;img'));
+});
+
+test('colorDiffHtml reports empty input rather than rendering nothing', () => {
+  assert.ok(colorDiffHtml('').includes('(no changes)'));
+  assert.ok(colorDiffHtml(null).includes('(no changes)'));
+  assert.ok(colorDiffHtml(undefined).includes('(no changes)'));
+});
+
+test('colorDiffHtml preserves line count', () => {
+  const src = 'a\nb\nc\nd';
+  assert.equal(colorDiffHtml(src).split('\n').length, 4);
+});
+
+// ── urlBase64ToUint8Array ──────────────────────────────────────────────────
+test('urlBase64ToUint8Array decodes unpadded base64url', () => {
+  // "hi" → base64 "aGk=" → base64url "aGk" (padding stripped)
+  const out = urlBase64ToUint8Array('aGk');
+  assert.deepEqual(Array.from(out), [104, 105]);
+});
+
+test('urlBase64ToUint8Array translates the -_ alphabet back to +/', () => {
+  // bytes [251, 255] → base64 "+/8=" → base64url "-_8"
+  const out = urlBase64ToUint8Array('-_8');
+  assert.deepEqual(Array.from(out), [251, 255]);
+});
+
+test('urlBase64ToUint8Array returns a real Uint8Array of the right length', () => {
+  const out = urlBase64ToUint8Array('aGVsbG8'); // "hello"
+  assert.ok(out instanceof Uint8Array);
+  assert.equal(out.length, 5);
+});
+
+// ── ambient: isNight ───────────────────────────────────────────────────────
+test('isNight covers 22:00 through 06:30 across the midnight wrap', () => {
+  assert.equal(isNight(22), true, '22:00 is the first night hour');
+  assert.equal(isNight(23.9), true);
+  assert.equal(isNight(0), true, 'midnight is night — the wrap is the bug-prone part');
+  assert.equal(isNight(6.49), true);
+});
+
+test('isNight excludes the day, with exact boundaries', () => {
+  assert.equal(isNight(6.5), false, '06:30 exactly is already day');
+  assert.equal(isNight(12), false);
+  assert.equal(isNight(21.99), false, '21:59 is still day');
+});
+
+// ── ambient: greetingFor ───────────────────────────────────────────────────
+test('greetingFor returns a distinct line for each band', () => {
+  const bands = [0, 5, 12, 18, 22].map(greetingFor);
+  assert.equal(new Set(bands).size, 5, 'all five bands differ');
+});
+
+test('greetingFor boundaries land in the later band', () => {
+  assert.notEqual(greetingFor(4), greetingFor(5));
+  assert.notEqual(greetingFor(11), greetingFor(12));
+  assert.notEqual(greetingFor(17), greetingFor(18));
+  assert.notEqual(greetingFor(21), greetingFor(22));
+});
+
+test('greetingFor covers all 24 hours with no gap', () => {
+  for (let h = 0; h < 24; h++) {
+    assert.ok(typeof greetingFor(h) === 'string' && greetingFor(h).length > 0, `hour ${h}`);
+  }
+});
+
+// ── ambient: hueFor ────────────────────────────────────────────────────────
+test('hueFor returns the mood hue, and falls back to calm when unknown', () => {
+  assert.equal(hueFor('alarmed'), MOOD_HUE.alarmed);
+  assert.equal(hueFor('nonsense'), MOOD_HUE.calm);
+  assert.equal(hueFor(undefined), MOOD_HUE.calm);
+});
+
+test('every MOOD_HUE value is a valid RGB triplet', () => {
+  for (const [mood, hue] of Object.entries(MOOD_HUE)) {
+    assert.match(hue, /^\d{1,3},\d{1,3},\d{1,3}$/, `${mood} → ${hue}`);
+    for (const n of hue.split(',')) assert.ok(Number(n) >= 0 && Number(n) <= 255, `${mood} channel ${n}`);
+  }
+});
+
+console.log(`\n${pass} passed, ${fail} failed`);
+process.exit(fail ? 1 : 0);

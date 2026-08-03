@@ -1,5 +1,19 @@
 /* ATLAN cockpit — vanilla ES, no build step (deliberate: fewer moving parts in proot).
-   Built by John Viruet / Mid-Atlantic AI. Apache-2.0 — keep this credit (§4). */
+   Built by John Viruet / Mid-Atlantic AI. Apache-2.0 — keep this credit (§4).
+
+   MODULE, not a classic script (since 2026-08-02). Still no bundler — browsers
+   resolve these imports natively, which keeps the proot-friendly no-build rule
+   while letting pure logic live in lib/ where Node can unit-test it. The IIFE
+   is retained inside the module purely to avoid re-indenting 2,000 lines in the
+   same commit that changes how the file loads; module scope already isolates.
+
+   The extraction rule: a *decision* goes to lib/ and gets tests; DOM wiring
+   stays here. See test/weblib.mjs. */
+import {
+  escapeHtml, parseMessageParts, langToExt, colorDiffHtml, urlBase64ToUint8Array,
+} from './lib/text.js';
+import { isNight, greetingFor, hueFor, MOOD_HUE } from './lib/ambient.js';
+
 (() => {
   const $ = (id) => document.getElementById(id);
   const chatlog = $('chatlog');
@@ -157,25 +171,16 @@
   }
   function say(line) { $('atlanLine').textContent = line; }
   // time-aware greeting — Atlan speaks first
-  function greet() {
-    const h = new Date().getHours();
-    const g = h < 5 ? 'Deep-night dive? I’m with you, boss.'
-      : h < 12 ? 'Morning, boss. The water’s clear today.'
-      : h < 18 ? 'Afternoon current’s steady. What are we building?'
-      : h < 22 ? 'Evening, boss. Good depth for building.'
-      : 'Late water. I’ll keep the lights on.';
-    say(g);
-  }
+  function greet() { say(greetingFor(new Date().getHours())); }
   // Habitat-style day/night: the whole cockpit dims to night water 22:00–06:30
   function dayNight() {
-    const h = new Date().getHours() + new Date().getMinutes() / 60;
-    document.body.classList.toggle('night', h >= 22 || h < 6.5);
+    const now = new Date();
+    document.body.classList.toggle('night', isNight(now.getHours() + now.getMinutes() / 60));
   }
   dayNight(); setInterval(dayNight, 60_000);
 
   // halo canvas: breathing glow + orbiting agent lights + rising bubbles.
   // RAF pauses when the tab is hidden — presence must not cost battery.
-  const MOOD_HUE = { calm: '63,232,200', building: '107,212,216', alarmed: '255,103,35', proud: '137,235,239' };
   (() => {
     const cv = $('atlanHalo'), cx = cv.getContext('2d');
     const W = cv.width, C = W / 2;
@@ -184,7 +189,7 @@
     function frame() {
       t += 1;
       cx.clearRect(0, 0, W, W);
-      const hue = MOOD_HUE[mood] ?? MOOD_HUE.calm;
+      const hue = hueFor(mood);
       const night = document.body.classList.contains('night') ? 0.65 : 1;
       // breathing aura — faster + brighter when alarmed
       const rate = mood === 'alarmed' ? 0.11 : mood === 'building' ? 0.055 : 0.03;
@@ -427,17 +432,10 @@
   // Render an assistant message: prose as text, ```fenced``` blocks as reviewable
   // code cards. XSS-safe — every node is createElement/textContent, no innerHTML.
   function renderRichMessage(container, text) {
-    const parts = String(text).split('```');
-    parts.forEach((part, i) => {
-      if (i % 2 === 0) { if (part) container.appendChild(document.createTextNode(part)); return; }
-      let lang = '', code = part;
-      const nl = part.indexOf('\n');
-      if (nl >= 0) {
-        const first = part.slice(0, nl).trim();
-        if (/^[\w+.-]{1,24}$/.test(first)) { lang = first; code = part.slice(nl + 1); }
-      }
-      container.appendChild(buildCodeBlock(code.replace(/\n$/, ''), lang));
-    });
+    for (const part of parseMessageParts(text)) {
+      if (part.type === 'text') container.appendChild(document.createTextNode(part.content));
+      else container.appendChild(buildCodeBlock(part.content, part.lang));
+    }
   }
   function buildCodeBlock(code, lang) {
     const wrap = document.createElement('div'); wrap.className = 'codeblock';
@@ -504,7 +502,6 @@
     chatlog.append(div); scroll();
   }
   function scroll() { chatlog.scrollTop = chatlog.scrollHeight; }
-  function escapeHtml(s) { return String(s).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`); }
 
   // ── attachments ──
   let attachments = []; // {id, kind, name, path, note}
@@ -752,7 +749,6 @@
   // Chat → review canvas: drop proposed code into the editor for review. Clears
   // the path so Save is a conscious choice of where it lands — the code is a
   // proposal until you Save it, and Preview can run it before you do.
-  const LANG_EXT = { javascript: 'js', js: 'js', typescript: 'ts', ts: 'ts', jsx: 'jsx', tsx: 'tsx', python: 'py', py: 'py', html: 'html', css: 'css', json: 'json', bash: 'sh', sh: 'sh', shell: 'sh', go: 'go', rust: 'rs', rs: 'rs', java: 'java', c: 'c', cpp: 'cpp', ruby: 'rb', php: 'php', sql: 'sql', yaml: 'yml', md: 'md', markdown: 'md' };
   function sendToEditor(code, langHint) {
     const btn = document.querySelector('nav button[data-s="s-editor"]');
     if (btn) btn.click(); // switch to the Editor tab (also runs initEditor)
@@ -761,9 +757,8 @@
     edClean = ''; edCurrentPath = null;            // it's a proposal until saved
     $('edName').textContent = 'from chat · review, then Save';
     $('edPath').value = '';
-    $('edPath').placeholder = langHint && LANG_EXT[langHint.toLowerCase()]
-      ? 'untitled.' + LANG_EXT[langHint.toLowerCase()] + ' — set a path to save'
-      : 'set a path to save';
+    const ext = langToExt(langHint);
+    $('edPath').placeholder = ext ? `untitled.${ext} — set a path to save` : 'set a path to save';
     $('edDirty').textContent = '● unsaved';
     if (langHint && window.CodeMirror && CodeMirror.findModeByName) {
       const info = CodeMirror.findModeByName(langHint.toLowerCase());
@@ -1024,11 +1019,7 @@
       addMsg('err', 'push setup failed: ' + err.message);
     }
   }
-  function urlB64ToU8(s) {
-    const pad = '='.repeat((4 - (s.length % 4)) % 4);
-    const raw = atob((s + pad).replace(/-/g, '+').replace(/_/g, '/'));
-    return Uint8Array.from(raw, (c) => c.charCodeAt(0));
-  }
+  const urlB64ToU8 = urlBase64ToUint8Array; // lib/text.js — unit-tested
   $('pushBtn').addEventListener('click', enablePush);
 
   $('fleetSpawn').addEventListener('click', () => {
@@ -1162,15 +1153,7 @@
     });
     return row;
   }
-  function gitColorDiff(diff) {
-    if (!diff) return '<span class="diff-context">(no changes)</span>';
-    return diff.split('\n').map((l) => {
-      const cls = l.startsWith('@@') ? 'diff-hdr'
-        : (l.startsWith('+') && !l.startsWith('+++')) ? 'diff-add'
-          : (l.startsWith('-') && !l.startsWith('---')) ? 'diff-del' : 'diff-context';
-      return `<span class="${cls}">${escapeHtml(l)}</span>`;
-    }).join('\n');
-  }
+  const gitColorDiff = colorDiffHtml; // lib/text.js — unit-tested in test/weblib.mjs
   $('gitRefresh')?.addEventListener('click', gitRefresh);
   $('gitStageBtn')?.addEventListener('click', () => {
     if (!gitActiveFile) return;

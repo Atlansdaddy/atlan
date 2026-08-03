@@ -1,6 +1,15 @@
-# Engine: Google Gemini
+# Engine: Google Gemini / Antigravity
 
-Verified 2026-07-15 (agent research pass — sources in session transcript).
+Researched 2026-07-15. **Reconciled against shipped code 2026-08-02** — two
+things in the original brief were overtaken by events:
+
+1. **Antigravity is no longer "parked".** It shipped as a first-class Class-1
+   agent engine (`agents.js:120`), authed and in the roster. The tmux PTY layer
+   did solve the non-TTY stdout-drop, as predicted below.
+2. **The default Gemini model is `gemini-3.6-flash`**, not the `gemini-3.5-flash`
+   named below (`brains.js:23`, and it is the `cloud-sm` rung in
+   `hierarchy.js:41`). Model rows below are a July-2026 research snapshot and are
+   NOT the running config — the code is ground truth.
 
 ## Headline: Gemini CLI free login is DEAD (2026-06-18); the open-source CLI + API key is the play
 - Google killed the free/Pro/Ultra "Sign in with Google" backend for Gemini CLI; successor = **Antigravity CLI (`agy`)**, closed-source Go binary.
@@ -10,9 +19,15 @@ Verified 2026-07-15 (agent research pass — sources in session transcript).
 - `npm i -g @google/gemini-cli` → headless: `gemini -p "..." --output-format stream-json` (JSONL: init/message/tool_use/tool_result/error/result; exit 0/1/42/53). Approval: `--yolo` / `--approval-mode` (verify flag on installed version).
 - MCP: `~/.gemini/settings.json` → `mcpServers` (command/args/env or url/httpUrl+headers) → our atlan MCP tools plug in.
 - Sandbox OFF by default (Docker/Podman/bwrap would all break in proot — leave off).
-- **Antigravity `agy`: treat as experimental engine.** Known non-TTY stdout-drop bug (emits nothing when piped) — our tmux PTY layer incidentally solves exactly that. TCMalloc 48-bit VA assumption can crash on 39-bit phone kernels (S24 risk; community patcher exists). Free tier ~20 req/day. No resume id in print mode. Park until stable or needed.
+- **Antigravity `agy`: SHIPPED, not parked** (updated 2026-08-02). It is a live Class-1 engine — `agents.js:122` launches it as `agy [-c] [--model M] --dangerously-skip-permissions -p <text>`, with `state.agyStarted` tracking session continuation (`agents.js:219`). The predicted non-TTY stdout-drop was indeed solved incidentally by the tmux PTY layer. Still true and still worth knowing: the TCMalloc 48-bit VA assumption can crash on 39-bit phone kernels (S24 risk; community patcher exists), free tier is small, and there is no resume id in print mode — hence the `agyStarted` flag rather than a thread id.
 
-## Models (July 2026)
+## Models — RESEARCH SNAPSHOT, July 2026 (not the running config)
+
+**Running config, verified 2026-08-02:** `gemini-3.6-flash` is the brains default
+(`brains.js:23`) and the `cloud-sm` escalation rung (`hierarchy.js:41`). Effort
+variants wired in the routing layer: `gemini-3.6-flash-{low,medium,high}`, plus
+`gemini-3.5-flash-{low,medium,high}` and `gemini-3.1-pro-{low,high}`.
+
 - **gemini-3.5-flash** — frontier, GA, 1M ctx, $1.50/$9.00; computer-use built in (preview); free tier limited.
 - gemini-3.1-pro-preview $2/$12 (no free tier); gemini-3-flash-preview $0.50/$3 (free tier ~10RPM/1500RPD per 3rd-party); flash-lite $0.25/$1.50.
 - Gemini 3.5 Pro: announced, not shipped (unverified).

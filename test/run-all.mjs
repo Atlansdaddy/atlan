@@ -60,6 +60,7 @@ const teardown = () => {
 const PAID = !!process.env.RUN_PAID;
 const SUITES = [
   ['Unit', 'test/unit.mjs', 'Pure functions in isolation: safe-arith evaluator, checker engine, Persona+ compilers, schema builders, scheduler math, token compare.'],
+  ['Web Lib', 'test/weblib.mjs', 'The front-end\'s pure logic, extracted from app.js so Node can reach it: fenced-code parsing (incl. streaming and boundary cases), HTML escaping, diff colouring, base64url, day/night and greeting bands. Previously untestable — the only front-end coverage was Playwright driving the UI.'],
   ['Function', 'test/function.mjs', 'Every HTTP endpoint contract + shape, plus data-store durability (corrupt/truncated JSON fails soft). (Spawns 1 tiny killed run.)'],
   ['Connection', 'test/connection.mjs', 'Live WebSocket + PTY: authed connect, 4001 on bad token, malformed-frame survival, multi-client broadcast, tmux round-trip, reconnection. (Spawns 2 tiny killed runs.)'],
   ['Security/Penetration', 'test/security.mjs', 'Auth bypass, SSRF (preview + harness), secret exfiltration, path traversal, stored-XSS, oversized-body DoS, profile privilege-escalation.'],

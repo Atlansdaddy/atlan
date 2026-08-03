@@ -480,7 +480,13 @@
 <script src="vendor/cm/addon/edit/closebrackets.js"></script>
 <script src="vendor/cm/addon/edit/matchbrackets.js"></script>
 <script src="vendor/cm/addon/selection/active-line.js"></script>
-<script src="app.js?v=20260727"></script>
+<!-- app.js is an ES MODULE (2026-08-02): it imports pure logic from lib/, which
+     is what makes that logic unit-testable in Node. Still NO bundler — the
+     browser resolves these natively, so the no-build rule holds.
+     type="module" is implicitly deferred, so it executes AFTER the classic
+     vendor scripts above and after the DOM is parsed — strictly safer than the
+     previous ordering. guide.js stays classic and is unaffected. -->
+<script type="module" src="app.js?v=20260802"></script>
 <script src="guide.js?v=20260724"></script>
 </body>
 </html>
