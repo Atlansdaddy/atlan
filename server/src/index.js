@@ -31,6 +31,7 @@ import {
 import { tailnetHost, tailnetOrigin } from './tailnet.js';
 import { listRoutines, upsertRoutine, deleteRoutine, setPaused, fireRoutine, startScheduler } from './routines.js';
 import { initHierarchy, listJobs, upsertJob, deleteJob, startJob, listRuns as listHierarchyRuns, getRun as getHierarchyRun, resolveGate, tierList } from './hierarchy.js';
+import { ladderRungs, CHAT_LADDER, MIN_USEFUL_CHARS } from './ladder.js';
 import { saveUpload, saveRef, turnContext } from './attachments.js';
 import { studioRoster, generateImage } from './studio.js';
 import { readFile, writeFile, listDir } from './files.js';
@@ -235,6 +236,18 @@ app.post('/api/harness/escalate', (req, res) => {
 
 // ── worker hierarchy: jobs = chains of scoped links, tiered + checker-gated ──
 app.get('/api/hierarchy', (_req, res) => res.json({ jobs: listJobs(), runs: listHierarchyRuns(), tiers: tierList }));
+// The escalation ladder, described for the CHAT picker. Separate from
+// /api/hierarchy (which is the job builder's view) because chat needs the rungs
+// in climb order with the free/paid split called out — on a phone that is the
+// deciding fact. Reads from TIERS, so it cannot drift from what actually runs.
+app.get('/api/ladder', (req, res) => {
+  try {
+    const custom = req.query.rungs ? String(req.query.rungs).split(',').filter(Boolean) : null;
+    res.json({ rungs: ladderRungs(custom), default: CHAT_LADDER, minUsefulChars: MIN_USEFUL_CHARS });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
 app.post('/api/hierarchy/job', (req, res) => {
   try { res.json(upsertJob(req.body ?? {})); } catch (err) { res.status(400).json({ error: err.message }); }
 });
