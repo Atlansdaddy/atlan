@@ -1,4 +1,5 @@
 import { getStoredKey } from './keys.js';
+import { attachImagesToHistory, buildImageParts, providerDoesVision, VISION_PROVIDERS } from './vision.js';
 
 // "Brains" = chat-only engines (no tools, no files) behind ONE OpenAI-compat
 // adapter — base-URL swap per provider. Claude Code stays the only agent
@@ -137,13 +138,36 @@ export async function resolveBrain(engine, model, roster) {
   return { provider: ready.id, model: ready.model, chosen: ready.label, fellBack: true };
 }
 
-export async function brainChat({ provider, model, history, send }) {
+export async function brainChat({ provider, model, history, send, images = [] }) {
   const p = PROVIDERS[provider];
   if (!p) return send({ t: 'chat.err', msg: `unknown engine: ${provider}` });
   const key = getKey(p.keyEnv);
   if (p.keyEnv && !key) {
     return send({ t: 'chat.err', msg: `${p.label} needs a key — drop it in Doctor → Engine keys.` });
   }
+
+  // ── multimodal ──────────────────────────────────────────────────────────
+  // A brain has no filesystem, so an image has to travel as BYTES or not at
+  // all. Before 2026-08-02 it travelled as a path the model could not open and
+  // the turn silently proceeded text-only; the model then guessed at the
+  // picture. Refusing loudly is the honest behaviour and the recoverable one.
+  let messages = history;
+  if (images.length) {
+    if (!providerDoesVision(provider)) {
+      const able = [...VISION_PROVIDERS].join(', ');
+      return send({
+        t: 'chat.err',
+        msg: `${p.label} cannot receive images — it is a text-only brain here. Switch to one of: ${able}, or use an agent engine (it has a Read tool and can open the file).`,
+      });
+    }
+    const { images: parts, errors } = buildImageParts(images.map((i) => i.path ?? i));
+    if (errors.length) send({ t: 'chat.err', msg: `image(s) not attached — ${errors.join('; ')}` });
+    if (!parts.length) {
+      return send({ t: 'chat.err', msg: 'no attachable images — the turn was not sent (sending it text-only would hide the failure)' });
+    }
+    messages = attachImagesToHistory(history, parts);
+  }
+
   try {
     const res = await fetch(`${p.base}/chat/completions`, {
       method: 'POST',
@@ -153,7 +177,7 @@ export async function brainChat({ provider, model, history, send }) {
       },
       body: JSON.stringify({
         model: model || p.defaultModel,
-        messages: history,
+        messages,
         stream: false,
         // qwen3.5/3.6 templates ignore llama-server's --reasoning-budget 0 and
         // will happily burn the whole token budget "thinking"; this kwarg is

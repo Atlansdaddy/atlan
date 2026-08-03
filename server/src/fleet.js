@@ -13,6 +13,62 @@ import { dirname } from 'node:path';
 //  3. Idle = zero tokens — nothing runs unless spawned (or, M5c, scheduled).
 const __dirname = dirname(fileURLToPath(import.meta.url));
 import { FLEET_DIR, DAILY_TOKEN_CAP, MAX_CONCURRENT_RUNS, TURN_RESERVE, sandboxOption } from './config.js';
+import { agentExec } from './agentExec.js';
+import { engineFidelity, policyArgs } from './enginePolicy.js';
+
+// ── engines ───────────────────────────────────────────────────────────────
+// The fleet was Claude-only: spawnRun called the Agent SDK directly, so every
+// budgeted autonomous run had to be Claude no matter which engine was actually
+// best for the job. `agentExec` is the batch primitive that closes that, and
+// `enginePolicy` is what keeps the profile promise honest on engines whose
+// gating is weaker than the SDK's.
+//
+// THE TWO PATHS ARE NOT EQUIVALENT, and the run record says so rather than
+// papering over it:
+//
+//   claude — Agent SDK. Per-tool gating via canUseTool, so the HARD budget can
+//            halt MID-RUN and off-profile tools are refused individually.
+//            Resumable (session id) → top-up works.
+//   cli    — one batch invocation of codex/grok/copilot/antigravity. The gate
+//            is the CLI's own native flag, enforced by the kernel where the
+//            host allows it. There is no per-tool callback, so the budget is a
+//            PRE-FLIGHT admission check plus a post-hoc record — it cannot
+//            interrupt a turn. No session id → not resumable.
+//
+// Reporting those as the same thing would be a lie by omission about what the
+// walls were, which is the one thing the deterministic-walls thesis cannot
+// survive. Hence `budgetEnforcement` and `boundary` on every run.
+export const CLI_ENGINES = ['codex', 'grok', 'copilot', 'antigravity'];
+export const FLEET_ENGINES = ['claude', ...CLI_ENGINES];
+
+/** What each engine can actually promise here — drives the UI, honestly. */
+export function engineCapabilities() {
+  return FLEET_ENGINES.map((id) => {
+    if (id === 'claude') {
+      return {
+        id,
+        fidelity: 'full',
+        profiles: Object.keys(PROFILES),
+        budgetEnforcement: 'mid-run',
+        resumable: true,
+        why: 'Agent SDK: per-tool canUseTool gating + mid-run budget halt',
+      };
+    }
+    const profiles = Object.keys(PROFILES).filter((p) => {
+      try { policyArgs(id, p); return true; } catch { return false; }
+    });
+    return {
+      id,
+      fidelity: engineFidelity(id),
+      profiles,
+      budgetEnforcement: 'pre-flight',
+      resumable: false,
+      why: profiles.length
+        ? `native gate for ${profiles.join('/')}`
+        : `cannot enforce any profile here (fidelity: ${engineFidelity(id)}) — refused unless explicitly unsandboxed`,
+    };
+  });
+}
 
 // Budget reservation (peer review): reserve headroom for the current in-flight
 // turn so a single big generation can't overshoot the cap before we count it.
@@ -113,6 +169,15 @@ function publicRun(r) {
     resumedFrom: r.resumedFrom ?? null,
     source: r.source ?? null,
     cacheRead: r.cacheRead ?? 0,
+    // ── what the walls ACTUALLY were on this run ──
+    // A ledger that cannot distinguish a kernel-gated run from an ungated one
+    // is lying by omission. These four travel with every run, including into
+    // history.jsonl, so a receipt read months later still says what was true.
+    engine: r.engine ?? 'claude',
+    enforced: r.enforced ?? null,       // was the profile actually enforced?
+    boundary: r.boundary ?? null,       // kernel | atlan | kernel+atlan | none
+    budgetEnforcement: r.budgetEnforcement ?? 'mid-run',
+    proposal: r.proposal ?? null,       // contained runs produce a diff, not a result
   };
 }
 
@@ -130,10 +195,26 @@ export function isActive(id) { return active.has(id); }
 // Budget counts FRESH tokens (input + output + cache writes; cache reads are
 // ~free and excluded). Turn 1 alone costs ~35k (system-prompt cache write),
 // so ~50k is the practical floor for a run that does anything.
-export function spawnRun({ prompt, profile = 'scout', cwd = '/root', model = 'claude-haiku-4-5-20251001', budget = 150000, resume = null, resumedFrom = null, source = null }) {
+export function spawnRun({
+  prompt, profile = 'scout', cwd = '/root', model = null, budget = 150000,
+  resume = null, resumedFrom = null, source = null,
+  engine = 'claude', allowUnsandboxed = false, contain = null, timeoutMs = 480000,
+}) {
   const prof = PROFILES[profile];
   if (!prof) throw new Error(`unknown profile: ${profile}`);
   if (!prompt?.trim()) throw new Error('empty prompt');
+  if (!FLEET_ENGINES.includes(engine)) {
+    throw new Error(`unknown engine: ${engine} — one of ${FLEET_ENGINES.join(', ')}`);
+  }
+  // Model default is PER ENGINE. A hardcoded claude-haiku default was fine
+  // while the fleet was Claude-only and becomes a bug the moment it is not.
+  if (!model) model = engine === 'claude' ? 'claude-haiku-4-5-20251001' : null;
+  // Fail EARLY and loudly if this engine cannot honestly enforce the profile
+  // here — before a run id exists, before the ledger sees it, before the UI
+  // shows a run that was never gated. policyArgs throws with the reason.
+  if (engine !== 'claude') {
+    policyArgs(engine, profile, { allowUnsandboxed });
+  }
   // Aggregate guards (peer review): cap concurrency + a global daily token
   // ceiling that all runs draw from — so N concurrent runs can't multiply past
   // the wall. todayBurn() already folds in live runs' current spend.
@@ -150,6 +231,12 @@ export function spawnRun({ prompt, profile = 'scout', cwd = '/root', model = 'cl
     lastLine: 'diving…', denials: [], resultText: null,
     sessionId: null, resume, resumedFrom, source: source ? String(source).slice(0, 80) : null,
     cacheRead: 0, // cache-read input tokens (~free) — measures caching savings
+    engine,
+    allowUnsandboxed, contain, timeoutMs,
+    enforced: null, boundary: null, proposal: null,
+    // Set at spawn, not at finish: if the process dies mid-run the record must
+    // still say which kind of budget this run ever had.
+    budgetEnforcement: engine === 'claude' ? 'mid-run' : 'pre-flight',
   };
   runs.unshift(run);
   if (runs.length > 200) runs.pop();
@@ -157,8 +244,59 @@ export function spawnRun({ prompt, profile = 'scout', cwd = '/root', model = 'cl
   broadcast({ t: 'atlan.mood', mood: 'building', agents: active.size + 1 });
   // fire-and-forget: exec self-handles internally, but a stray rejection must
   // never become an unhandledRejection that takes down the whole server.
-  exec(run, prof).catch((err) => { console.error('[fleet] exec crashed:', err); });
+  const runner = engine === 'claude' ? exec(run, prof) : execCli(run);
+  runner.catch((err) => { console.error('[fleet] exec crashed:', err); });
   return publicRun(run);
+}
+
+// ── the CLI path ──────────────────────────────────────────────────────────
+// One batch invocation, gated by the engine's own native flag. Deliberately
+// short: everything hard (boundary choice, containment, credential scrubbing,
+// output parsing) already lives in agentExec, and duplicating any of it here
+// would give us two places for the same guarantee to drift.
+async function execCli(run) {
+  const handle = { child: null, kill() { try { this.child?.kill('SIGTERM'); } catch { /* already gone */ } } };
+  active.set(run.id, handle);
+  event(run, `⚙ ${run.engine} · ${run.profile}`);
+  try {
+    const res = await agentExec({
+      engine: run.engine,
+      prompt: run.prompt,
+      cwd: run.cwd,
+      profile: run.profile,
+      model: run.model,
+      timeoutMs: run.timeoutMs,
+      allowUnsandboxed: run.allowUnsandboxed,
+      contain: run.contain,
+      onSpawn: (child) => { handle.child = child; },
+    });
+    run.tokens = res.tokens ?? 0;
+    run.enforced = res.enforced;
+    run.boundary = res.boundary;
+    run.proposal = res.proposal ?? null;
+    run.resultText = res.text || null;
+    // A contained run changed a disposable copy, never the project. Say so in
+    // the one line the inbox shows, or a reviewer will assume it landed.
+    if (res.proposal) {
+      run.lastLine = `proposal: ${res.proposal.changed} file(s) changed — review, nothing applied`;
+    } else {
+      run.lastLine = (res.text || 'surfaced').slice(0, 120);
+    }
+    if (run.status === 'running') run.status = 'done';
+    // Post-hoc budget: this path cannot interrupt a turn, so an overrun is
+    // RECORDED rather than prevented. Marking it keeps the ledger honest and
+    // gives the UI something true to show.
+    if (run.tokens > run.budget) {
+      run.lastLine = `over budget: ${run.tokens}/${run.budget} tok (pre-flight budget — CLI runs cannot halt mid-turn)`;
+    }
+  } catch (err) {
+    if (run.status === 'running') {
+      run.status = 'error';
+      run.lastLine = String(err?.message ?? err).slice(0, 160);
+    }
+  } finally {
+    finish(run);
+  }
 }
 
 async function exec(run, prof) {
@@ -229,6 +367,12 @@ async function exec(run, prof) {
       }
     }
     if (run.status === 'running') { run.status = 'done'; run.lastLine = 'surfaced'; }
+    // The Claude path's profile IS enforced — by disallowedTools at the CLI
+    // level plus canUseTool as the second belt. Recorded explicitly so the
+    // field means the same thing on both paths rather than being null here and
+    // meaningful there.
+    run.enforced = true;
+    run.boundary = sandboxOption() ? 'kernel' : 'atlan';
   } catch (err) {
     if (run.status === 'running') {
       run.status = 'error';
@@ -273,21 +417,30 @@ function finish(run) {
 export function topUpRun(id, extra = 100000) {
   const prev = runs.find((r) => r.id === id);
   if (!prev) throw new Error('no such run');
+  // Only the Claude path carries a session id, so only it can be continued.
+  // Saying WHY beats a generic "not resumable" a user can't act on.
+  if ((prev.engine ?? 'claude') !== 'claude') {
+    throw new Error(`${prev.engine} runs are one-shot batch invocations with no session id — they cannot be topped up. Re-run with a larger budget.`);
+  }
   if (prev.status !== 'halted-budget' || !prev.sessionId) throw new Error('run is not resumable');
   return spawnRun({
     prompt: `[Atlan top-up: John added ${extra} tokens — continue the task where you left off and finish with the compact report.]`,
-    profile: prev.profile, cwd: prev.cwd, model: prev.model,
+    profile: prev.profile, cwd: prev.cwd, model: prev.model, engine: prev.engine ?? 'claude',
     budget: extra, resume: prev.sessionId, resumedFrom: prev.id,
   });
 }
 
 export function killRun(id) {
   const run = runs.find((r) => r.id === id);
-  const q = active.get(id);
-  if (!run || !q || (run.status !== 'running' && run.status !== 'halted-budget')) return false;
+  const h = active.get(id);
+  if (!run || !h || (run.status !== 'running' && run.status !== 'halted-budget')) return false;
   run.status = 'killed';
   run.lastLine = 'killed by John';
-  q.interrupt().catch(() => {});
+  // Two handle shapes, one guarantee. The SDK query exposes interrupt(); the
+  // CLI path hands back a child process. KILL ALL must mean the same thing on
+  // both or it is not a guarantee.
+  if (typeof h.interrupt === 'function') h.interrupt().catch(() => {});
+  else h.kill?.();
   return true;
 }
 

@@ -21,10 +21,13 @@ _Free suites only. The E2E suite (real Claude runs) is opt-in — `RUN_PAID=1 no
 | Attachments | Upload (image/file) + reference (file/folder) + path-traversal guard + oversize/empty reject + audio/video graceful degradation without a key. | ✅ 7/7 |
 | Code Editor | File read/write/tree scoped to the project, folders-first listing, noise-dir hiding, secrets + traversal + folder-as-file guards. | ✅ 16/16 |
 | Voice & Providers | TTS roster honesty (readiness tracks keys, roadmap items never claim ready), TTS input validation + clean degradation, SSML XML-escaping (no injection), Polly SigV4 signer, and the 12-provider AI-model spread. | ✅ 15/15 |
+| Fleet engines | The fleet is configurable across engines, and the run record cannot lie about it: per-engine capability roster (which profiles each can actually enforce HERE, mid-run vs pre-flight budget, resumable or not), refusal BEFORE a run exists when an engine cannot honestly enforce a profile, ungated runs reachable only by explicit acknowledgement, budget/concurrency/daily caps ahead of the engine branch, and KILL ALL working on both handle shapes. | ✅ 19/19 |
+| Vision / multimodal | Chat-only brains can receive image BYTES (OpenAI-compat image_url parts) instead of a filesystem path they cannot open, and a text-only provider REFUSES the turn rather than silently sending it text-only — the failure mode that let this bug hide for a week. Data-URL construction, size/format/empty guards, last-user-turn targeting, no-mutation-of-caller-history, and per-file error reporting. | ✅ 26/26 |
+| Cross-engine orchestration | Profile→native-flag projection per CLI, refusal when an engine cannot enforce a profile, credential scrubbing from the child env, and Atlan-side containment (disposable git worktree + diff gate) proving the real project stays untouchable — including a simulated proot host where no kernel sandbox exists. Live engine calls are opt-in via RUN_LIVE=1. | ✅ 8/8 |
 | UI/UX | Headless Chromium drives the real cockpit: tabs, engine roster, doctor/preflight render, key entry no-leak, XSS-safe render. | ✅ 11/11 |
 | Tour/Onboarding | Drives all tour steps live — every step spotlights a real visible element; handbook opens/searches/relaunches. | ✅ 9/9 |
 
-**Total: 255 passed, 0 failed across 12 suites.**
+**Total: 308 passed, 0 failed across 15 suites.**
 
 ## Unit
 
@@ -369,6 +372,99 @@ VOICE SUITE
   ✓ brains with no key report ready:false + what they need
 
 15 passed, 0 failed
+```
+
+## Fleet engines
+
+The fleet is configurable across engines, and the run record cannot lie about it: per-engine capability roster (which profiles each can actually enforce HERE, mid-run vs pre-flight budget, resumable or not), refusal BEFORE a run exists when an engine cannot honestly enforce a profile, ungated runs reachable only by explicit acknowledgement, budget/concurrency/daily caps ahead of the engine branch, and KILL ALL working on both handle shapes.
+
+```
+$ node test/fleet-engines.mjs
+FLEET ENGINES SUITE
+  · host sandbox: available — user namespaces available
+  ✓ the fleet offers Claude AND the four exec-mode CLIs
+  ✓ engineCapabilities reports one honest entry per engine
+  ✓ only Claude claims mid-run budget enforcement and resumability
+  ✓ Claude can enforce every profile the fleet defines
+  ✓ spawnRun rejects an unknown engine, naming the valid set
+  ✓ spawnRun still rejects an unknown profile
+  ✓ spawnRun rejects an empty prompt on every engine
+  ✓ an engine that cannot enforce a profile is REFUSED, not run ungated
+  ✓ the refusal happens BEFORE a run is created
+  ✓ an ungated run is possible only by EXPLICIT acknowledgement
+  ✓ codex maps all three profiles to distinct native sandbox modes
+  ✓ verifier gets read-only — it never edits what it grades
+  ✓ every engine declares a bypass flag, so the phone path always starts
+  ✓ topUpRun refuses CLI engines with a reason a user can act on
+  ✓ budget is clamped identically regardless of engine
+  ✓ concurrency and daily-token caps are checked before any engine branch
+  ✓ publicRun exposes engine, enforced, boundary and budgetEnforcement
+  ✓ killRun handles BOTH handle shapes, so KILL ALL is a real guarantee
+  ✓ agentExec accepts an onSpawn hook — without it CLI runs are unkillable
+
+19 passed, 0 failed
+```
+
+## Vision / multimodal
+
+Chat-only brains can receive image BYTES (OpenAI-compat image_url parts) instead of a filesystem path they cannot open, and a text-only provider REFUSES the turn rather than silently sending it text-only — the failure mode that let this bug hide for a week. Data-URL construction, size/format/empty guards, last-user-turn targeting, no-mutation-of-caller-history, and per-file error reporting.
+
+```
+$ node test/vision.mjs
+VISION SUITE
+  ✓ isImagePath accepts the formats we can inline, case-insensitively
+  ✓ isImagePath rejects non-images and junk input
+  ✓ isImagePath cannot be tricked by prototype keys
+  ✓ every IMAGE_MIME value is a real image MIME type
+  ✓ providerDoesVision is true for vision providers, false otherwise
+  ✓ providerDoesVision is false for text-only brains and junk
+  ✓ local llama-server is NOT claimed as vision-capable
+  ✓ imageToDataUrl builds a correct data: URL with the right MIME
+  ✓ imageToDataUrl picks MIME from the extension, not the content
+  ✓ imageToDataUrl refuses a non-image, and names what IS allowed
+  ✓ imageToDataUrl refuses an oversized image with the real size
+  ✓ imageToDataUrl accepts an image exactly at the limit
+  ✓ imageToDataUrl refuses an empty file rather than sending an empty image
+  ✓ attachImagesToHistory converts the last user message to a content array
+  ✓ attachImagesToHistory NEVER mutates the caller history
+  ✓ attachImagesToHistory targets the LAST user turn, not the first
+  ✓ attachImagesToHistory leaves assistant turns alone entirely
+  ✓ attachImagesToHistory creates a user turn when there is none
+  ✓ attachImagesToHistory appends to an ALREADY multimodal message
+  ✓ attachImagesToHistory attaches every image, not just the first
+  ✓ attachImagesToHistory with no images returns an equal but distinct array
+  ✓ attachImagesToHistory survives a null/undefined history
+  ✓ buildImageParts reports per-file failures instead of losing the turn
+  ✓ buildImageParts returns the basename, not the full path
+  ✓ buildImageParts on an empty list is empty, not an error
+  ✓ brainChat refuses rather than silently sending images text-only
+
+26 passed, 0 failed
+```
+
+## Cross-engine orchestration
+
+Profile→native-flag projection per CLI, refusal when an engine cannot enforce a profile, credential scrubbing from the child env, and Atlan-side containment (disposable git worktree + diff gate) proving the real project stays untouchable — including a simulated proot host where no kernel sandbox exists. Live engine calls are opt-in via RUN_LIVE=1.
+
+```
+$ node test/orchestration.mjs
+CROSS-ENGINE ORCHESTRATION
+
+host capability:
+  {"ok":true,"why":"user namespaces available"}
+  [{"id":"codex","fidelity":"full","profiles":["scout","verifier","builder"],"gatedHere":true},{"id":"copilot","fidelity":"unverified","profiles":[],"gatedHere":false},{"id":"grok","fidelity":"unverified","profiles":[],"gatedHere":false},{"id":"antigravity","fidelity":"binary","profiles":[],"gatedHere":false}]
+
+  ✓ codex maps builder -> workspace-write
+  ✓ codex maps verifier -> read-only (reads + runs, never edits)
+  ✓ an engine that cannot enforce a profile REFUSES rather than bypassing
+  ✓ bypass is reachable only by explicit acknowledgement
+  ✓ scrubbedEnv drops known and pattern-matched credentials, keeps PATH/HOME
+  ✓ openContained gives a git worktree, not a copy, for a repo
+  ✓ edits in the contained workspace do NOT touch the real project
+  ✓ cleanup removes the workspace and leaves the project clean
+  · live engine tests skipped (RUN_LIVE=1 to enable)
+
+8 passed, 0 failed
 ```
 
 ## UI/UX

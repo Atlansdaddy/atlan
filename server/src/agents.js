@@ -63,7 +63,7 @@ export function agentStatus() {
 // output; --output-format json exists, schema unversioned → plain + one-bubble
 // flush), `--continue` resumes the most recent session, `--allow-all` is the
 // full-auto belt (files + shell + urls), `--model` picks the model.
-function copilotBin() {
+export function copilotBin() {
   if (existsSync('/usr/bin/copilot')) return '/usr/bin/copilot';
   return existsSync('/usr/local/bin/copilot') ? '/usr/local/bin/copilot' : null;
 }
@@ -77,7 +77,7 @@ function copilotAuthed() {
 // json/streaming-json exists but its event schema is unversioned — plain +
 // one-bubble flush until we pin it), `-c` continues the most recent session
 // in this cwd, `--always-approve` = full-auto, --no-auto-update for automation.
-function grokBin() {
+export function grokBin() {
   if (existsSync('/usr/bin/grok')) return '/usr/bin/grok';
   return existsSync('/usr/local/bin/grok') ? '/usr/local/bin/grok' : null;
 }
@@ -91,7 +91,7 @@ function grokAuthed() {
 // keyring; the config dir appears then), or ANTIGRAVITY_API_KEY. Headless =
 // `agy -p` — plain text out, no stream-json in 1.x; `-c` continues the most
 // recent conversation, which is how a chat thread persists across turns.
-function agyBin() {
+export function agyBin() {
   const home = process.env.HOME ?? '/root';
   if (existsSync(`${home}/.local/bin/agy`)) return `${home}/.local/bin/agy`;
   return existsSync('/usr/local/bin/agy') ? '/usr/local/bin/agy' : null;

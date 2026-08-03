@@ -21,7 +21,7 @@ import { handleInlineAiEdit } from './editorAi.js';
 import {
   getGitStatus, getGitDiff, gitStage, gitUnstage, gitCommit, gitPush, gitPull, gitAiCommitMsg,
 } from './git.js';
-import { initFleet, spawnRun, listRuns, killRun, killAll, todayBurn, profileList, historyTail, topUpRun } from './fleet.js';
+import { initFleet, spawnRun, listRuns, killRun, killAll, todayBurn, profileList, historyTail, topUpRun, engineCapabilities } from './fleet.js';
 import { pushPublicKey, addSub, subCount, notifyAll } from './push.js';
 import {
   authMiddleware, wsAuthed, isConfigured, setPassword, checkPassword,
@@ -149,7 +149,15 @@ app.get('/api/scan', (req, res) => {
   }
 });
 
-app.get('/api/fleet', (_req, res) => res.json({ runs: listRuns(), history: historyTail(30), today: todayBurn(), profiles: profileList, pushSubs: subCount() }));
+// `engines` is the honest capability roster: which engines can run a fleet
+// job HERE, which profiles each can actually enforce on THIS host, and whether
+// its budget can halt mid-run. The UI must not offer a combination the runtime
+// would have to fake — spawnRun refuses those, and this is how the client
+// knows before asking.
+app.get('/api/fleet', (_req, res) => res.json({
+  runs: listRuns(), history: historyTail(30), today: todayBurn(),
+  profiles: profileList, engines: engineCapabilities(), pushSubs: subCount(),
+}));
 app.post('/api/fleet/topup', (req, res) => {
   try {
     res.json(topUpRun(String(req.body?.id), Number(req.body?.extra) || 100000));
