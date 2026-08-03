@@ -21,7 +21,7 @@ _Free suites only. The E2E suite (real Claude runs) is opt-in — `RUN_PAID=1 no
 | Attachments | Upload (image/file) + reference (file/folder) + path-traversal guard + oversize/empty reject + audio/video graceful degradation without a key. | ✅ 7/7 |
 | Code Editor | File read/write/tree scoped to the project, folders-first listing, noise-dir hiding, secrets + traversal + folder-as-file guards. | ✅ 16/16 |
 | Voice & Providers | TTS roster honesty (readiness tracks keys, roadmap items never claim ready), TTS input validation + clean degradation, SSML XML-escaping (no injection), Polly SigV4 signer, and the 12-provider AI-model spread. | ✅ 15/15 |
-| Escalation ladder | The chat escalation ladder: cheapest-rung-first with DETERMINISTIC escalation triggers (error, empty, truncated, stated incapacity) and no model grading itself. Includes the honest-limit test — a confidently wrong answer must NOT escalate, asserted so nobody later replaces the trigger with a self-critique wall — plus the rule that the hands-having agentic rung is never reachable silently from chat. | ✅ 22/22 |
+| Escalation ladder | The chat escalation ladder: cheapest-rung-first with DETERMINISTIC escalation triggers (error, empty, truncated, stated incapacity) and no model grading itself. Includes the honest-limit test — a confidently wrong answer must NOT escalate, asserted so nobody later replaces the trigger with a self-critique wall — plus the rule that the hands-having agentic rung is never reachable silently from chat. | ✅ 30/30 |
 | Doc drift | The docs' factual claims asserted against the CODE: tab count and names from index.html, engine roster from agents.js and fleet.js, template list from the UI, plus the status-convention requirements. A full sweep on 2026-08-02 found drift in BOTH directions across three docs — prose cannot be made to stop rotting by asking people to be careful, so the commit that changes a count now fails instead of the next reader. | ✅ 11/11 |
 | Fleet engines | The fleet is configurable across engines, and the run record cannot lie about it: per-engine capability roster (which profiles each can actually enforce HERE, mid-run vs pre-flight budget, resumable or not), refusal BEFORE a run exists when an engine cannot honestly enforce a profile, ungated runs reachable only by explicit acknowledgement, budget/concurrency/daily caps ahead of the engine branch, and KILL ALL working on both handle shapes. | ✅ 33/33 |
 | Vision / multimodal | Chat-only brains can receive image BYTES (OpenAI-compat image_url parts) instead of a filesystem path they cannot open, and a text-only provider REFUSES the turn rather than silently sending it text-only — the failure mode that let this bug hide for a week. Data-URL construction, size/format/empty guards, last-user-turn targeting, no-mutation-of-caller-history, and per-file error reporting. | ✅ 26/26 |
@@ -29,7 +29,7 @@ _Free suites only. The E2E suite (real Claude runs) is opt-in — `RUN_PAID=1 no
 | UI/UX | Headless Chromium drives the real cockpit: tabs, engine roster, doctor/preflight render, key entry no-leak, XSS-safe render. | ✅ 11/11 |
 | Tour/Onboarding | Drives all tour steps live — every step spotlights a real visible element; handbook opens/searches/relaunches. | ✅ 9/9 |
 
-**Total: 355 passed, 0 failed across 17 suites.**
+**Total: 363 passed, 0 failed across 17 suites.**
 
 ## Unit
 
@@ -405,8 +405,16 @@ LADDER SUITE
   ✓ describeRung marks the free rungs, which is the phone-relevant fact
   ✓ describeRung returns null for an unknown tier rather than throwing
   ✓ ladderRungs describes every rung in order
+  ✓ stops at the first rung that answers, and never pays for the rest
+  ✓ climbs past a rung that errors
+  ✓ climbs past stated incapacity, all the way to frontier
+  ✓ emits a rung frame per attempt so the climb is visible
+  ✓ an escalating frame names the NEXT rung, so the UI can say where it went
+  ✓ an exhausted ladder returns the top answer, not nothing
+  ✓ a custom ladder is honoured, including a deliberate agentic opt-in
+  ✓ tokens are recorded per attempt, so the climb has a real cost trail
 
-22 passed, 0 failed
+30 passed, 0 failed
 ```
 
 ## Doc drift

@@ -255,6 +255,7 @@ import { isNight, greetingFor, hueFor, MOOD_HUE } from './lib/ambient.js';
   function handle(m) {
     switch (m.t) {
       case 'chat.msg': addMsg(m.role, m.text, m.engine); break;
+      case 'chat.rung': addRungLine(m); break;
       case 'chat.err': addMsg('err', m.msg); break;
       case 'tool.use': addTool(m.name, m.input); break;
       case 'chat.turnstart': startWorking(); break;
@@ -453,6 +454,41 @@ import { isNight, greetingFor, hueFor, MOOD_HUE } from './lib/ambient.js';
     codeEl.textContent = code; pre.append(codeEl);
     wrap.append(bar, pre);
     return wrap;
+  }
+
+  // The escalation ladder as a pickable "engine". It is not a model — it is a
+  // policy: try the cheapest rung, climb only when the answer is observably
+  // unusable (empty, errored, truncated, or the model said it couldn't).
+  // Labels come from the server so they track the real tier config.
+  function loadLadder() {
+    fetch('/api/ladder').then((r) => r.json()).then((j) => {
+      const g = $('ogLadder');
+      if (!g || !Array.isArray(j.rungs)) return;
+      g.innerHTML = '';
+      const o = document.createElement('option');
+      o.value = 'ladder|';
+      const free = j.rungs.filter((r) => r.free).length;
+      o.textContent = `Ladder · ${j.rungs.map((r) => r.label.split(' (')[0]).join(' → ')}`;
+      o.title = `Tries ${free} free rung(s) first and only spends if they can't answer. `
+        + `Escalates on error, empty, truncated, or a stated "I can't" — never on a model grading itself.`;
+      g.append(o);
+    }).catch(() => {});
+  }
+  loadLadder();
+
+  // Show the climb as it happens. A ladder that silently returns the frontier
+  // answer teaches you nothing about what your free tiers can already do.
+  function addRungLine(m) {
+    const div = document.createElement('div');
+    div.className = 'toolchip';
+    const label = m.label || m.tier;
+    const txt = m.phase === 'start' ? `▸ trying ${label}${m.free ? ' (free)' : ''}…`
+      : m.phase === 'answered' ? `✓ answered by ${label}${m.free ? ' — free' : ''}`
+      : m.phase === 'escalating' ? `↑ ${label}: ${m.reason} — climbing to ${m.next}`
+      : `⚠ ${label}: ${m.reason} — ladder exhausted, showing its best attempt`;
+    div.innerHTML = '<span class="tname"></span>';
+    div.querySelector('.tname').textContent = txt;
+    chatlog.append(div); scroll();
   }
 
   // engine roster → fill the switcher's local/cloud groups

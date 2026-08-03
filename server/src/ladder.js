@@ -111,3 +111,71 @@ export function describeRung(id) {
 export function ladderRungs(rungs) {
   return normaliseLadder(rungs).map(describeRung);
 }
+
+/**
+ * Climb the ladder for one chat turn.
+ *
+ * Runs the cheapest rung, applies `shouldEscalate` to its OBSERVABLE result,
+ * and climbs only when that says so. Emits a `chat.rung` frame per attempt so
+ * the UI can show the climb as it happens — a ladder that silently returns the
+ * frontier answer teaches the user nothing about what their free tiers can do.
+ *
+ * `runRung` is injected rather than imported, which keeps this function free of
+ * engine wiring and makes the climb logic testable without a model.
+ *
+ * @param {object}   o
+ * @param {string}   o.text        the user's prompt
+ * @param {string[]} o.rungs       tier ids, cheapest first
+ * @param {Function} o.runRung     async (tierId, text) => {text, tokens, truncated?}
+ * @param {Function} o.send        WS emitter
+ * @returns {Promise<{text, tier, tokens, attempts}>}
+ */
+export async function runLadder({ text, rungs, runRung, send = () => {} }) {
+  const ladder = normaliseLadder(rungs);
+  const attempts = [];
+  let last = null;
+
+  for (let i = 0; i < ladder.length; i++) {
+    const tierId = ladder[i];
+    const rung = describeRung(tierId);
+    send({ t: 'chat.rung', phase: 'start', tier: tierId, label: rung.label, free: rung.free, index: i, of: ladder.length });
+
+    let result, error = null;
+    try {
+      result = await runRung(tierId, text);
+    } catch (err) {
+      error = String(err?.message ?? err);
+      result = { text: '', tokens: 0 };
+    }
+
+    const verdict = shouldEscalate({ text: result.text, error, truncated: result.truncated });
+    attempts.push({ tier: tierId, tokens: result.tokens ?? 0, escalated: verdict.escalate, reason: verdict.reason });
+    last = { ...result, tier: tierId };
+
+    if (!verdict.escalate) {
+      send({ t: 'chat.rung', phase: 'answered', tier: tierId, label: rung.label, free: rung.free });
+      return { text: result.text, tier: tierId, tokens: result.tokens ?? 0, attempts };
+    }
+
+    const isLast = i === ladder.length - 1;
+    send({
+      t: 'chat.rung',
+      phase: isLast ? 'exhausted' : 'escalating',
+      tier: tierId,
+      label: rung.label,
+      reason: verdict.reason,
+      next: isLast ? null : describeRung(ladder[i + 1]).label,
+    });
+  }
+
+  // Ladder exhausted. Return the top rung's answer rather than nothing — a
+  // weak answer the user can see beats a silent failure, and `attempts` carries
+  // the full record of why every rung was rejected.
+  return {
+    text: last?.text || '',
+    tier: last?.tier ?? ladder[ladder.length - 1],
+    tokens: last?.tokens ?? 0,
+    attempts,
+    exhausted: true,
+  };
+}

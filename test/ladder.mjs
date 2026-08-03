@@ -8,7 +8,7 @@
 
 import assert from 'node:assert';
 import {
-  shouldEscalate, normaliseLadder, describeRung, ladderRungs,
+  shouldEscalate, normaliseLadder, describeRung, ladderRungs, runLadder,
   CHAT_LADDER, MIN_USEFUL_CHARS, INCAPACITY_PATTERNS,
 } from '../server/src/ladder.js';
 
@@ -169,5 +169,106 @@ test('ladderRungs describes every rung in order', () => {
   assert.ok(rungs.every((r) => r.label));
 });
 
-console.log(`\n${pass} passed, ${fail} failed`);
-process.exit(fail ? 1 : 0);
+// ── the climb ──────────────────────────────────────────────────────────────
+// runRung is injected, so the climb logic is testable without a model.
+const asyncTest = [];
+function atest(name, fn) { asyncTest.push([name, fn]); }
+
+atest('stops at the first rung that answers, and never pays for the rest', async () => {
+  const called = [];
+  const r = await runLadder({
+    text: 'q',
+    runRung: async (tier) => { called.push(tier); return { text: GOOD, tokens: 10 }; },
+  });
+  assert.deepEqual(called, ['local'], 'must not touch cloud-sm or frontier');
+  assert.equal(r.tier, 'local');
+  assert.equal(r.attempts.length, 1);
+});
+
+atest('climbs past a rung that errors', async () => {
+  const r = await runLadder({
+    text: 'q',
+    runRung: async (tier) => {
+      if (tier === 'local') throw new Error('llama-server down');
+      return { text: GOOD, tokens: 5 };
+    },
+  });
+  assert.equal(r.tier, 'cloud-sm');
+  assert.equal(r.attempts[0].escalated, true);
+  assert.match(r.attempts[0].reason, /llama-server down/);
+});
+
+atest('climbs past stated incapacity, all the way to frontier', async () => {
+  const r = await runLadder({
+    text: 'q',
+    runRung: async (tier) => (tier === 'frontier'
+      ? { text: GOOD, tokens: 99 }
+      : { text: 'I cannot answer that without more detail.', tokens: 1 }),
+  });
+  assert.equal(r.tier, 'frontier');
+  assert.equal(r.attempts.length, 3);
+});
+
+atest('emits a rung frame per attempt so the climb is visible', async () => {
+  const frames = [];
+  await runLadder({
+    text: 'q',
+    send: (f) => frames.push(f),
+    runRung: async (tier) => (tier === 'local' ? { text: '', tokens: 0 } : { text: GOOD, tokens: 1 }),
+  });
+  const phases = frames.filter((f) => f.t === 'chat.rung').map((f) => f.phase);
+  assert.ok(phases.includes('start'), 'must announce each attempt');
+  assert.ok(phases.includes('escalating'), 'must say it is climbing');
+  assert.ok(phases.includes('answered'), 'must say which rung answered');
+});
+
+atest('an escalating frame names the NEXT rung, so the UI can say where it went', async () => {
+  const frames = [];
+  await runLadder({
+    text: 'q',
+    send: (f) => frames.push(f),
+    runRung: async (tier) => (tier === 'local' ? { text: '', tokens: 0 } : { text: GOOD, tokens: 1 }),
+  });
+  const esc = frames.find((f) => f.phase === 'escalating');
+  assert.ok(esc.next, 'the next rung must be named');
+  assert.ok(esc.reason, 'and the reason given');
+});
+
+atest('an exhausted ladder returns the top answer, not nothing', async () => {
+  // A weak visible answer beats a silent failure; `attempts` carries the record.
+  const r = await runLadder({
+    text: 'q',
+    runRung: async () => ({ text: 'I cannot help with that request.', tokens: 1 }),
+  });
+  assert.equal(r.exhausted, true);
+  assert.ok(r.text.length > 0, 'the user still gets something');
+  assert.equal(r.attempts.length, 3);
+  assert.ok(r.attempts.every((a) => a.escalated));
+});
+
+atest('a custom ladder is honoured, including a deliberate agentic opt-in', async () => {
+  const called = [];
+  await runLadder({
+    text: 'q', rungs: ['cloud-sm', 'agentic'],
+    runRung: async (t) => { called.push(t); return { text: '', tokens: 0 }; },
+  });
+  assert.deepEqual(called, ['cloud-sm', 'agentic']);
+});
+
+atest('tokens are recorded per attempt, so the climb has a real cost trail', async () => {
+  const r = await runLadder({
+    text: 'q',
+    runRung: async (tier) => (tier === 'frontier' ? { text: GOOD, tokens: 900 } : { text: '', tokens: 7 }),
+  });
+  assert.deepEqual(r.attempts.map((a) => a.tokens), [7, 7, 900]);
+});
+
+const run = async () => {
+  for (const [name, fn] of asyncTest) {
+    try { await fn(); pass++; console.log(`  ✓ ${name}`); }
+    catch (err) { fail++; console.log(`  ✗ ${name} — ${err.message}`); }
+  }
+  console.log(`\n${pass} passed, ${fail} failed`);
+  process.exit(fail ? 1 : 0);
+};
+await run();
