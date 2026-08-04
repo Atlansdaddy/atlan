@@ -4,9 +4,17 @@ import { mkdtempSync, writeFileSync, readFileSync, rmSync, existsSync } from 'no
 import { join } from 'node:path';
 process.env.PATH += ':/root/.local/bin';
 
-const { agentExec } = await import('/root/atlan-gamelab/server/src/agentExec.js');
-const { policyArgs, sandboxCapableHost, policyReport } = await import('/root/atlan-gamelab/server/src/enginePolicy.js');
-const { scrubbedEnv, openContained } = await import('/root/atlan-gamelab/server/src/containment.js');
+// RELATIVE, not absolute. This file was cherry-picked from another worktree and
+// arrived importing /root/atlan-gamelab/server/src/… — so it was exercising a
+// DIFFERENT CHECKOUT's copies of these modules. It reported 8/8 green while
+// testing none of the code in this repo, including six adversarial fixes to
+// agentExec.js that it appeared to cover. A test that loads its subject from
+// outside the repo is a vacuous pass at the file level, and it also made the
+// suite unrunnable from any clone that is not at /root/atlan-gamelab.
+// Found by a contextless cross-vendor audit, 2026-08-04.
+const { agentExec } = await import(new URL('../server/src/agentExec.js', import.meta.url));
+const { policyArgs, sandboxCapableHost, policyReport } = await import(new URL('../server/src/enginePolicy.js', import.meta.url));
+const { scrubbedEnv, openContained } = await import(new URL('../server/src/containment.js', import.meta.url));
 
 let pass = 0, fail = 0;
 const t = async (name, fn) => {

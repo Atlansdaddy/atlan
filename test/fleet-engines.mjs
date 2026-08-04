@@ -333,5 +333,29 @@ test('ADV-5 · the vision provider/model granularity limit is stated, not hidden
     'and must say exactly what is undetected');
 });
 
+// ══ regression from the contextless cross-vendor audit, 2026-08-04 ═════════
+
+test('AUDIT-1 · orchestration.mjs loads THIS repo, not another worktree', () => {
+  // It arrived from a cherry-pick importing /root/atlan-gamelab/server/src/…,
+  // so it reported 8/8 green while testing a different checkout — including
+  // six adversarial fixes it appeared to cover but never touched.
+  // codeOnly, not readSource — the comment explaining the fix names the old
+  // path, and a naive grep reports the bug as still present. Third time this
+  // trap has fired in this suite; the helper exists precisely for it.
+  const src = codeOnly('./orchestration.mjs');
+  assert.ok(!/atlan-gamelab/.test(src), 'must not import from another worktree');
+  assert.ok(/new URL\('\.\.\/server\/src\//.test(src), 'imports must be relative to this repo');
+});
+
+test('AUDIT-3 · the containment diff has a real timestamp floor', () => {
+  // `find <dir> -newer <dir>` compared files against the directory they live in,
+  // whose mtime moves as they are written — so `changed` came back 0 for runs
+  // that changed files. Isolation held; the PROPOSAL RECORD lied.
+  const src = codeOnly('../server/src/containment.js');
+  assert.ok(!/-newer', dir/.test(src), 'must not compare against the workspace dir itself');
+  assert.ok(/atlan-contain-epoch/.test(src), 'must stamp a marker file after the copy');
+  assert.ok(/'!', '-name'/.test(src), 'and must exclude the marker from its own count');
+});
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

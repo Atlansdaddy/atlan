@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, existsSync, cpSync } from 'node:fs';
+import { mkdtempSync, rmSync, existsSync, cpSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -96,13 +96,35 @@ export function openContained(projectDir, label = 'agent') {
     recursive: true,
     filter: (src) => !/(^|[\\/])(node_modules|\.fleet|\.snapshots|\.apk)([\\/]|$)/.test(src),
   });
+
+  // A timestamp floor written AFTER the copy finishes. Everything the agent
+  // touches is newer than this file; nothing the copy produced is.
+  //
+  // The previous version compared against the workspace directory itself —
+  // `find <dir> -newer <dir>` — and a directory's mtime updates as files are
+  // written into it, so the copied tree was rarely newer than its own parent
+  // and `changed` came back 0 even when the agent had edited files. The project
+  // stayed isolated (that part held), but the PROPOSAL RECORD said "0 files
+  // changed" for a run that changed several — a reviewer would have approved an
+  // empty diff for real work.
+  //
+  // A containment record that under-reports is the same failure class as a
+  // ledger that cannot tell a gated run from an ungated one: isolation you
+  // cannot audit is not isolation you can trust.
+  // Found by a contextless cross-vendor audit, 2026-08-04.
+  const marker = join(dir, '.atlan-contain-epoch');
+  writeFileSync(marker, String(Date.now()));
+
   return {
     dir,
     kind: 'copy',
     diff() {
-      // No git to diff against; report the file list and let the caller decide.
-      const out = execFileSync('find', [dir, '-newer', dir, '-type', 'f'], { cwd: dir }).toString();
-      return { changed: out.split('\n').filter(Boolean).length, patch: null, status: out };
+      // No git to diff against, so report the changed-file LIST and let the
+      // caller review it. `-newer <marker>` is a real floor; the marker itself
+      // is excluded so it never counts as a change.
+      const out = execFileSync('find', [dir, '-newer', marker, '-type', 'f', '!', '-name', '.atlan-contain-epoch'], { cwd: dir }).toString();
+      const files = out.split('\n').filter(Boolean);
+      return { changed: files.length, patch: null, status: files.join('\n') };
     },
     cleanup() { rmSync(dir, { recursive: true, force: true }); },
   };
