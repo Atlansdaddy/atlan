@@ -53,3 +53,39 @@
   --glass-bg: rgba(23, 33, 67, 0.55);
   --glass-surface: rgba(23, 33, 67, 0.42);
 }
+
+/* ── light theme, MidAtlantic ─────────────────────────────────────────────
+   The brand kit is dark-native, so these are DERIVED light counterparts, not
+   kit verbatim: navy becomes the ink, the antenna orange deepens to stay
+   AA-legible as text on white (#f26b1f alone is 3.05:1 — a fill color, not a
+   text color), and the mint eyes deepen the same way for success states.
+   Fills that keep the true brand orange pair it with dark ink via --accent-ink. */
+:root[data-template="midatlantic"][data-theme="light"] {
+  --ground: #F2F5F9;
+  --panel: #FFFFFF;
+  --surface: #FFFFFF;
+  --surface2: #E9EEF5;
+  --line: #C6D2E2;
+  --ink: #0a1226;      /* the brand navy, now as text — 17.9:1 */
+  --dim: #3E5170;      /* 8.0:1 */
+  --muted: #566A8A;    /* 5.6:1 */
+  --fg: var(--ink);
+  --accent: #C24E0B;   /* deepened antenna orange — 4.6:1 on white */
+  --accent2: #A64105;
+  --accent-ink: #FFFFFF;
+  --teal: #0E6F63;     /* deepened mint — 5.5:1 */
+  --orange: #C24E0B;
+  --navy: #1b2d52;
+  --ok: #0E6F63;
+  --warn: #8A6100;
+  --hot: #C2410C;
+  --hot2: #B42318;
+  --err: #B42318;
+  --phone-bg: radial-gradient(120% 100% at 50% 0%, #FFFFFF 0%, #EDF1F7 60%);
+  --phone-grad: radial-gradient(120% 100% at 50% 0%, #FFFFFF 0%, #EDF1F7 60%);
+  --nav-bg: rgba(245, 248, 252, 0.94);
+  --overlay-bg: rgba(242, 245, 249, 0.96);
+  --desktop-ground: #DDE5EF;
+  --glass-bg: rgba(255, 255, 255, 0.78);
+  --glass-surface: rgba(255, 255, 255, 0.66);
+}

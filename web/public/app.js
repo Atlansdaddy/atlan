@@ -130,26 +130,8 @@ import { openInto, saveTo } from './lib/editorguard.js';
     if (next && next !== visible[i]) next.click();
   }
 
-  // ── light/dark theme (spine — every template gets the toggle) ──
-  // Only the Glass template defines a light palette today, so under Classic and
-  // MidAtlantic this flips the attribute and nothing visibly changes. That's
-  // the graceful-degradation case, not a bug: the axis is global, the palettes
-  // are per-template.
-  const themeBtn = $('themeBtn');
-  if (themeBtn) {
-    const applyTheme = (t) => {
-      document.documentElement.setAttribute('data-theme', t);
-      themeBtn.textContent = t === 'light' ? '🌙' : '☀️';
-      themeBtn.title = t === 'light' ? 'switch to dark theme' : 'switch to light theme';
-      try { localStorage.setItem('theme', t); } catch (e) { /* private mode */ }
-    };
-    let saved = 'dark';
-    try { saved = localStorage.getItem('theme') || 'dark'; } catch (e) { /* private mode */ }
-    applyTheme(saved);
-    themeBtn.addEventListener('click', () => {
-      applyTheme(document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light');
-    });
-  }
+  // (light/dark axis moved to theme.js — its own spine script, decisions in
+  //  lib/theme.js. Every template now answers data-theme with a light palette.)
 
   // ── Atlan alive: mood engine + halo canvas ──
   // Mood is real state, never decoration: calm=idle, building=agents/build
@@ -723,7 +705,8 @@ import { openInto, saveTo } from './lib/editorguard.js';
     }
   }).catch(() => {});
   $('projSel').addEventListener('change', () => {
-    $('projName').textContent = $('projSel').value.split('/').pop() || '/root';
+    // separator-agnostic: project paths are host paths (win32 sends C:\…)
+    $('projName').textContent = $('projSel').value.split(/[\\/]/).pop() || 'no project';
     $('buildProj').textContent = $('projSel').value;
     sessionId = null; // new cwd = new session store
   });
@@ -757,7 +740,8 @@ import { openInto, saveTo } from './lib/editorguard.js';
     if (cmEditor) { cmEditor.refresh(); return; }
     CodeMirror.modeURL = 'vendor/cm/mode/%N/%N.js';
     cmEditor = CodeMirror($('editor'), {
-      lineNumbers: true, theme: 'material-darker', autoCloseBrackets: true, matchBrackets: true,
+      lineNumbers: true, autoCloseBrackets: true, matchBrackets: true,
+      theme: document.documentElement.getAttribute('data-theme') === 'light' ? 'default' : 'material-darker',
       styleActiveLine: true, indentUnit: 2, tabSize: 2, lineWrapping: false,
       value: '// Open a file above, browse with ☰, or type here and Save to a new path.\n',
     });
@@ -846,8 +830,19 @@ import { openInto, saveTo } from './lib/editorguard.js';
   });
 
   // ── preview ──
-  const PROXY = `http://${location.hostname}:4590/`;
-  const PREVIEW_ORIGIN = `http://${location.hostname}:4590`;
+  // The proxy's port is CONFIG (ATLAN_PREVIEW_PORT / previewPort), not a
+  // constant: with :4590 baked in here, any override — or the test harness —
+  // pointed the iframe at a dead port AND made the origin check below silently
+  // drop every console message and snapshot. Fetched at boot; 4590 remains the
+  // pre-fetch fallback so a failed read degrades to the old default.
+  let PROXY = `http://${location.hostname}:4590/`;
+  let PREVIEW_ORIGIN = `http://${location.hostname}:4590`;
+  fetch('/api/config').then((r) => r.json()).then((c) => {
+    if (c.previewPort) {
+      PREVIEW_ORIGIN = `http://${location.hostname}:${c.previewPort}`;
+      PROXY = PREVIEW_ORIGIN + '/';
+    }
+  }).catch(() => { /* offline / logged out — fallback stands */ });
   let errCount = 0;
   function loadPreview() {
     fetch('/api/preview/target', {
@@ -1470,7 +1465,7 @@ import { openInto, saveTo } from './lib/editorguard.js';
     const root = $('scanProjSel').value;
     if (!root) return;
     $('scanBtn').disabled = true;
-    $('scanMeta').textContent = 'scanning ' + (root.split('/').pop() || root) + ' …';
+    $('scanMeta').textContent = 'scanning ' + (root.split(/[\\/]/).pop() || root) + ' …';
     $('scanList').innerHTML = '';
     fetch('/api/scan?path=' + encodeURIComponent(root)).then((r) => r.json()).then((res) => {
       $('scanBtn').disabled = false;

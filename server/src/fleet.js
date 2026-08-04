@@ -12,8 +12,9 @@ import { dirname } from 'node:path';
 //     off-profile tools are denied with a reason the agent can read.
 //  3. Idle = zero tokens — nothing runs unless spawned (or, M5c, scheduled).
 const __dirname = dirname(fileURLToPath(import.meta.url));
-import { FLEET_DIR, DAILY_TOKEN_CAP, MAX_CONCURRENT_RUNS, TURN_RESERVE, sandboxOption } from './config.js';
+import { FLEET_DIR, DAILY_TOKEN_CAP, MAX_CONCURRENT_RUNS, TURN_RESERVE, sandboxOption, PROJECTS_DIR } from './config.js';
 import { agentExec, killTree } from './agentExec.js';
+import { isUnder } from './guards.js';
 import { engineFidelity, policyArgs } from './enginePolicy.js';
 
 // Engines that report no usage numbers at all. Admitting one under a token
@@ -124,13 +125,12 @@ const PROFILES = {
     check(tool, input, cwd) {
       if (READONLY.has(tool) || tool === 'TodoWrite' || tool === 'Bash') return { ok: true };
       if (tool === 'Edit' || tool === 'Write' || tool === 'NotebookEdit') {
-        const root = cwd.endsWith('/') ? cwd : cwd + '/';
         const p = resolve(String(input?.file_path ?? input?.notebook_path ?? ''));
-        return p.startsWith(root)
+        return isUnder(p, cwd)
           ? { ok: true }
           : { ok: false, why: `writes must stay under ${cwd}` };
       }
-      return { ok: false, why: 'not in builder profile — no web, no subagents, outbound goes through John' };
+      return { ok: false, why: 'not in builder profile — no web, no subagents, outbound goes through the user' };
     },
   },
   verifier: {
@@ -207,7 +207,7 @@ export function isActive(id) { return active.has(id); }
 // ~free and excluded). Turn 1 alone costs ~35k (system-prompt cache write),
 // so ~50k is the practical floor for a run that does anything.
 export function spawnRun({
-  prompt, profile = 'scout', cwd = '/root', model = null, budget = 150000,
+  prompt, profile = 'scout', cwd = PROJECTS_DIR, model = null, budget = 150000,
   resume = null, resumedFrom = null, source = null,
   engine = 'claude', allowUnsandboxed = false, contain = null, timeoutMs = 480000,
   allowUnmetered = false,
@@ -468,7 +468,7 @@ export function topUpRun(id, extra = 100000) {
   }
   if (prev.status !== 'halted-budget' || !prev.sessionId) throw new Error('run is not resumable');
   return spawnRun({
-    prompt: `[Atlan top-up: John added ${extra} tokens — continue the task where you left off and finish with the compact report.]`,
+    prompt: `[Atlan top-up: the user added ${extra} tokens — continue the task where you left off and finish with the compact report.]`,
     profile: prev.profile, cwd: prev.cwd, model: prev.model, engine: prev.engine ?? 'claude',
     budget: extra, resume: prev.sessionId, resumedFrom: prev.id,
   });
@@ -479,7 +479,7 @@ export function killRun(id) {
   const h = active.get(id);
   if (!run || !h || (run.status !== 'running' && run.status !== 'halted-budget')) return false;
   run.status = 'killed';
-  run.lastLine = 'killed by John';
+  run.lastLine = 'killed by you';
   // Two handle shapes, one guarantee. The SDK query exposes interrupt(); the
   // CLI path hands back a child process. KILL ALL must mean the same thing on
   // both or it is not a guarantee.

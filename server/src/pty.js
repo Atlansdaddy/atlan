@@ -1,5 +1,6 @@
 import pty from 'node-pty';
 import { getStoredKey } from './keys.js';
+import { PROJECTS_DIR } from './config.js';
 
 // Interactive CLIs launched in the Term tab should inherit the same creds the
 // cockpit uses — otherwise `gemini` falls back to the dead individual OAuth
@@ -32,12 +33,11 @@ const sessions = new Map();
 export function openPty(name, ws, { cols = 80, rows = 24, cwd } = {}) {
   let s = sessions.get(name);
   if (!s) {
-    // win32 has no tmux and no /root. The `cwd === '/root'` case is not
-    // redundant: the WS handler passes that literal as its own default, so it
-    // arrives here as an explicit value rather than as undefined.
+    // win32 has no tmux. The default cwd is the projects root, which config
+    // already resolves per-platform (cwd on win32, the operator's home
+    // elsewhere) — no '/root' literal anywhere in this chain anymore.
     const isWin = process.platform === 'win32';
-    const defaultCwd = isWin ? process.cwd() : '/root';
-    const targetCwd = (!cwd || (cwd === '/root' && isWin)) ? defaultCwd : cwd;
+    const targetCwd = cwd || PROJECTS_DIR;
 
     const shell = isWin ? (process.env.COMSPEC || 'powershell.exe') : 'tmux';
     const args = isWin ? [] : ['new-session', '-A', '-s', `atlan-${name}`];

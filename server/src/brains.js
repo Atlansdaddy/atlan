@@ -1,5 +1,6 @@
 import { getStoredKey } from './keys.js';
 import { attachImagesToHistory, buildImageParts, providerDoesVision, VISION_PROVIDERS } from './vision.js';
+import { LOCAL_LLM_BASE } from './config.js';
 
 // "Brains" = chat-only engines (no tools, no files) behind ONE OpenAI-compat
 // adapter — base-URL swap per provider. Claude Code stays the only agent
@@ -12,8 +13,8 @@ import { attachImagesToHistory, buildImageParts, providerDoesVision, VISION_PROV
 // with hands (Claude Code / Codex / Gemini CLI) live elsewhere.
 const PROVIDERS = {
   local: {
-    label: 'llama-server (on-phone, free)',
-    base: 'http://127.0.0.1:8080/v1',
+    label: 'llama-server (local, free)',
+    base: `${LOCAL_LLM_BASE}/v1`,
     keyEnv: null,
     defaultModel: 'local',
   },
