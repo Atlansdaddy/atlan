@@ -492,8 +492,10 @@
      browser resolves these natively, so the no-build rule holds.
      type="module" is implicitly deferred, so it executes AFTER the classic
      vendor scripts above and after the DOM is parsed — strictly safer than the
-     previous ordering. guide.js stays classic and is unaffected. -->
-<script type="module" src="app.js?v=20260802"></script>
-<script src="guide.js?v=20260724"></script>
+     previous ordering. guide.js stays classic and is unaffected.
+     Cache-busters carry main's 20260804 stamp; the module type is this
+     branch's and is load-bearing — without it the lib/ imports do not resolve. -->
+<script type="module" src="app.js?v=20260804"></script>
+<script src="guide.js?v=20260804"></script>
 </body>
 </html>

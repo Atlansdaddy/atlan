@@ -13,6 +13,10 @@ import {
   escapeHtml, parseMessageParts, langToExt, colorDiffHtml, urlBase64ToUint8Array,
 } from './lib/text.js';
 import { isNight, greetingFor, hueFor, MOOD_HUE } from './lib/ambient.js';
+import {
+  engineOptionLabel, engineOptionValue, ladderOptionLabel, ladderOptionTitle, rungLineText,
+} from './lib/enginepicker.js';
+import { fmtTok, STATUS_LABEL, statusLabel, burnLine, runMetaLine } from './lib/burn.js';
 
 (() => {
   const $ = (id) => document.getElementById(id);
@@ -467,27 +471,18 @@ import { isNight, greetingFor, hueFor, MOOD_HUE } from './lib/ambient.js';
       g.innerHTML = '';
       const o = document.createElement('option');
       o.value = 'ladder|';
-      const free = j.rungs.filter((r) => r.free).length;
-      o.textContent = `Ladder · ${j.rungs.map((r) => r.label.split(' (')[0]).join(' → ')}`;
-      o.title = `Tries ${free} free rung(s) first and only spends if they can't answer. `
-        + `Escalates on error, empty, truncated, or a stated "I can't" — never on a model grading itself.`;
+      o.textContent = ladderOptionLabel(j.rungs);
+      o.title = ladderOptionTitle(j.rungs);
       g.append(o);
     }).catch(() => {});
   }
   loadLadder();
 
-  // Show the climb as it happens. A ladder that silently returns the frontier
-  // answer teaches you nothing about what your free tiers can already do.
   function addRungLine(m) {
     const div = document.createElement('div');
     div.className = 'toolchip';
-    const label = m.label || m.tier;
-    const txt = m.phase === 'start' ? `▸ trying ${label}${m.free ? ' (free)' : ''}…`
-      : m.phase === 'answered' ? `✓ answered by ${label}${m.free ? ' — free' : ''}`
-      : m.phase === 'escalating' ? `↑ ${label}: ${m.reason} — climbing to ${m.next}`
-      : `⚠ ${label}: ${m.reason} — ladder exhausted, showing its best attempt`;
     div.innerHTML = '<span class="tname"></span>';
-    div.querySelector('.tname').textContent = txt;
+    div.querySelector('.tname').textContent = rungLineText(m);
     chatlog.append(div); scroll();
   }
 
@@ -503,8 +498,8 @@ import { isNight, greetingFor, hueFor, MOOD_HUE } from './lib/ambient.js';
         const short = e.label.split(' — ')[0];
         for (const m of models) {
           const o = document.createElement('option');
-          o.value = `${e.id}|${m}`;
-          o.textContent = (models.length > 1 ? `${short} · ${m}` : e.label) + (e.ready ? '' : ` — needs: ${e.needs}`);
+          o.value = engineOptionValue(e.id, m);
+          o.textContent = engineOptionLabel(e, m, models.length);
           o.disabled = !e.ready;
           (groups[e.group] ?? groups.cloud).append(o);
           if (!e.ready) break; // one disabled hint row is enough
@@ -915,11 +910,6 @@ import { isNight, greetingFor, hueFor, MOOD_HUE } from './lib/ambient.js';
   // ── fleet ──
   const fleetRuns = new Map(); // id → run (server state mirrored here)
   let profilesLoaded = false;
-  const fmtTok = (n) => n >= 1000 ? (n / 1000).toFixed(n >= 100000 ? 0 : 1) + 'k' : String(n ?? 0);
-  const STATUS_LABEL = {
-    running: 'running', done: 'done', 'halted-budget': 'BUDGET HALT',
-    killed: 'killed', error: 'error',
-  };
 
   function loadFleet() {
     setFleetBadge(0);
@@ -968,9 +958,7 @@ import { isNight, greetingFor, hueFor, MOOD_HUE } from './lib/ambient.js';
     // it honestly so it never reads as money leaving the account. cacheRead =
     // input tokens served from the prompt cache at ~0.1x — the caching win,
     // shown so the savings are visible.
-    const cache = t.cacheRead ? ` · ${fmtTok(t.cacheRead)} cached` : '';
-    const s = `burn today: ${fmtTok(t.tokens)} fresh tok${cache} · ≈$${(t.cost ?? 0).toFixed(2)} API-equiv`;
-    $('burnMeta').textContent = t.tokens ? s : '';
+    $('burnMeta').textContent = t.tokens ? burnLine(t) : '';
   }
 
   function upsertRun(run) {
@@ -1024,8 +1012,7 @@ import { isNight, greetingFor, hueFor, MOOD_HUE } from './lib/ambient.js';
     card.querySelector('.rstatus').textContent = STATUS_LABEL[r.status] ?? r.status;
     card.querySelector('.rkill').style.display = r.status === 'running' ? '' : 'none';
     card.querySelector('.burn i').style.width = Math.min(100, (r.tokens / r.budget) * 100) + '%';
-    card.querySelector('.rmeta').textContent =
-      `${fmtTok(r.tokens)} / ${fmtTok(r.budget)} tok${r.cacheRead ? ` · ${fmtTok(r.cacheRead)} cached` : ''}${r.cost ? ` · ≈$${r.cost.toFixed(4)}` : ''}${r.denials ? ` · ${r.denials} denied` : ''}`;
+    card.querySelector('.rmeta').textContent = runMetaLine(r);
     card.querySelector('.rlast').textContent = r.lastLine ?? '';
     card.querySelector('.rtopup').style.display = r.resumable ? '' : 'none';
     card.querySelector('.rresult').textContent = r.resultText ?? '';
@@ -1099,17 +1086,22 @@ import { isNight, greetingFor, hueFor, MOOD_HUE } from './lib/ambient.js';
     const instruction = $('aiModalInput').value.trim();
     if (!instruction) return;
     const sel = cmEditor.getSelection();
-    // With no selection the model rewrites the ENTIRE file and his version
-    // dropped it straight over the buffer while keeping edCurrentPath — one
-    // reflexive Save and the real file is gone with no diff to look at. Make
-    // the destructive branch a deliberate choice.
-    if (!sel && !confirm('Replace the ENTIRE file with the AI\'s output?\n\nYour current unsaved edits will be lost. (Selecting text first edits just that part.)')) return;
+    // With no selection the model rewrites the ENTIRE file. The old blind
+    // confirm() fired before the model even ran — agreeing to output nobody had
+    // seen — and the result landed in the buffer with edCurrentPath intact, so
+    // one reflexive Save wrote unreviewed AI output over the real file. Now the
+    // result arrives as a PROPOSAL (same contract as sendToEditor): path
+    // cleared, Save inert until you choose a destination. Only remaining risk
+    // is unsaved manual edits in the buffer, so that's the only confirm left.
+    if (!sel && cmEditor.getValue() !== edClean
+      && !confirm('You have unsaved manual edits — the AI\'s rewrite will replace them in the buffer (one undo brings them back). Continue?')) return;
     $('aiModal').style.display = 'none';
     const [engine, model] = ($('modelSel')?.value || '').split('|');
+    const srcPath = edCurrentPath;
     $('edInlineAi').disabled = true;
     fetch('/api/editor/ai-edit', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ path: edCurrentPath, content: cmEditor.getValue(), selection: sel || null, instruction, engine, model }),
+      body: JSON.stringify({ path: srcPath, content: cmEditor.getValue(), selection: sel || null, instruction, engine, model }),
     }).then((r) => r.json()).then((j) => {
       $('edInlineAi').disabled = false;
       if (j.error) return addMsg('err', j.error);
@@ -1118,6 +1110,13 @@ import { isNight, greetingFor, hueFor, MOOD_HUE } from './lib/ambient.js';
         if (sel) cmEditor.replaceSelection(j.content);
         else cmEditor.setValue(j.content);
       });
+      if (!sel) {
+        // whole-file rewrite → proposal until saved, like sendToEditor
+        edClean = ''; edCurrentPath = null;
+        $('edName').textContent = 'AI rewrite · review, then Save';
+        $('edPath').value = '';
+        $('edPath').placeholder = `was ${srcPath} — review, then set a path to save`;
+      }
       $('edDirty').textContent = cmEditor.getValue() !== edClean ? '● unsaved' : '';
       if (j.fellBack) addMsg('claude', `Inline AI ran on ${j.engine} — the engine you picked isn't a chat brain.`);
     }).catch((e) => { $('edInlineAi').disabled = false; addMsg('err', String(e)); });

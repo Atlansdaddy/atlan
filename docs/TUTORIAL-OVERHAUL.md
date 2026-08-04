@@ -1,7 +1,14 @@
-# Tutorial — bug + overhaul (parked, revisit later)
+# Tutorial — bug + overhaul (bug FIXED 2026-08-04; overhaul parked)
 
-Raised 2026-07-26 while dogfooding over the tailnet. Not fixed yet; this is the
-note so it isn't lost.
+Raised 2026-07-26 while dogfooding over the tailnet.
+
+> **§1 and §1b are fixed (2026-08-04).** Tour state now lives server-side in
+> `/api/prefs` (whitelisted keys, `FLEET_DIR/prefs.json`) so it survives the
+> loopback↔tailnet origin split; every exit from the bar writes the flag
+> (`'1'` = completed, `'dismissed'` = declined/started), and localStorage
+> remains as a same-origin fast path that syncs forward. Covered by
+> `test/tour.spec.mjs` (including an empty-localStorage reload) and three
+> adversarial probes on the endpoint. §2 (content overhaul) is still parked.
 
 ---
 

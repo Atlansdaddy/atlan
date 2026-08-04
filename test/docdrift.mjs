@@ -105,6 +105,32 @@ test('the suite count in run-all.mjs matches what REVIEW-FOR-AI.md claims', () =
     `REVIEW-FOR-AI.md claims ${claim[1]} suites, run-all.mjs declares ${declared}`);
 });
 
+// ── the STRUCTURAL ratchet (merged from main, 2026-08-04) ──────────────────
+// The docs ratchet above stops PROSE rotting. This one stops DEBT growing.
+//
+// Every past surface landed in app.js because it was the path of least
+// resistance, and four reviewers independently named the result. New surfaces
+// go straight to web/public/lib/ modules — the pattern the extraction proves
+// out. This makes the debt visible on the commit that adds it rather than in a
+// survey months later.
+//
+// The ceiling ONLY EVER MOVES DOWN. If you shrink app.js, re-measure and lower
+// it; never raise it to make a commit pass.
+test('web/public/app.js has not grown (ceiling ratchet)', () => {
+  const CEILING = 2031; // measured 2026-08-04, after the ladder picker landed
+  const lines = (read('../web/public/app.js').match(/\n/g) || []).length;
+  assert.ok(lines <= CEILING,
+    `app.js is ${lines} lines, ceiling ${CEILING} — new code goes in web/public/lib/ modules, not here`);
+});
+
+test('the lib/ extraction target exists and is non-trivial', () => {
+  // Guards the guard: a ceiling with nowhere to put the code is just a blocker.
+  // If lib/ were empty the ratchet would read as "stop working" rather than
+  // "put it over there".
+  assert.ok(/export function/.test(read('../web/public/lib/text.js')), 'lib/text.js must export real helpers');
+  assert.ok(/export function/.test(read('../web/public/lib/ambient.js')), 'lib/ambient.js must export real helpers');
+});
+
 test('DOC-STATUS-CONVENTION.md exists and defines all four statuses', () => {
   const conv = read('../docs/DOC-STATUS-CONVENTION.md');
   for (const s of ['OPEN', 'PLANNED', 'PARTIAL', 'CLOSED']) {

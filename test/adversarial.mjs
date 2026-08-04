@@ -48,6 +48,22 @@ await test('empty value deletes key (no crash, reports unset)', async () => {
   assert.ok(k && !k.set, 'key should be unset after empty write');
 });
 
+// ── prefs endpoint: whitelisted keys only, never an open KV store ──
+await test('prefs rejects non-whitelisted key', async () => {
+  const r = await post('/api/prefs', { key: 'evil', value: 'x' });
+  assert.equal(r.status, 400, 'accepted unknown pref key');
+});
+await test('prefs rejects __proto__ (no pollution vector)', async () => {
+  const r = await post('/api/prefs', { key: '__proto__', value: '{"polluted":1}' });
+  assert.equal(r.status, 400, 'accepted __proto__ as pref key');
+});
+await test('prefs oversized value is clamped, not stored verbatim', async () => {
+  await post('/api/prefs', { key: 'tour', value: 'x'.repeat(10000) });
+  const p = await j(await fetch(BASE + '/api/prefs'));
+  assert.ok((p.tour ?? '').length <= 64, 'oversized pref value stored');
+  await post('/api/prefs', { key: 'tour', value: '' }); // clean up for later suites
+});
+
 // ── preview target: SSRF / non-local guard ──
 for (const bad of [
   'http://169.254.169.254/latest/meta-data/',   // cloud metadata

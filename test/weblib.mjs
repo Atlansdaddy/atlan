@@ -15,6 +15,10 @@ import {
   urlBase64ToUint8Array,
 } from '../web/public/lib/text.js';
 import { isNight, greetingFor, hueFor, MOOD_HUE } from '../web/public/lib/ambient.js';
+import {
+  engineOptionLabel, engineOptionValue, ladderOptionLabel, ladderOptionTitle, rungLineText,
+} from '../web/public/lib/enginepicker.js';
+import { fmtTok, statusLabel, burnLine, runMetaLine } from '../web/public/lib/burn.js';
 
 // `atob` is a browser global. Node 16+ provides it, but assert it exists rather
 // than let one test fail cryptically if that ever changes.
@@ -269,6 +273,112 @@ test('every MOOD_HUE value is a valid RGB triplet', () => {
     assert.match(hue, /^\d{1,3},\d{1,3},\d{1,3}$/, `${mood} → ${hue}`);
     for (const n of hue.split(',')) assert.ok(Number(n) >= 0 && Number(n) <= 255, `${mood} channel ${n}`);
   }
+});
+
+// ── lib/enginepicker.js ────────────────────────────────────────────────────
+// Extracted 2026-08-04 because the app.js ratchet caught the file growing past
+// its ceiling on the first merge after the rule was adopted. Moving code out is
+// the honest response to a ratchet; raising the number is not.
+
+test('engineOptionLabel shows model tiers only when there is more than one', () => {
+  const e = { label: 'Codex — GPT-5.6', ready: true };
+  assert.equal(engineOptionLabel(e, 'gpt-5.6-sol', 3), 'Codex · gpt-5.6-sol');
+  assert.equal(engineOptionLabel(e, 'gpt-5.6-sol', 1), 'Codex — GPT-5.6', 'single tier keeps the full label');
+});
+
+test('engineOptionLabel appends what an unready engine NEEDS', () => {
+  // Honest readiness: the picker never offers a capability the user cannot use
+  // without saying what would unlock it.
+  const e = { label: 'Gemini', ready: false, needs: 'GEMINI_API_KEY' };
+  assert.match(engineOptionLabel(e, 'gemini-3.6-flash', 1), /needs: GEMINI_API_KEY/);
+});
+
+test('engineOptionValue builds the engine|model pair the send path parses', () => {
+  assert.equal(engineOptionValue('claude', 'claude-opus-5'), 'claude|claude-opus-5');
+});
+
+test('ladderOptionLabel chains the rungs with arrows', () => {
+  const label = ladderOptionLabel([
+    { label: 'on-phone Qwen (free)' }, { label: 'Gemini Flash (free tier)' }, { label: 'Claude Opus 5 (frontier)' },
+  ]);
+  assert.equal(label, 'Ladder · on-phone Qwen → Gemini Flash → Claude Opus 5');
+});
+
+test('ladderOptionLabel degrades honestly when rungs never arrived', () => {
+  // NOT vacuous: an empty chain must SAY it is empty, not render a bare
+  // "Ladder ·" that looks like a working option.
+  assert.match(ladderOptionLabel([]), /unavailable/);
+  assert.match(ladderOptionLabel(undefined), /unavailable/);
+});
+
+test('ladderOptionTitle leads with the free count and states the limit', () => {
+  const t = ladderOptionTitle([{ free: true }, { free: true }, { free: false }]);
+  assert.match(t, /2 free rung/, 'the free count is the phone-relevant fact');
+  assert.match(t, /never on a model grading itself/, 'the honest limit must ride along');
+});
+
+test('rungLineText renders every phase distinctly', () => {
+  const base = { tier: 'local', label: 'on-phone Qwen' };
+  const lines = ['start', 'answered', 'escalating', 'exhausted']
+    .map((phase) => rungLineText({ ...base, phase, reason: 'empty response', next: 'Gemini Flash' }));
+  assert.equal(new Set(lines).size, 4, 'all four phases must be visually distinct');
+  assert.match(lines[1], /answered by/);
+  assert.match(lines[2], /climbing to Gemini Flash/);
+});
+
+test('rungLineText marks free rungs, and falls back to the tier id', () => {
+  assert.match(rungLineText({ tier: 'local', label: 'Qwen', phase: 'answered', free: true }), /free/);
+  assert.match(rungLineText({ tier: 'local', phase: 'start' }), /local/, 'no label → use the tier id');
+});
+
+// ── lib/burn.js ────────────────────────────────────────────────────────────
+// The wording here is load-bearing: on a subscription the dollar figure is the
+// SDK's ESTIMATE at public API rates, not money leaving the account. These
+// tests pin that so it cannot drift into reading like a charge.
+
+test('fmtTok abbreviates thousands and drops decimals past 100k', () => {
+  assert.equal(fmtTok(999), '999');
+  assert.equal(fmtTok(1234), '1.2k');
+  assert.equal(fmtTok(120000), '120k');
+});
+
+test('fmtTok survives null/undefined without printing NaN', () => {
+  for (const v of [null, undefined, 0]) assert.equal(fmtTok(v), '0', String(v));
+});
+
+test('burnLine labels the dollar figure API-equiv, never as a charge', () => {
+  const line = burnLine({ tokens: 40000, cost: 0.43 });
+  assert.match(line, /API-equiv/, 'must not read as money leaving the account');
+  assert.match(line, /40\.0k fresh tok/);
+  assert.ok(!/\bspent\b|\bcharged\b|\bbilled\b/i.test(line), 'no charge language');
+});
+
+test('burnLine shows the cache saving only when there is one', () => {
+  assert.match(burnLine({ tokens: 100, cacheRead: 90000 }), /90\.0k cached/);
+  assert.ok(!/cached/.test(burnLine({ tokens: 100 })), 'no cache read → no cache clause');
+});
+
+test('runMetaLine shows spend against budget, and omits absent parts', () => {
+  const full = runMetaLine({ tokens: 1500, budget: 60000, cacheRead: 800, cost: 0.0123, denials: 2 });
+  assert.match(full, /1\.5k \/ 60\.0k tok/);
+  assert.match(full, /800 cached/);
+  assert.match(full, /2 denied/);
+  const bare = runMetaLine({ tokens: 10, budget: 100 });
+  assert.ok(!/cached|denied|\$/.test(bare), 'absent fields must not render empty clauses');
+});
+
+test('statusLabel words known states and SHOWS unknown ones', () => {
+  assert.equal(statusLabel('halted-budget'), 'BUDGET HALT');
+  assert.equal(statusLabel('done'), 'done');
+  // NOT vacuous: an unknown status must surface itself, not render blank —
+  // a run whose state the UI cannot name is exactly what you want to see.
+  assert.equal(statusLabel('quantum'), 'quantum');
+  assert.equal(statusLabel(undefined), 'unknown');
+});
+
+test('statusLabel cannot be tricked by prototype keys', () => {
+  assert.equal(statusLabel('constructor'), 'constructor');
+  assert.equal(statusLabel('toString'), 'toString');
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);
