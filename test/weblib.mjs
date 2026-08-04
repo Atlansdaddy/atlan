@@ -19,6 +19,7 @@ import {
   engineOptionLabel, engineOptionValue, ladderOptionLabel, ladderOptionTitle, rungLineText,
 } from '../web/public/lib/enginepicker.js';
 import { fmtTok, statusLabel, burnLine, runMetaLine } from '../web/public/lib/burn.js';
+import { linkRowHtml } from '../web/public/lib/joblink.js';
 
 // `atob` is a browser global. Node 16+ provides it, but assert it exists rather
 // than let one test fail cryptically if that ever changes.
@@ -379,6 +380,31 @@ test('statusLabel words known states and SHOWS unknown ones', () => {
 test('statusLabel cannot be tricked by prototype keys', () => {
   assert.equal(statusLabel('constructor'), 'constructor');
   assert.equal(statusLabel('toString'), 'toString');
+});
+
+// ── linkRowHtml ────────────────────────────────────────────────────────────
+test('the command picker has NO empty option — which is why assigning "" blanks it', () => {
+  // Not a style note. app.js built a new job's first row from `{}`, took the
+  // "restore a saved link" branch, and assigned commandId '' here. With no empty
+  // option that drives selectedIndex to -1, the picker renders blank, and Save
+  // then refuses the job for having no link while one is on screen.
+  const html = linkRowHtml([{ id: 'c1', name: 'extract' }], [{ id: 'local' }]);
+  const sel = html.slice(html.indexOf('data-k="commandId"'));
+  const body = sel.slice(0, sel.indexOf('</select>'));
+  assert.ok(body.includes('value="c1"'), 'the command must be offered');
+  assert.ok(!/value=""/.test(body), 'an empty option would change what "" means for every caller');
+});
+
+test('linkRowHtml escapes command names and tier ids', () => {
+  const html = linkRowHtml([{ id: 'x"><script>', name: '<img onerror=1>' }], [{ id: 'a"b' }]);
+  assert.ok(!html.includes('<script>'), 'a command name must not become live markup');
+  assert.ok(!html.includes('<img'), 'a command name must not become live markup');
+  assert.ok(!/data-tier="a"b"/.test(html), 'an unescaped tier id would break out of the attribute');
+});
+
+test('linkRowHtml survives an empty cockpit without throwing', () => {
+  const html = linkRowHtml();
+  assert.ok(html.includes('data-k="commandId"'), 'the row must still render its controls');
 });
 
 test('a topped-up run reads as topped up, never as finished', () => {

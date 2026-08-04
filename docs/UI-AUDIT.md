@@ -1,7 +1,7 @@
 # UI/UX audit — every surface, driven at 412×900
 
-**Status:** ACTIVE ledger. **24 open findings**, 5 spec files, 121 assertions
-(97 passing). Opened at 39 failures; 11 fixed, 5 were bad tests. All four P0s closed.
+**Status:** ACTIVE ledger. **22 open findings**, 5 spec files, 121 assertions
+(99 passing). Opened at 39 failures; 13 fixed, 5 were bad tests. All four P0s closed.
 **Method:** one Playwright spec per surface, driving the real cockpit against a
 throwaway server on free ports. No mocks, no fixtures — the specs click what a
 phone user clicks.
@@ -9,11 +9,12 @@ phone user clicks.
 ## How to read this file
 
 These specs are **not in `test/run-all.mjs` yet**, and that is deliberate. They
-still fail 24 times, and every one of those failures is a real defect in the
+still fail 22 times, and every one of those failures is a real defect in the
 cockpit, not a bad assertion. Registering them today would turn the gate red and
 the only way back to green would be to weaken assertions — which is how a suite
 starts lying. Instead they run on demand, and **each spec joins the gate the day
-its surface reaches zero failures.** That is the same ratchet the `app.js` line
+its surface reaches zero failures** — Fleet is the first, and is now in
+`run-all.mjs`. That is the same ratchet the `app.js` line
 ceiling uses: the number only moves one direction.
 
 ```sh
@@ -86,7 +87,7 @@ This cockpit is phone-first, so these are defects, not polish.
 | 22 | Chat | `#themeBtn` renders 21×19 — under the WCAG 2.5.8 AA 24px target floor. |
 | 23 | Chat | `#micBtn` / `#attachBtn` render 44×38 against the 44px `--tap` **the stylesheet itself declares for them**. |
 | 24 | Editor | `#edOpen` renders 44×38 against the same declared 44px. |
-| 25 | Fleet | Builder row fields are 59–69px wide at 412px — too narrow to read what you typed. |
+| ~~25~~ | Fleet | ~~Builder row fields are 59–69px wide at 412px.~~ **FIXED** |
 
 ### P2 — the tour and handbook contradict themselves
 
@@ -144,6 +145,7 @@ the ratchet comes down, and the fix lands with unit tests that need no browser.
 | `lib/editorguard.js` | 2031 → 2030 | ↓ | #1 #2 #3 #11 #12 #13 | 14 |
 | `lib/fleetactions.js` | 2030 → 2019 | ↓ | #4 #5 | 13 |
 | burn-gauge hoist | 2019 → 2016 | ↓ | #6 | 2 |
+| `lib/joblink.js` | 2016 → 2009 | ↓ | #19 #25 | 3 |
 
 Refactoring a 2,000-line IIFE is only safe because the specs exist first: 425
 gate assertions plus 121 UI-spec ones are the net that catches a bad move. The

@@ -317,10 +317,16 @@ body.night .bubbles{opacity:.5}
 .fpane.active{display:flex}
 .bform{display:flex;flex-direction:column;gap:8px;border:1px solid var(--line);border-radius:12px;padding:10px}
 .bform input,.bform textarea,.bform select{width:100%}
-.rowedit{display:flex;gap:6px;align-items:center}
-.rowedit input,.rowedit select{min-width:0;flex:1;font-size:12.5px;padding:7px 8px}
+/* Wraps, and every field keeps a 90px floor. Without the wrap this was one
+   unbreakable line: min-width:0 + flex:1 let each extra control steal width from
+   the rest, so the VARIABLES row — the most-typed form in the app — came out at
+   59-69px per field on a 412px phone, roughly six characters of an identifier.
+   90px is not arbitrary: it is what the CHECKERS row in this same form already
+   achieved. On a wide screen there is room and nothing wraps. */
+.rowedit{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.rowedit input,.rowedit select{min-width:90px;flex:1 1 90px;font-size:12.5px;padding:7px 8px}
 .rowedit .rowdel{flex:0 0 auto;padding:6px 9px}
-.rowedit .enumonly{flex:1.2}
+.rowedit .enumonly{flex:1.2 1 90px}
 .rowedit .ck{display:flex;align-items:center;gap:3px;font-size:11px;color:var(--dim);flex:0 0 auto}
 .rowedit .vlabel{flex:0 0 32%;font-size:12px;color:var(--teal);font-weight:700;overflow:hidden;text-overflow:ellipsis}
 details{border:1px solid var(--line);border-radius:12px;padding:8px 10px}

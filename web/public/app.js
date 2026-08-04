@@ -19,6 +19,7 @@ import {
 import { fmtTok, statusLabel, burnLine, runMetaLine } from './lib/burn.js';
 import { openInto, saveTo } from './lib/editorguard.js';
 import { topUp, sendKill } from './lib/fleetactions.js';
+import { linkRowHtml } from './lib/joblink.js';
 
 (() => {
   const $ = (id) => document.getElementById(id);
@@ -1901,18 +1902,7 @@ import { topUp, sendKill } from './lib/fleetactions.js';
       box.append(card);
     }
   }
-  const LINK_ROW = () => {
-    const cmdOpts = hierCommands.map((c) => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.name)}</option>`).join('');
-    const tierChecks = hierTiers.map((t) => `<label class="ck"><input type="checkbox" data-tier="${t.id}" checked>${t.id}</label>`).join('');
-    return `<div class="linkedit">
-      <input data-k="id" placeholder="link id (e.g. extract)">
-      <select data-k="commandId">${cmdOpts}</select>
-      <input data-k="inputsFrom" placeholder="inputs from (comma: job.input, extract.field)">
-      <div class="tierrow">start:<select data-k="startTier">${hierTiers.map((t) => `<option value="${escapeHtml(t.id)}">${escapeHtml(t.id)}</option>`).join('')}</select>
-        ladder: ${tierChecks}
-        <select data-k="onCheckerFail"><option value="escalate">escalate</option><option value="human">ask me</option><option value="halt">halt</option></select></div>
-      <button class="btn ghost linkdel">✖ link</button></div>`;
-  };
+  const LINK_ROW = () => linkRowHtml(hierCommands, hierTiers);
   function addLinkRow(data) {
     const wrap = document.createElement('div');
     wrap.innerHTML = LINK_ROW();
@@ -1935,7 +1925,10 @@ import { topUp, sendKill } from './lib/fleetactions.js';
     $('jobGate').value = jb?.humanGate ?? 'on-tier3';
     $('jobBudget').value = String(jb?.budget ?? 200000);
     $('linkRows').innerHTML = '';
-    (jb?.links ?? [{}]).forEach(addLinkRow);
+    // null, not {} — {} is truthy, so it took addLinkRow's "restore a saved
+    // link" branch and set commandId '' on a <select> with no empty option,
+    // blanking the picker. null takes the ＋ link path, which never had this.
+    (jb?.links?.length ? jb.links : [null]).forEach(addLinkRow);
   }
   $('jobNewBtn').addEventListener('click', () => editJob(null));
   $('jobCancel').addEventListener('click', () => { $('jobForm').style.display = 'none'; jobEditing = null; });

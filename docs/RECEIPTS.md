@@ -12,7 +12,7 @@ _Free suites only. The E2E suite (real Claude runs) is opt-in — `RUN_PAID=1 no
 | Suite | What it proves | Result |
 |---|---|---|
 | Unit | Pure functions in isolation: safe-arith evaluator, checker engine, Persona+ compilers, schema builders, scheduler math, token compare. | ✅ 51/51 |
-| Web Lib | The front-end's pure logic, extracted from app.js so Node can reach it: fenced-code parsing (incl. streaming and boundary cases), HTML escaping, diff colouring, base64url, day/night and greeting bands. Previously untestable — the only front-end coverage was Playwright driving the UI. | ✅ 52/52 |
+| Web Lib | The front-end's pure logic, extracted from app.js so Node can reach it: fenced-code parsing (incl. streaming and boundary cases), HTML escaping, diff colouring, base64url, day/night and greeting bands. Previously untestable — the only front-end coverage was Playwright driving the UI. | ✅ 55/55 |
 | Editor Guards | The two irreversible things the editor can do to you: opening another file over unsaved work, and saving the current buffer onto a DIFFERENT existing file (the path box is also the navigate box, and writeFile has no existence check). Asserts the guards fire — and, just as hard, that they stay quiet on ordinary saves, because a dialog on every save is one people dismiss unread. | ✅ 14/14 |
 | Fleet Actions | The fleet buttons that spend money or stop work. Top-up disarms BEFORE the request, so a second tap cannot land in the gap and resume the same session on a second budget; it re-arms only when nothing was spent. Kill — per-run and fleet-wide — reports every way it can fail, because a kill that did not land must never look like one that did. | ✅ 13/13 |
 | Function | Every HTTP endpoint contract + shape, plus data-store durability (corrupt/truncated JSON fails soft). (Spawns 1 tiny killed run.) | ✅ 25/25 |
@@ -30,8 +30,9 @@ _Free suites only. The E2E suite (real Claude runs) is opt-in — `RUN_PAID=1 no
 | Cross-engine orchestration | Profile→native-flag projection per CLI, refusal when an engine cannot enforce a profile, credential scrubbing from the child env, and Atlan-side containment (disposable git worktree + diff gate) proving the real project stays untouchable — including a simulated proot host where no kernel sandbox exists. Live engine calls are opt-in via RUN_LIVE=1. | ✅ 8/8 |
 | UI/UX | Headless Chromium drives the real cockpit: tabs, engine roster, doctor/preflight render, key entry no-leak, XSS-safe render. | ✅ 13/13 |
 | Tour/Onboarding | Drives all tour steps live — every step spotlights a real visible element; handbook opens/searches/relaunches. | ✅ 10/10 |
+| UI · Fleet | Every Fleet control driven at 412x900: top-up cannot be double-tapped into a double-spend, a kill that fails is reported, the header burn gauge moves while a run burns, Hierarchy job links come with a command selected, and Builder rows stay wide enough to type into. First of the five per-surface specs to reach zero — the rest join as their surfaces are fixed (docs/UI-AUDIT.md). | ✅ 29/29 |
 
-**Total: 427 passed, 0 failed across 19 suites.**
+**Total: 459 passed, 0 failed across 20 suites.**
 
 ## Unit
 
@@ -153,9 +154,12 @@ WEB LIB SUITE
   ✓ runMetaLine shows spend against budget, and omits absent parts
   ✓ statusLabel words known states and SHOWS unknown ones
   ✓ statusLabel cannot be tricked by prototype keys
+  ✓ the command picker has NO empty option — which is why assigning "" blanks it
+  ✓ linkRowHtml escapes command names and tier ids
+  ✓ linkRowHtml survives an empty cockpit without throwing
   ✓ a topped-up run reads as topped up, never as finished
 
-52 passed, 0 failed
+55 passed, 0 failed
 ```
 
 ## Editor Guards
@@ -682,4 +686,44 @@ TOUR + HANDBOOK SUITE
   ✓ handbook can relaunch the tour
 
 10 passed, 0 failed
+```
+
+## UI · Fleet
+
+Every Fleet control driven at 412x900: top-up cannot be double-tapped into a double-spend, a kill that fails is reported, the header burn gauge moves while a run burns, Hierarchy job links come with a command selected, and Builder rows stay wide enough to type into. First of the five per-surface specs to reach zero — the rest join as their surfaces are fixed (docs/UI-AUDIT.md).
+
+```
+$ node test/ui-fleet.spec.mjs
+FLEET + BUILD UI SUITE
+  OK Fleet sub-nav exposes all four panes and each one loads real content
+  OK spawn form is populated from the server — profiles, models, budgets, no placeholders
+  OK ⚓ Spawn posts the whole form and clears the prompt
+  OK ⚓ Spawn with an empty prompt never posts
+  OK a rejected spawn is surfaced and the typed prompt survives
+  OK run cards mirror server state — status, burn bar, kill only while running
+  OK tapping a finished report opens it and shows the report text
+  OK top-up is offered only on a resumable halted run
+  OK top-up cannot be fired twice on the same halted run
+  OK ✖ KILL ALL RUNS sends the fleet-wide kill
+  OK a KILL ALL that fails tells the user
+  OK the header burn meter reports today's burn on every tab
+  OK the header burn meter moves while a run is burning
+  OK push + KILL ALL are real, separate tap targets inside the phone frame
+  OK a routine can be created, disabled, re-enabled and deleted from the phone
+  OK the routine form swaps interval for a clock time when the cadence is daily
+  OK a MISSED routine says so and its "run late" fires as a late run
+  OK Builder: a persona and a typed command save and appear everywhere they are used
+  OK the harness renders every deterministic check with its evidence
+  OK Hierarchy: a job builds from real commands and real tiers, saves, and lists
+  OK Hierarchy: a new job's first link comes with a command already selected
+  OK Build tab: the trigger is armed and tracks the Chat project
+  OK Build tab: a build that streams and finishes surfaces an installable APK
+  OK Build tab: a failed build re-arms the button and says why
+  OK 412px: the Fleet surface never scrolls sideways, in any pane
+  OK 412px: the nav bar survives the unseen-report badge
+  OK 412px: every Builder row field is wide enough to read what you typed
+  OK the suite left no routines, personas, commands or jobs behind
+  OK no uncaught page errors while driving Fleet + Build
+
+29 passed, 0 failed
 ```
