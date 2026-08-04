@@ -1,6 +1,7 @@
 # UI/UX audit — every surface, driven at 412×900
 
-**Status:** ACTIVE ledger. 32 open findings, 5 spec files, 105 assertions.
+**Status:** ACTIVE ledger. **27 open findings**, 5 spec files, 121 assertions
+(94 passing). Opened at 39 failures; 8 fixed, 5 were bad tests.
 **Method:** one Playwright spec per surface, driving the real cockpit against a
 throwaway server on free ports. No mocks, no fixtures — the specs click what a
 phone user clicks.
@@ -41,10 +42,10 @@ Ranked by what they cost the user, not by how hard they are to fix.
 
 | # | Surface | Finding |
 |---|---------|---------|
-| 1 | Editor | **Save silently overwrites a different existing file.** `app.js:803` saves to `$('edPath').value.trim() \|\| edCurrentPath`; `files.js:23` writes with `mustExist:false` and no existence check. Typing a path over an existing file destroys it with no confirmation. Verified by source read, not just the spec. |
-| 2 | Editor | Opening another file discards the unsaved buffer — no prompt, no flush (`openFile` → `cmEditor.setValue`). |
-| 3 | Doctor/Scan | Tapping a scan finding discards unsaved editor work, and resets `#edDirty` so nothing on screen shows the loss. |
-| 4 | Fleet | **Top-up can be fired twice on one halted run.** The control stays armed after use; a second tap resumes the same session again and double-spends its budget. |
+| ~~1~~ | Editor | ~~**Save silently overwrites a different existing file.**~~ **FIXED** — see below. |
+| ~~2~~ | Editor | ~~Opening another file discards the unsaved buffer.~~ **FIXED** |
+| ~~3~~ | Doctor/Scan | ~~Tapping a scan finding discards unsaved editor work.~~ **FIXED** |
+| 4 | Fleet | **Top-up can be fired twice on one halted run.** The control stays armed after use; a second tap resumes the same session again and double-spends its budget. **OPEN — the last P0.** |
 
 ### P1 — the surface lies
 
@@ -59,9 +60,9 @@ where it does not.
 | 8 | Doctor | Preview URL bar misreports what the server stored (`…/dashboard?tab=1` shown, `…:5173` served). |
 | 9 | Doctor | Preview target does not survive a reload — bar and stored target disagree. |
 | 10 | Chat | An engine error leaves the composer and working line in a lying state. |
-| 11 | Editor | A REJECTED save is reported only in the chat log; from the Editor tab, Save is a silent no-op. |
-| 12 | Editor | After saving as `.py`, `#edName` says `saved-as.py` while `#edLang` still reads JavaScript — the two readouts contradict each other. |
-| 13 | Doctor/Scan | A finding that cannot be opened explains itself on a screen the user is not on. |
+| ~~11~~ | Editor | ~~A REJECTED save is reported only in the chat log.~~ **FIXED** |
+| ~~12~~ | Editor | ~~After saving as `.py`, `#edLang` still read JavaScript.~~ **FIXED** |
+| ~~13~~ | Doctor/Scan | ~~A finding that cannot be opened explains itself on a screen the user is not on.~~ **FIXED** |
 | 14 | Chat | A rejected upload leaves a ghost chip claiming a file is attached that will never be sent. |
 
 ### P1 — dead controls
@@ -103,6 +104,10 @@ This cockpit is phone-first, so these are defects, not polish.
 
 | Finding | Fix |
 |---------|-----|
+| **#1 Save destroyed a file you never opened** (P0) | The path box is also the navigate box, so typing the next file you meant to OPEN and tapping Save aimed the current buffer at it — and `files.js writeFile` has no existence check. `lib/editorguard.js saveTo()` now confirms before writing onto a **different** file that already exists. It stays silent when the target is the file you have open, or does not exist yet: a dialog on every save is one people learn to dismiss unread. |
+| **#2 / #3 unsaved work destroyed on open** (P0) | `openFile` and `openScanFinding` both called `cmEditor.setValue()` straight over the buffer. Both now route through `lib/editorguard.js openInto()`, which confirms when `#edDirty` says unsaved. |
+| **#11 / #13 refusals landed only in chat** | Opening and saving now report through one `edUI.fail`, which writes to `#edDirty` **and** the chat log — a refusal that only reaches chat is invisible to someone standing on the Editor tab, which is where they just tapped. |
+| **#12 language label contradicted the file** | `edUI.saved()` calls `edMode(f.name)`, so the label describes the file actually written. |
 | `/api/prefs` 401 read as "never onboarded" | The session cookie is per-origin — **the same limitation that moved tour state off localStorage in the first place** — so on a second origin the prefs read 401s, `guide.js` found no `.tour` on the error body, and hung the first-run banner over the login screen. §1b was only half fixed. `guide.js` now treats unauthorized as *unknown* and stays quiet. |
 | Handbook filter survived close/reopen | Reopening `?` showed 1 of 13 sections with the old needle still in the box. `closeGuide()` now clears the filter. |
 
@@ -118,3 +123,17 @@ Recorded so the error rate is visible:
 - **"BUG §1b: tour state has to move server-side"** — it already had. The test
   was named for a bug that was fixed; it is now a regression guard. The
   underlying failure was real but had a different cause (the 401 above).
+- **Six editor failures were the harness, not the cockpit.** Adding the discard
+  guard broke the editor spec 7 → 13, because Playwright auto-*dismisses*
+  dialogs — a user clicking Cancel — so one dirty buffer blocked every open
+  after it. Both guard tests assert only that the cockpit **asked**, never what
+  was answered, so the handlers now `accept()`. The assertions are untouched.
+
+## What the guards cost
+
+`lib/editorguard.js` is 90 lines and `test/editorguard.mjs` is 14 unit tests
+that need no browser. `app.js` **shrank** — three copies of the same
+load-into-buffer sequence collapsed into one — so the structural ratchet in
+`docdrift.mjs` came down 2031 → 2030 rather than up. Half those tests assert the
+guards stay *quiet*: an ordinary save and a save-as to a fresh path must not
+prompt, or the prompt stops being read.

@@ -17,6 +17,7 @@ import {
   engineOptionLabel, engineOptionValue, ladderOptionLabel, ladderOptionTitle, rungLineText,
 } from './lib/enginepicker.js';
 import { fmtTok, STATUS_LABEL, statusLabel, burnLine, runMetaLine } from './lib/burn.js';
+import { openInto, saveTo } from './lib/editorguard.js';
 
 (() => {
   const $ = (id) => document.getElementById(id);
@@ -767,16 +768,27 @@ import { fmtTok, STATUS_LABEL, statusLabel, burnLine, runMetaLine } from './lib/
     if (info) { cmEditor.setOption('mode', info.mime); CodeMirror.autoLoadMode(cmEditor, info.mode); $('edLang').textContent = info.name; }
     else { cmEditor.setOption('mode', null); $('edLang').textContent = 'text'; }
   }
-  function openFile(path) {
-    if (!path) return;
-    fetch('/api/file?path=' + encodeURIComponent(path)).then((r) => r.json()).then((f) => {
-      if (f.error) return addMsg('err', f.error);
-      initEditor();
-      cmEditor.setValue(f.content); edClean = f.content; edCurrentPath = f.path;
+  // The editor's side of lib/editorguard.js. `fail` reports on the Editor tab
+  // as well as the chat log — a refusal that only lands in chat is invisible to
+  // someone standing on the Editor tab, which is where they just tapped.
+  const edUI = {
+    dirty: () => $('edDirty').textContent,
+    current: () => edCurrentPath,
+    load(f) {
+      initEditor(); cmEditor.setValue(f.content); edClean = f.content; edCurrentPath = f.path;
       $('edName').textContent = f.name; $('edPath').value = f.path; $('edDirty').textContent = '';
       edMode(f.name);
-    }).catch((e) => { console.warn('[atlan]', e); });
-  }
+    },
+    saved(f) {
+      edClean = cmEditor.getValue(); edCurrentPath = f.path;
+      $('edName').textContent = f.name; $('edPath').value = f.path;
+      edMode(f.name); // the label must describe the file we actually wrote
+      $('edDirty').textContent = 'saved ✓';
+      setTimeout(() => { if ($('edDirty').textContent === 'saved ✓') $('edDirty').textContent = ''; }, 1500);
+    },
+    fail(msg) { $('edDirty').textContent = `⚠ ${msg}`; addMsg('err', msg); },
+  };
+  const openFile = (path) => openInto(path, edUI);
   // Chat → review canvas: drop proposed code into the editor for review. Clears
   // the path so Save is a conscious choice of where it lands — the code is a
   // proposal until you Save it, and Preview can run it before you do.
@@ -800,16 +812,8 @@ import { fmtTok, STATUS_LABEL, statusLabel, burnLine, runMetaLine } from './lib/
   $('edOpen').addEventListener('click', () => openFile($('edPath').value.trim()));
   $('edPath').addEventListener('keydown', (e) => { if (e.key === 'Enter') openFile($('edPath').value.trim()); });
   $('edSave').addEventListener('click', () => {
-    const path = $('edPath').value.trim() || edCurrentPath;
-    if (!path) return addMsg('err', 'set a path to save to');
     initEditor();
-    fetch('/api/file', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ path, content: cmEditor.getValue() }) })
-      .then((r) => r.json()).then((f) => {
-        if (f.error) return addMsg('err', f.error);
-        edClean = cmEditor.getValue(); edCurrentPath = f.path; $('edName').textContent = f.name;
-        $('edDirty').textContent = 'saved ✓';
-        setTimeout(() => { if ($('edDirty').textContent === 'saved ✓') $('edDirty').textContent = ''; }, 1500);
-      }).catch((e) => { console.warn('[atlan]', e); });
+    saveTo($('edPath').value.trim() || edCurrentPath, cmEditor.getValue(), edUI);
   });
   $('edTree').addEventListener('click', () => {
     const box = $('edTreeBox');
@@ -1513,15 +1517,11 @@ import { fmtTok, STATUS_LABEL, statusLabel, burnLine, runMetaLine } from './lib/
   function openScanFinding(root, relFile, line) {
     const abs = root.replace(/\/$/, '') + '/' + relFile;
     document.querySelector('nav button[data-s="s-editor"]')?.click();
-    fetch('/api/file?path=' + encodeURIComponent(abs)).then((r) => r.json()).then((f) => {
-      if (f.error) return addMsg('err', f.error);
-      initEditor();
-      cmEditor.setValue(f.content); edClean = f.content; edCurrentPath = f.path;
-      $('edName').textContent = f.name; $('edPath').value = f.path; $('edDirty').textContent = '';
-      edMode(f.name);
+    openInto(abs, edUI).then((f) => {
+      if (!f) return; // declined, or unreadable — edUI.fail already said so
       if (line) { const ln = Math.max(0, line - 1); cmEditor.setCursor({ line: ln, ch: 0 }); cmEditor.scrollIntoView({ line: ln, ch: 0 }, 120); }
       cmEditor.refresh(); cmEditor.focus();
-    }).catch(() => {});
+    });
   }
 
   // ── fleet sub-nav: Runs | Routines | Builder ──

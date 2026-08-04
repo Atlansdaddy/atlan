@@ -13,6 +13,7 @@ _Free suites only. The E2E suite (real Claude runs) is opt-in — `RUN_PAID=1 no
 |---|---|---|
 | Unit | Pure functions in isolation: safe-arith evaluator, checker engine, Persona+ compilers, schema builders, scheduler math, token compare. | ✅ 51/51 |
 | Web Lib | The front-end's pure logic, extracted from app.js so Node can reach it: fenced-code parsing (incl. streaming and boundary cases), HTML escaping, diff colouring, base64url, day/night and greeting bands. Previously untestable — the only front-end coverage was Playwright driving the UI. | ✅ 51/51 |
+| Editor Guards | The two irreversible things the editor can do to you: opening another file over unsaved work, and saving the current buffer onto a DIFFERENT existing file (the path box is also the navigate box, and writeFile has no existence check). Asserts the guards fire — and, just as hard, that they stay quiet on ordinary saves, because a dialog on every save is one people dismiss unread. | ✅ 14/14 |
 | Function | Every HTTP endpoint contract + shape, plus data-store durability (corrupt/truncated JSON fails soft). (Spawns 1 tiny killed run.) | ✅ 25/25 |
 | Connection | Live WebSocket + PTY: authed connect, 4001 on bad token, malformed-frame survival, multi-client broadcast, tmux round-trip, reconnection. (Spawns 2 tiny killed runs.) | ✅ 6/6 |
 | Security/Penetration | Auth bypass, SSRF (preview + harness), secret exfiltration, path traversal, stored-XSS, oversized-body DoS, profile privilege-escalation. | ✅ 43/43 |
@@ -29,7 +30,7 @@ _Free suites only. The E2E suite (real Claude runs) is opt-in — `RUN_PAID=1 no
 | UI/UX | Headless Chromium drives the real cockpit: tabs, engine roster, doctor/preflight render, key entry no-leak, XSS-safe render. | ✅ 13/13 |
 | Tour/Onboarding | Drives all tour steps live — every step spotlights a real visible element; handbook opens/searches/relaunches. | ✅ 10/10 |
 
-**Total: 388 passed, 0 failed across 17 suites.**
+**Total: 402 passed, 0 failed across 18 suites.**
 
 ## Unit
 
@@ -153,6 +154,37 @@ WEB LIB SUITE
   ✓ statusLabel cannot be tricked by prototype keys
 
 51 passed, 0 failed
+```
+
+## Editor Guards
+
+The two irreversible things the editor can do to you: opening another file over unsaved work, and saving the current buffer onto a DIFFERENT existing file (the path box is also the navigate box, and writeFile has no existence check). Asserts the guards fire — and, just as hard, that they stay quiet on ordinary saves, because a dialog on every save is one people dismiss unread.
+
+```
+$ node test/editorguard.mjs
+isDirty
+  ✓ reads app.js’s own #edDirty vocabulary, not a boolean
+
+fileExists
+  ✓ a readable path exists, a missing one does not
+  ✓ an unreachable server does not claim the file exists
+
+openInto
+  ✓ a clean buffer opens with no dialog at all
+  ✓ unsaved work is not replaced without asking
+  ✓ saying yes to the discard actually opens the file
+  ✓ a file that cannot be read says so on the editor, not just in chat
+  ✓ a thrown fetch is reported, not swallowed
+
+saveTo
+  ✓ saving over the file you already have open does NOT nag
+  ✓ saving to a path that does not exist yet does NOT nag
+  ✓ saving onto a DIFFERENT existing file asks first
+  ✓ confirming the overwrite does write it
+  ✓ an empty path is refused on the editor surface
+  ✓ a server refusal reaches ui.fail
+
+14 passed, 0 failed
 ```
 
 ## Function

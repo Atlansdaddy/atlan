@@ -117,7 +117,7 @@ test('the suite count in run-all.mjs matches what REVIEW-FOR-AI.md claims', () =
 // The ceiling ONLY EVER MOVES DOWN. If you shrink app.js, re-measure and lower
 // it; never raise it to make a commit pass.
 test('web/public/app.js has not grown (ceiling ratchet)', () => {
-  const CEILING = 2031; // measured 2026-08-04, after the ladder picker landed
+  const CEILING = 2030; // measured 2026-08-04, after the editor guards moved to lib/editorguard.js
   const lines = (read('../web/public/app.js').match(/\n/g) || []).length;
   assert.ok(lines <= CEILING,
     `app.js is ${lines} lines, ceiling ${CEILING} — new code goes in web/public/lib/ modules, not here`);

@@ -54,8 +54,12 @@ const SNAP_IDLE = '📸 Snapshot → Claude';
 
 const netlog = [];
 page.on('request', (r) => netlog.push(r.method() + ' ' + r.url()));
+// Accept, don't dismiss: lib/editorguard.js confirms before discarding unsaved
+// work, and tapping a scan finding MEANS to open that file. Dismissing would
+// cancel the open and read as a bug that isn't there. The scan-finding test
+// asserts the cockpit ASKED, not what was answered.
 let lastDialog = null;
-page.on('dialog', (d) => { lastDialog = d.message(); d.dismiss().catch(() => {}); });
+page.on('dialog', (d) => { lastDialog = d.message(); d.accept().catch(() => {}); });
 
 async function tab(id) {
   await page.click(`nav button[data-s="${id}"]`);

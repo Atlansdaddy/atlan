@@ -20,7 +20,12 @@ Atlan is a **personal AI build cockpit that runs entirely on a phone** — a sin
 - *Critique: given loopback + proot + password, what's the realistic threat model, and where are we actually exposed? Is the "run untrusted work on a native host for the real sandbox" answer good enough?*
 
 ## Test discipline
-**332 automated tests across 16 suites** *(verified 2026-08-02; this line said 152/10 and had stopped tracking the suite)* — unit, web-lib, doc-drift, function+data-store-durability, connection/WS/PTY, security/pentest, adversarial, worker-hierarchy, attachments, code-editor, voice/providers, fleet-engines, vision/multimodal, cross-engine orchestration, UI/UX headless-Chromium, tour/onboarding — run on a **throwaway instance** so they never touch the live cockpit. Verbatim output in `docs/RECEIPTS.md`.
+**402 automated tests across 18 suites** *(verified 2026-08-04; this line said 152/10 and had stopped tracking the suite)* — unit, web-lib, doc-drift, editor-guards, function+data-store-durability, connection/WS/PTY, security/pentest, adversarial, worker-hierarchy, attachments, code-editor, voice/providers, fleet-engines, vision/multimodal, cross-engine orchestration, chat-ladder, UI/UX headless-Chromium, tour/onboarding — run on a **throwaway instance** so they never touch the live cockpit. Verbatim output in `docs/RECEIPTS.md`.
+
+A further five specs drive each surface end-to-end at 412×900 and are **not** in
+that count: they currently fail on real defects, catalogued in `docs/UI-AUDIT.md`,
+and each joins the gate when its surface reaches zero. Run them with
+`test/ui-specs.sh`.
 
 We also spin **black-box contextless agents** (no source access) at it, and **cross-VENDOR** reviewers — Claude never reviews Claude's own work. Both have repeatedly found real bugs our own tests missed: silently-dropped checkers, Infinity-arithmetic passing vacuously, concurrency spend-multiplication, and most recently (2026-08-02, codex reviewing new fleet code contextless) six confirmed defects including `extraEnv` re-introducing scrubbed credentials, a SIGTERM that left descendants alive, and unmetered engines recording `tokens: 0` and thereby bypassing the daily cap entirely. *Critique: what would a determined adversary still find? What's under-tested?*
 
