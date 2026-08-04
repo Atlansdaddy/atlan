@@ -3,16 +3,14 @@
 //      runtime, so a UI change can never silently outrun the test.
 //   2. the searchable HANDBOOK (<details> in index.html).
 //
-// Complements test/tour.spec.mjs (which walks the steps and covers first-run
-// persistence). This suite adds what that one cannot see: per-step tab/pane
-// correctness, whether the spotlight RING is actually on the control it claims,
-// Next reachable WITHOUT scrolling inside the card, a REAL second origin rather
-// than a cleared-localStorage stand-in, handbook filter hygiene, and the tour's
+// Complements test/tour.spec.mjs (which walks the steps). This suite adds the
+// things that suite cannot see: tab/pane correctness per step, ring-over-target,
+// Next reachable WITHOUT scrolling inside the card, first-run persistence across
+// dismissal paths and across ORIGINS, handbook filter hygiene, and the tour's
 // own headline claim — "every control in the cockpit".
 //
-// SAFETY: never spawns a fleet run, never sends a chat turn, never presses
-// Build / Run scan / Commit / Push / Spawn. Nothing here spends a token or
-// writes to the user's files. Safe against a live instance.
+// SAFETY: this suite never spawns a fleet run, never sends a chat turn, never
+// presses Build/Scan/Commit/Push. Nothing here spends a token or writes a file.
 import pw from '/usr/lib/node_modules/playwright/index.js';
 import assert from 'node:assert';
 import { readFileSync } from 'node:fs';
@@ -38,37 +36,36 @@ await page.evaluate(async (pw) => {
   const ep = s.configured ? '/api/auth/login' : '/api/auth/setup';
   await fetch(ep, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ password: pw }) });
 }, 'atlan-test-pw-8x');
-// NOTE: deliberately NOT pre-setting 'atlanTourDone' — onboarding itself is the
-// system under test, so every test sets its own starting state.
+// NOTE: deliberately NOT pre-setting localStorage 'atlanTourDone' — onboarding
+// itself is the system under test, so each test controls that flag explicitly.
 await page.goto(BASE, { waitUntil: 'networkidle' });
 
 const VW = 412, VH = 900;
 
-// Tour state lives BOTH in localStorage and server-side (/api/prefs) since the
-// 2026-08-04 fix, so "fresh" and "returning" have to set both or the two
-// disagree and the bar's behaviour is undefined.
-async function setTourState(v) {
-  await page.evaluate(async (val) => {
-    if (val) localStorage.setItem('atlanTourDone', val); else localStorage.removeItem('atlanTourDone');
-    await fetch('/api/prefs', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key: 'tour', value: val ?? '' }) });
-  }, v);
-}
-/** Reload as a browser (and cockpit) that has never run onboarding. */
-async function freshBrowser() {
-  await setTourState(null);
+/**
+ * Onboarding state has TWO homes and the server one is authoritative:
+ * guide.js only calls offerTour() when /api/prefs comes back without a tour
+ * flag, and localStorage is a per-origin cache in front of it (§1b). Clearing
+ * only localStorage therefore does NOT make a browser fresh — the server still
+ * says "seen", the banner correctly stays away, and a test that clears one
+ * side is asserting against an architecture the cockpit no longer has.
+ */
+async function setTourState(value) {
+  await page.evaluate(async (v) => {
+    if (v) localStorage.setItem('atlanTourDone', v);
+    else localStorage.removeItem('atlanTourDone');
+    await fetch('/api/prefs', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ key: 'tour', value: v }),
+    });
+  }, value);
   await page.goto(BASE, { waitUntil: 'networkidle' });
-  // the bar is created only after /api/prefs answers — wait for the decision,
-  // never for a fixed delay
-  await page.waitForFunction(() => document.getElementById('firstRun') !== null, null, { timeout: 6000 })
-    .catch(() => { throw new Error('first-run banner never appeared for a fresh cockpit'); });
 }
-/** Reload as a browser that has already run onboarding. */
-async function returningBrowser() {
-  await setTourState('1');
-  await page.goto(BASE, { waitUntil: 'networkidle' });
-  await page.waitForTimeout(400); // let the async prefs decision resolve either way
-}
-
+/** Reload as a browser that has never seen Atlan (both homes cleared). */
+const freshBrowser = () => setTourState('');
+/** Reload as a browser that has already finished onboarding. */
+const returningBrowser = () => setTourState('1');
 /**
  * Wait until the tour has finished moving, then report what it painted.
  *
@@ -77,7 +74,7 @@ async function returningBrowser() {
  * (which would make this suite fail for how it measures, not for what is
  * broken), poll until title + ring box + card box are byte-identical across
  * three consecutive samples. Async panes that populate late — the Doctor lists —
- * fall inside the same stability window.
+ * are covered by the same stability window.
  */
 async function settle(timeout = 8000) {
   await page.evaluate(() => { window.__settle = null; });
@@ -94,7 +91,7 @@ async function settle(timeout = 8000) {
   }, null, { timeout, polling: 90 });
 }
 
-/** Settle, then report everything the tour is showing. */
+/** Settle, then report what the tour is showing. */
 async function currentStep() {
   await settle();
   return page.evaluate(() => {
@@ -124,11 +121,14 @@ assert.ok(Array.isArray(STEPS) && STEPS.length > 0, 'guide.js did not expose win
 const N = STEPS.length;
 
 // ── 1. first run ────────────────────────────────────────────────────────────
-await test('a cockpit that has never run onboarding OFFERS the tour (not forced)', async () => {
+await test('a browser that has never seen Atlan is OFFERED the tour (not forced)', async () => {
   await freshBrowser();
   const bar = page.locator('#firstRun');
+  assert.equal(await bar.count(), 1, 'no first-run banner for a fresh browser');
   assert.ok(await bar.isVisible(), 'first-run banner present but not visible');
   assert.match(await bar.innerText(), /tour/i, 'banner does not offer the tour');
+  // offered, not forced: both an accept and a decline exist, and the tour is NOT
+  // already running.
   assert.equal(await page.locator('#frGo').count(), 1, 'no "take the tour" button');
   assert.equal(await page.locator('#frNo').count(), 1, 'no "later" button');
   assert.ok(!(await page.locator('#tourOverlay').isVisible()), 'tour auto-started — it must be offered, not forced');
@@ -138,7 +138,7 @@ await test('the first-run banner fits a 412x900 phone and clears the tab bar', a
   const g = await page.evaluate(() => {
     const b = document.getElementById('firstRun').getBoundingClientRect();
     const n = document.querySelector('nav').getBoundingClientRect();
-    return { b: { x: b.x, y: b.y, right: b.right, bottom: b.bottom }, navTop: n.top,
+    return { b: { x: b.x, y: b.y, right: b.right, bottom: b.bottom, h: b.height }, navTop: n.top,
       docScrollW: document.documentElement.scrollWidth, docClientW: document.documentElement.clientWidth };
   });
   assert.ok(g.b.x >= -1 && g.b.right <= VW + 1, `banner overflows horizontally (x=${g.b.x} right=${g.b.right} vw=${VW})`);
@@ -147,7 +147,7 @@ await test('the first-run banner fits a 412x900 phone and clears the tab bar', a
   assert.ok(g.docScrollW <= g.docClientW + 1, `page scrolls horizontally at 412px (${g.docScrollW} > ${g.docClientW})`);
 });
 
-await test(`"take the tour" starts the tour at step 1 of ${N}`, async () => {
+await test('"take the tour" starts the tour at step 1 of ' + N, async () => {
   await page.click('#frGo');
   assert.equal(await page.locator('#firstRun').count(), 0, 'banner did not clear when the tour started');
   assert.ok(await page.locator('#tourOverlay').isVisible(), 'tour overlay did not open');
@@ -158,7 +158,7 @@ await test(`"take the tour" starts the tour at step 1 of ${N}`, async () => {
 });
 
 // ── 2. every step, driven from the STEPS array itself ───────────────────────
-// One walk, several independent verdicts, so a geometry failure and a targeting
+// One walk, three independent verdicts, so a geometry failure and a targeting
 // failure are never confused for each other.
 const walk = [];
 {
@@ -209,12 +209,12 @@ await test(`the spotlight ring actually surrounds its target at all ${N} steps`,
   // failure mode a "does the element exist" check cannot see. Measured after
   // settle(), so this is not the 250ms ring transition.
   //
-  // KNOWN FAILURE (the Doctor steps): guide.js openTab() clicks the nav button
-  // on EVERY step, even when already on that tab, and app.js:82 re-runs the
-  // Doctor probe on every Doctor nav click — blanking #doctorList to a 22px
-  // "running checks…" hint. guide.js then measures 120ms later, inside that
-  // collapsed window, and nothing re-places the ring when the lists come back
-  // ~240ms on (the only re-place hook is `resize`). The ring is left ~800px
+  // KNOWN FAILURE (steps 26-28): guide.js:46 openTab() clicks the nav button on
+  // EVERY step, even when already on that tab, and app.js:82 re-runs the Doctor
+  // probe on every Doctor nav click — blanking #doctorList to a 22px "running
+  // checks…" hint. guide.js:83 then measures 120ms later, inside that collapsed
+  // window, and nothing re-places the ring when the lists come back ~240ms on
+  // (the only re-place hook is `resize`, guide.js:94). The ring is left 799px
   // above its target. If this ever goes green, confirm the fix rather than the
   // race: a Doctor endpoint faster than 120ms would also hide the bug.
   const bad = [];
@@ -224,8 +224,9 @@ await test(`the spotlight ring actually surrounds its target at all ${N} steps`,
       x: w.got.ring.x - (w.tgt.x - 6), y: w.got.ring.y - (w.tgt.y - 6),
       w: w.got.ring.w - (w.tgt.w + 12), h: w.got.ring.h - (w.tgt.h + 12),
     };
-    if (Math.max(...Object.values(off).map(Math.abs)) > 3) {
-      bad.push(`step ${w.i + 1} (${w.want.el}, "${w.want.h}"): ring is ${off.y.toFixed(0)}px off vertically / ${off.h.toFixed(0)}px wrong in height — ring (${w.got.ring.x.toFixed(0)},${w.got.ring.y.toFixed(0)} ${w.got.ring.w.toFixed(0)}x${w.got.ring.h.toFixed(0)}) vs target (${w.tgt.x.toFixed(0)},${w.tgt.y.toFixed(0)} ${w.tgt.w.toFixed(0)}x${w.tgt.h.toFixed(0)})`);
+    const worst = Math.max(...Object.values(off).map(Math.abs));
+    if (worst > 3) {
+      bad.push(`step ${w.i + 1} (${w.want.el}, "${w.want.h}"): ring is ${off.y.toFixed(0)}px off vertically / ${off.h.toFixed(0)}px wrong in height — ring box (${w.got.ring.x.toFixed(0)},${w.got.ring.y.toFixed(0)} ${w.got.ring.w.toFixed(0)}x${w.got.ring.h.toFixed(0)}) vs target (${w.tgt.x.toFixed(0)},${w.tgt.y.toFixed(0)} ${w.tgt.w.toFixed(0)}x${w.tgt.h.toFixed(0)})`);
     }
   }
   assert.equal(bad.length, 0, bad.join('; '));
@@ -244,14 +245,14 @@ await test(`the card fits 412x900 at all ${N} steps and never covers the tab bar
 });
 
 await test(`"Next" is reachable at all ${N} steps without scrolling inside the card`, async () => {
-  // .tour-card is max-height:72vh; overflow-y:auto — the buttons live INSIDE
-  // that scroller, so a long step can push Next below the card's visible area.
-  // On a phone that reads as a dead end. Presence/CSS-visibility misses it.
+  // .tour-card is max-height:72vh; overflow-y:auto — the buttons live INSIDE that
+  // scroller, so a long step can push Next below the card's visible area. On a
+  // phone that reads as a dead end. Presence/CSS-visibility would not catch it.
   const bad = [];
   for (const w of walk) {
     const { next, card } = w.got;
     if (next.bottom > card.bottom + 1 || next.y < card.y - 1) {
-      bad.push(`step ${w.i + 1} (${w.want.el}, "${w.want.h}"): Next sits outside the visible card — ${w.got.cardScrollH}px of content in a ${w.got.cardClientH}px box`);
+      bad.push(`step ${w.i + 1} (${w.want.el}, ${w.want.h}): Next sits outside the visible card — card ${w.got.cardScrollH}px of content in a ${w.got.cardClientH}px box`);
     }
     if (next.bottom > VH + 1 || next.y < -1) bad.push(`step ${w.i + 1}: Next is off-screen (y=${next.y.toFixed(0)} bottom=${next.bottom.toFixed(0)})`);
   }
@@ -259,9 +260,9 @@ await test(`"Next" is reachable at all ${N} steps without scrolling inside the c
 });
 
 await test('no step teaches against an EMPTY control', async () => {
-  // A step that rings an unpopulated <select> or a blank list looks fine to any
-  // "does the element exist" check while teaching nothing. Pickers must have
-  // options; containers must have rows or an explicit empty-state.
+  // A tour step that rings an unpopulated <select> or a blank list looks fine to
+  // any "does the element exist" check while teaching the user nothing. Pickers
+  // must have options; containers must have rows or an explicit empty-state.
   const bad = [];
   for (const w of walk) {
     if (!w.tgt) continue;
@@ -280,7 +281,7 @@ await test('every step carries real teaching copy, not a placeholder', async () 
 });
 
 // ── 3. navigation controls ──────────────────────────────────────────────────
-await test('Back steps backwards and is hidden only where there is nowhere to go', async () => {
+await test('Back steps backwards and reappears once there is somewhere to go', async () => {
   await page.evaluate(() => window._tour.show(2));
   let st = await currentStep();
   assert.equal(st.count, `3 / ${N}`);
@@ -296,7 +297,7 @@ await test('Back steps backwards and is hidden only where there is nowhere to go
 });
 
 await test('the last step offers Finish, and Finish closes the tour + marks it done', async () => {
-  await setTourState(null);
+  await page.evaluate(() => localStorage.removeItem('atlanTourDone'));
   await page.evaluate((n) => window._tour.show(n - 1), N);
   const st = await currentStep();
   assert.equal(st.count, `${N} / ${N}`);
@@ -308,7 +309,7 @@ await test('the last step offers Finish, and Finish closes the tour + marks it d
 
 await test('a completed tour does not come back on the next visit', async () => {
   await page.goto(BASE, { waitUntil: 'networkidle' });
-  await page.waitForTimeout(400);
+  assert.equal(await page.evaluate(() => localStorage.getItem('atlanTourDone')), '1', 'done flag lost across reload');
   assert.equal(await page.locator('#firstRun').count(), 0, 'first-run banner returned after the tour was completed');
   assert.ok(!(await page.locator('#tourOverlay').isVisible()), 'tour re-opened after completion');
 });
@@ -321,52 +322,34 @@ await test('"skip" mid-tour ends it and it stays ended', async () => {
   await currentStep();
   await page.click('#tourSkip');
   assert.ok(!(await page.locator('#tourOverlay').isVisible()), 'skip did not close the overlay');
+  assert.equal(await page.evaluate(() => localStorage.getItem('atlanTourDone')), '1', 'skip did not persist — the tour will nag on every reload');
   await page.goto(BASE, { waitUntil: 'networkidle' });
-  await page.waitForTimeout(400);
-  assert.equal(await page.locator('#firstRun').count(), 0, 'banner returned after skip — the tour will nag on every reload');
+  assert.equal(await page.locator('#firstRun').count(), 0, 'banner returned after skip');
 });
 
-// ── 4. onboarding state must survive the paths that used to lose it ─────────
-await test('REGRESSION(TUTORIAL-OVERHAUL.md §1): "later" is remembered, not re-asked forever', async () => {
+// ── 4. first-run persistence: the documented bug ────────────────────────────
+await test('REGRESSION(TUTORIAL-OVERHAUL.md §1): "later" must be remembered, not re-asked forever', async () => {
   await freshBrowser();
+  assert.equal(await page.locator('#firstRun').count(), 1, 'precondition: no banner to decline');
   await page.click('#frNo');
   assert.equal(await page.locator('#firstRun').count(), 0, 'banner did not clear on "later"');
   await page.goto(BASE, { waitUntil: 'networkidle' });
-  await page.waitForTimeout(400);
   assert.equal(await page.locator('#firstRun').count(), 0,
-    'declining with "later" is not persisted — the banner returns on every reload forever');
+    'declining with "later" is not persisted — every exit from the bar must markTour(), or the banner returns on EVERY reload forever');
 });
 
-await test('REGRESSION(TUTORIAL-OVERHAUL.md §1b): onboarding state survives a REAL second origin', async () => {
-  // The cockpit answers on loopback AND the tailnet. localStorage is per-origin,
-  // so browser-only state re-onboards on the other host. tour.spec.mjs
-  // approximates this by clearing localStorage; this drives the actual second
-  // origin, which is the only way to prove the server pref is what carries it.
+await test('REGRESSION(TUTORIAL-OVERHAUL.md §1b): onboarding survives a change of origin', async () => {
+  await returningBrowser(); // finished on 127.0.0.1
+  assert.equal(await page.locator('#firstRun').count(), 0, 'precondition: banner should be gone on the primary origin');
   const alt = BASE.replace('127.0.0.1', 'localhost');
   assert.notEqual(alt, BASE, 'could not derive a second origin from ATLAN_BASE');
-  await returningBrowser(); // onboarded on 127.0.0.1 (+ server pref)
-  assert.equal(await page.locator('#firstRun').count(), 0, 'precondition: banner should be gone on the primary origin');
-
-  // Arrive on the other origin exactly as a user does: no localStorage, no
-  // session cookie (cookies are per-host too), so log in and let the app
-  // reload — /api/prefs is authed, and reading it is the ONLY way the second
-  // origin can know onboarding already happened.
-  await page.goto(alt, { waitUntil: 'networkidle' });
-  assert.equal(await page.evaluate(() => localStorage.getItem('atlanTourDone')), null,
-    'precondition: the second origin should start with empty localStorage');
-  await page.evaluate(async (pw) => {
-    const s = await fetch('/api/auth/status').then((r) => r.json());
-    const ep = s.configured ? '/api/auth/login' : '/api/auth/setup';
-    await fetch(ep, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ password: pw }) });
-  }, 'atlan-test-pw-8x');
-  await page.goto(alt, { waitUntil: 'networkidle' });
-  await page.waitForTimeout(600); // the offer/suppress decision is async on /api/prefs
+  await page.goto(alt, { waitUntil: 'domcontentloaded' });
+  await page.waitForSelector('nav button[data-s="s-chat"]');
+  const flag = await page.evaluate(() => localStorage.getItem('atlanTourDone'));
   const back = await page.locator('#firstRun').count();
-  const carried = await page.evaluate(() => localStorage.getItem('atlanTourDone'));
   await page.goto(BASE, { waitUntil: 'networkidle' });
   assert.equal(back, 0,
-    `the same cockpit on a second origin (${alt}) re-offers onboarding — tour state is not reaching /api/prefs, so loopback and tailnet each nag separately`);
-  assert.equal(carried, '1', `the second origin did not cache the server pref back into localStorage (got ${carried})`);
+    `the same cockpit on a second origin (${alt}) re-offers onboarding (flag=${flag}) — loopback vs tailnet must not each nag once, so /api/prefs stays the source of truth and localStorage is only its per-origin cache`);
 });
 
 // ── 5. the handbook ─────────────────────────────────────────────────────────
@@ -385,7 +368,7 @@ await test('? opens the handbook and every section carries real content', async 
 
 await test('handbook search filters to matches, auto-opens them, and clearing restores all', async () => {
   const total = await page.locator('#guideOverlay details').count();
-  await page.fill('#guideSearch', 'zzz-no-such-term');
+  await page.fill('#guideSearch', 'bubblewrap zzz-no-such-term');
   await page.waitForFunction((t) => [...document.querySelectorAll('#guideOverlay details')]
     .filter((d) => d.style.display !== 'none').length < t, total, { timeout: 3000 })
     .catch(() => { throw new Error('a nonsense query filtered nothing — search is not wired'); });
@@ -397,7 +380,7 @@ await test('handbook search filters to matches, auto-opens them, and clearing re
   assert.ok(hits >= 1 && hits < total, `"phantom-process" left ${hits}/${total} sections visible — no real filtering`);
   const allOpen = await page.$$eval('#guideOverlay details', (ds) =>
     ds.filter((d) => d.style.display !== 'none').every((d) => d.open));
-  assert.ok(allOpen, 'matched sections were not auto-opened — the hit stays buried behind a closed <summary>');
+  assert.ok(allOpen, 'matched sections were not auto-opened — the hit is buried behind a closed <summary>');
 
   await page.fill('#guideSearch', '');
   await page.waitForTimeout(120);
@@ -407,18 +390,19 @@ await test('handbook search filters to matches, auto-opens them, and clearing re
 await test('BUG: the handbook filter survives close/reopen — ? reopens a filtered handbook', async () => {
   await page.fill('#guideSearch', 'phantom-process');
   await page.waitForTimeout(120);
-  const total = await page.locator('#guideOverlay details').count();
   const filtered = await page.locator('#guideOverlay details:visible').count();
+  const total = await page.locator('#guideOverlay details').count();
   assert.ok(filtered < total, 'precondition: search did not filter');
   await page.click('#guideClose');
   await page.click('#helpBtn');
   await page.waitForTimeout(120);
   const reopened = await page.locator('#guideOverlay details:visible').count();
   const box = await page.inputValue('#guideSearch');
-  await page.fill('#guideSearch', ''); // leave a clean handbook for later tests
+  // reset so later tests see a clean handbook
+  await page.fill('#guideSearch', '');
   await page.click('#guideClose');
   assert.equal(reopened, total,
-    `reopening ? shows only ${reopened}/${total} sections with "${box}" still in the search box — neither #guideClose nor #helpBtn resets #guideSearch, so the reference silently hides ${total - reopened} sections until the user notices the stale query`);
+    `reopening ? shows only ${reopened}/${total} sections with "${box}" still in the search box — guideClose/helpBtn never reset #guideSearch (guide.js:98-99), so the reference silently hides ${total - reopened} sections`);
 });
 
 await test('the handbook can relaunch the full tour from step 1', async () => {
@@ -438,7 +422,7 @@ await test('CLAIM: the tour visits every tab in the bottom nav', async () => {
   const covered = new Set(STEPS.map((s) => s.s));
   const missed = tabs.filter((t) => !covered.has(t.id));
   assert.equal(missed.length, 0,
-    `guide.js claims it walks "EVERY control in the cockpit" but ${missed.length} of ${tabs.length} tabs get zero steps: ${missed.map((t) => `${t.label} (${t.id})`).join(', ')}`);
+    `guide.js says it walks "EVERY control in the cockpit" but ${missed.length} of ${tabs.length} tabs get zero steps: ${missed.map((t) => `${t.label} (${t.id})`).join(', ')}`);
 });
 
 await test('CLAIM: the tour visits every Fleet sub-pane', async () => {
@@ -462,20 +446,23 @@ await test('PARITY: every tab the cockpit ships has a handbook section', async (
 // ── 7. the untutored surfaces are LIVE, so the gaps above are real ──────────
 await test('the untaught Scan tab is a working surface, not a stub', async () => {
   // PRESENCE + ENABLED-STATE ONLY: pressing "Run scan" walks the user's real
-  // project tree, so it is never clicked here.
+  // project tree. Never clicked here.
   await page.click('nav button[data-s="s-scan"]');
   await page.waitForSelector('#s-scan.active');
   assert.ok(await page.locator('#scanBtn').isVisible(), 'Run scan button not visible');
   assert.ok(await page.locator('#scanBtn').isEnabled(), 'Run scan button disabled');
+  // the picker fills from /api/projects — wait for the fetch, don't race it
   await page.waitForFunction(() => document.querySelectorAll('#scanProjSel option').length > 0, null, { timeout: 6000 })
     .catch(() => { throw new Error('Scan project picker never populated — cannot tell a live feature from a stub'); });
+  const opts = await page.locator('#scanProjSel option').count();
+  assert.ok(opts > 0, 'Scan project picker is empty — cannot tell a live feature from a stub');
   const b = await page.locator('#s-scan').boundingBox();
   assert.ok(b.width <= VW + 1, `Scan tab overflows 412px (${b.width})`);
   assert.equal(STEPS.filter((s) => s.s === 's-scan').length, 0); // documents WHY this test exists
 });
 
 await test('the untaught Git screen is a working surface reachable only from the Editor', async () => {
-  // Reached the real way: Editor toolbar → "⑂ Git". initGit() only READS git
+  // Reached the real way: Editor toolbar -> "⑂ Git". initGit() only READS git
   // status; nothing here stages, commits, pulls or pushes.
   await page.click('nav button[data-s="s-editor"]');
   await page.waitForSelector('#s-editor.active');
@@ -486,7 +473,7 @@ await test('the untaught Git screen is a working surface reachable only from the
   assert.ok(await page.locator('#gitFilesList > *').count() > 0, 'Git file list has neither entries nor an empty-state');
   const b = await page.locator('#s-git').boundingBox();
   assert.ok(b.width <= VW + 1, `Git screen overflows 412px (${b.width})`);
-  assert.equal(await page.$$eval('nav button[data-s]', (bs) => bs.filter((x) => x.dataset.s === 's-git').length), 0,
+  assert.equal(await page.$$eval('nav button[data-s]', (bs) => bs.filter((b2) => b2.dataset.s === 's-git').length), 0,
     'Git is in the nav now — the tour/handbook gap should be re-measured');
   await page.click('#gitBack');
 });

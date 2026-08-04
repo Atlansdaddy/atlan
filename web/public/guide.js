@@ -104,17 +104,26 @@
 
   // ── handbook ──
   const gb = $('guideOverlay');
-  $('helpBtn').addEventListener('click', () => gb.classList.add('show'));
-  $('guideClose').addEventListener('click', () => gb.classList.remove('show'));
-  $('guideTour').addEventListener('click', () => { gb.classList.remove('show'); show(0); });
-  $('guideSearch').addEventListener('input', () => {
+  function applyFilter() {
     const needle = $('guideSearch').value.trim().toLowerCase();
     for (const d of gb.querySelectorAll('details')) {
       const hit = !needle || d.textContent.toLowerCase().includes(needle);
       d.style.display = hit ? '' : 'none';
       if (needle && hit) d.open = true;
     }
-  });
+  }
+  // Closing the handbook clears the filter. A search box that survives close is
+  // a reference that silently hides most of itself: you reopen ? for something
+  // unrelated and see 1 of 13 sections, with no obvious reason why.
+  function closeGuide() {
+    gb.classList.remove('show');
+    $('guideSearch').value = '';
+    applyFilter();
+  }
+  $('helpBtn').addEventListener('click', () => gb.classList.add('show'));
+  $('guideClose').addEventListener('click', closeGuide);
+  $('guideTour').addEventListener('click', () => { closeGuide(); show(0); });
+  $('guideSearch').addEventListener('input', applyFilter);
 
   // ── first run: offer, never force (shown once the user is past login) ──
   // Every exit from the bar writes the flag — completing the tour was the ONLY
@@ -128,12 +137,21 @@
     bar.querySelector('#frGo').addEventListener('click', () => { bar.remove(); markTour('dismissed'); show(0); });
     bar.querySelector('#frNo').addEventListener('click', () => { bar.remove(); markTour('dismissed'); });
   }
+  // A 401 from /api/prefs is NOT "never onboarded" — it is "not allowed to
+  // answer yet". The session cookie is per-origin, the SAME limitation that
+  // moved this state off localStorage (§1b), so on a second origin the read
+  // fails until the user logs in. Reading .tour off an error body makes every
+  // pre-login paint look like a first run and hangs the banner over the login
+  // screen. Unknown is its own answer: stay quiet and let the next load, after
+  // login, decide. A network failure still offers — that is offline-first.
+  const readPrefs = () => fetch('/api/prefs').then((r) => (r.ok ? r.json() : null));
   const localTour = localStorage.getItem('atlanTourDone');
   if (localTour) {
     // seen on this origin — sync forward so the OTHER origins stay quiet too
-    fetch('/api/prefs').then((r) => r.json()).then((p) => { if (!p.tour) markTour(localTour); }).catch(() => {});
+    readPrefs().then((p) => { if (p && !p.tour) markTour(localTour); }).catch(() => {});
   } else {
-    fetch('/api/prefs').then((r) => r.json()).then((p) => {
+    readPrefs().then((p) => {
+      if (!p) return; // unauthorized: we do not know yet, so we do not ask
       if (p.tour) localStorage.setItem('atlanTourDone', p.tour); // cache for next load
       else offerTour();
     }).catch(offerTour); // server unreachable → offline-first, offer like before
