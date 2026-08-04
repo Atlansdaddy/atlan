@@ -381,5 +381,12 @@ test('statusLabel cannot be tricked by prototype keys', () => {
   assert.equal(statusLabel('toString'), 'toString');
 });
 
+test('a topped-up run reads as topped up, never as finished', () => {
+  // fleet.js marks a spent budget halt 'resumed'. It must not borrow 'done':
+  // the run did not finish, it handed its session to the run in `resumedInto`.
+  assert.equal(statusLabel('resumed'), 'topped up →');
+  assert.notEqual(statusLabel('resumed'), statusLabel('done'));
+});
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

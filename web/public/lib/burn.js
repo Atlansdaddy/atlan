@@ -17,6 +17,9 @@ export function fmtTok(n) {
 export const STATUS_LABEL = {
   running: 'running', done: 'done', 'halted-budget': 'BUDGET HALT',
   killed: 'killed', error: 'error',
+  // A budget halt that was topped up. Distinct from 'done' on purpose: the run
+  // did not finish, it handed its session to the run named in `resumedInto`.
+  resumed: 'topped up →',
 };
 
 /** A run's status in human words; unknown states show themselves rather than blank. */

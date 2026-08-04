@@ -16,8 +16,9 @@ import { isNight, greetingFor, hueFor, MOOD_HUE } from './lib/ambient.js';
 import {
   engineOptionLabel, engineOptionValue, ladderOptionLabel, ladderOptionTitle, rungLineText,
 } from './lib/enginepicker.js';
-import { fmtTok, STATUS_LABEL, statusLabel, burnLine, runMetaLine } from './lib/burn.js';
+import { fmtTok, statusLabel, burnLine, runMetaLine } from './lib/burn.js';
 import { openInto, saveTo } from './lib/editorguard.js';
+import { topUp, sendKill } from './lib/fleetactions.js';
 
 (() => {
   const $ = (id) => document.getElementById(id);
@@ -913,6 +914,7 @@ import { openInto, saveTo } from './lib/editorguard.js';
 
   // ── fleet ──
   const fleetRuns = new Map(); // id → run (server state mirrored here)
+  const fleetIO = { onError: (m) => addMsg('err', m) }; // lib/fleetactions.js talks back through this
   let profilesLoaded = false;
 
   function loadFleet() {
@@ -988,32 +990,21 @@ import { openInto, saveTo } from './lib/editorguard.js';
         <div class="rlast"></div>
         <button class="btn hot rtopup">▲ top up +100k tok & resume</button>
         <pre class="rresult"></pre>`;
-      card.querySelector('.rtopup').addEventListener('click', (e) => { e.stopPropagation(); topUp(r.id); });
+      card.querySelector('.rtopup').addEventListener('click', (e) => { e.stopPropagation(); topUp(r.id, e.currentTarget, fleetIO); });
       card.querySelector('.rwho').textContent = `${r.profile} · ${r.model.replace('claude-', '').replace(/-\d{8}$/, '')}`;
       card.querySelector('.rprompt').textContent = r.prompt;
-      card.querySelector('.rkill').addEventListener('click', (e) => {
-        e.stopPropagation();
-        fetch('/api/fleet/kill', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: r.id }) });
-      });
+      card.querySelector('.rkill').addEventListener('click', (e) => { e.stopPropagation(); sendKill(r.id, fleetIO); });
       card.addEventListener('click', () => card.classList.toggle('open'));
       box.append(card);
       paintRun(fleetRuns.get(r.id));
     }
   }
 
-  function topUp(id) {
-    fetch('/api/fleet/topup', {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ id, extra: 100000 }),
-    }).then((r) => r.json()).then((j) => { if (j.error) addMsg('err', j.error); })
-      .catch(() => addMsg('err', 'cockpit server unreachable'));
-  }
-
   function paintRun(r) {
     const card = document.querySelector(`.runcard[data-id="${r.id}"]`);
     if (!card) return;
     card.className = 'runcard st-' + r.status + (card.classList.contains('open') ? ' open' : '');
-    card.querySelector('.rstatus').textContent = STATUS_LABEL[r.status] ?? r.status;
+    card.querySelector('.rstatus').textContent = statusLabel(r.status);
     card.querySelector('.rkill').style.display = r.status === 'running' ? '' : 'none';
     card.querySelector('.burn i').style.width = Math.min(100, (r.tokens / r.budget) * 100) + '%';
     card.querySelector('.rmeta').textContent = runMetaLine(r);
@@ -1068,9 +1059,7 @@ import { openInto, saveTo } from './lib/editorguard.js';
     }).catch(() => addMsg('err', 'cockpit server unreachable'));
   });
 
-  $('fleetKillAll').addEventListener('click', () => {
-    fetch('/api/fleet/kill', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: 'all' }) });
-  });
+  $('fleetKillAll').addEventListener('click', () => sendKill('all', fleetIO));
 
   // ── Inline AI edit (helis-d, Tier-2) ──
   // Proposes a replacement into the CodeMirror buffer. Nothing writes disk —

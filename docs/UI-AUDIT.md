@@ -1,6 +1,7 @@
 # UI/UX audit — every surface, driven at 412×900
 
-**Status:** ACTIVE ledger. **27 open findings**, 5 spec files, 121 assertions
+**Status:** ACTIVE ledger. **25 open findings**, 5 spec files, 121 assertions
+(96 passing). Opened at 39 failures; 10 fixed, 5 were bad tests. All four P0s closed.
 (94 passing). Opened at 39 failures; 8 fixed, 5 were bad tests.
 **Method:** one Playwright spec per surface, driving the real cockpit against a
 throwaway server on free ports. No mocks, no fixtures — the specs click what a
@@ -45,7 +46,7 @@ Ranked by what they cost the user, not by how hard they are to fix.
 | ~~1~~ | Editor | ~~**Save silently overwrites a different existing file.**~~ **FIXED** — see below. |
 | ~~2~~ | Editor | ~~Opening another file discards the unsaved buffer.~~ **FIXED** |
 | ~~3~~ | Doctor/Scan | ~~Tapping a scan finding discards unsaved editor work.~~ **FIXED** |
-| 4 | Fleet | **Top-up can be fired twice on one halted run.** The control stays armed after use; a second tap resumes the same session again and double-spends its budget. **OPEN — the last P0.** |
+| ~~4~~ | Fleet | ~~**Top-up can be fired twice on one halted run.**~~ **FIXED** — server and client. All four P0s are closed. |
 
 ### P1 — the surface lies
 
@@ -54,7 +55,7 @@ where it does not.
 
 | # | Surface | Finding |
 |---|---------|---------|
-| 5 | Fleet | KILL ALL fails silently — a dead kill is pixel-identical to a successful one. |
+| ~~5~~ | Fleet | ~~KILL ALL fails silently.~~ **FIXED** — and the per-run kill, which had the same bug and was never reported. |
 | 6 | Fleet | Header burn meter is frozen during a live run: it under-reports in the only moments it matters. |
 | 7 | Doctor | A **failed** preflight re-run leaves the previous green verdict on screen ("safe to consider exposure") with zero check rows. A security gate showing a stale pass. |
 | 8 | Doctor | Preview URL bar misreports what the server stored (`…/dashboard?tab=1` shown, `…:5173` served). |
@@ -128,6 +129,25 @@ Recorded so the error rate is visible:
   dialogs — a user clicking Cancel — so one dirty buffer blocked every open
   after it. Both guard tests assert only that the cockpit **asked**, never what
   was answered, so the handlers now `accept()`. The assertions are untouched.
+
+## The refactor is what unblocks the rest
+
+The client half of the top-up fix is three lines. `app.js` was 2030 lines
+against a 2030 ceiling, so it did not fit — and that is not special to top-up.
+Nearly every open finding above lands in `app.js`, which has no room by design.
+
+So the order is: **extract the section, then fix inside it.** Both times now,
+the extraction has *paid for itself* — the module comes out, `app.js` shrinks,
+the ratchet comes down, and the fix lands with unit tests that need no browser.
+
+| Extraction | `app.js` | Ratchet | Fixed | New tests |
+|---|---|---|---|---|
+| `lib/editorguard.js` | 2031 → 2030 | ↓ | #1 #2 #3 #11 #12 #13 | 14 |
+| `lib/fleetactions.js` | 2030 → 2019 | ↓ | #4 #5 | 13 |
+
+Refactoring a 2,000-line IIFE is only safe because the specs exist first: 425
+gate assertions plus 121 UI-spec ones are the net that catches a bad move. The
+order was not optional.
 
 ## What the guards cost
 

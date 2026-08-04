@@ -457,21 +457,65 @@ function finish(run) {
   else if (run.status === 'error') notify('✗ Fleet run error', `${run.profile}: ${run.lastLine}`).catch(() => {});
 }
 
-// Budget halts aren't dead ends: same session, fresh budget, keeps going.
-export function topUpRun(id, extra = 100000) {
-  const prev = runs.find((r) => r.id === id);
+/**
+ * May this run be topped up? Throws with the reason if not.
+ *
+ * Separate from topUpRun so it can be tested against fabricated runs: the real
+ * path ends in spawnRun, and a test that has to spawn a live agent to check a
+ * guard is a test nobody runs.
+ */
+export function assertTopUpable(prev) {
   if (!prev) throw new Error('no such run');
   // Only the Claude path carries a session id, so only it can be continued.
   // Saying WHY beats a generic "not resumable" a user can't act on.
   if ((prev.engine ?? 'claude') !== 'claude') {
     throw new Error(`${prev.engine} runs are one-shot batch invocations with no session id — they cannot be topped up. Re-run with a larger budget.`);
   }
+  // 'resumed' fails here by design: a halt is spent once. See topUpRun.
   if (prev.status !== 'halted-budget' || !prev.sessionId) throw new Error('run is not resumable');
-  return spawnRun({
-    prompt: `[Atlan top-up: John added ${extra} tokens — continue the task where you left off and finish with the compact report.]`,
-    profile: prev.profile, cwd: prev.cwd, model: prev.model, engine: prev.engine ?? 'claude',
-    budget: extra, resume: prev.sessionId, resumedFrom: prev.id,
-  });
+}
+
+/**
+ * Spend the halt, and hand back the undo.
+ *
+ * A halt is a one-shot ticket. Marking it here — rather than inline in
+ * topUpRun — is what lets a test prove the ticket is actually torn, without
+ * spawning a live agent to find out.
+ */
+export function consumeHalt(prev) {
+  const spent = { status: prev.status, lastLine: prev.lastLine };
+  prev.status = 'resumed';
+  return () => Object.assign(prev, spent);
+}
+
+// Budget halts aren't dead ends: same session, fresh budget, keeps going.
+export function topUpRun(id, extra = 100000) {
+  const prev = runs.find((r) => r.id === id);
+  assertTopUpable(prev);
+  // Spend the halt BEFORE spawning, not after.
+  //
+  // This guard used to be the only thing standing between one tap and two, and
+  // it never consumed what it checked: the halted run stayed 'halted-budget'
+  // forever, so a second tap passed the same check and resumed the SAME session
+  // again on a second budget. Two runs, one session, double the spend — and the
+  // card kept offering it, because `resumable` is derived from this very status.
+  // Ordering matters: setting it first means there is no window at all, even if
+  // spawnRun ever grows an await. If the spawn fails, the halt is handed back so
+  // the user can retry.
+  const restore = consumeHalt(prev);
+  try {
+    const next = spawnRun({
+      prompt: `[Atlan top-up: John added ${extra} tokens — continue the task where you left off and finish with the compact report.]`,
+      profile: prev.profile, cwd: prev.cwd, model: prev.model, engine: prev.engine ?? 'claude',
+      budget: extra, resume: prev.sessionId, resumedFrom: prev.id,
+    });
+    prev.resumedInto = next.id;
+    prev.lastLine = `topped up +${extra} tok → resumed as ${next.id}`;
+    return next;
+  } catch (err) {
+    restore(); // spawn failed: the top-up is still available
+    throw err;
+  }
 }
 
 export function killRun(id) {

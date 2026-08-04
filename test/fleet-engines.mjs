@@ -18,7 +18,7 @@
 import assert from 'node:assert';
 import { readFileSync } from 'node:fs';
 import {
-  FLEET_ENGINES, CLI_ENGINES, engineCapabilities, spawnRun, topUpRun, profileList, listRuns,
+  FLEET_ENGINES, CLI_ENGINES, engineCapabilities, spawnRun, topUpRun, assertTopUpable, consumeHalt, profileList, listRuns,
   UNMETERED_ENGINES,
 } from '../server/src/fleet.js';
 import { policyArgs, engineFidelity, sandboxCapableHost, ENGINE_POLICY } from '../server/src/enginePolicy.js';
@@ -165,10 +165,67 @@ test('every engine declares a bypass flag, so the phone path always starts', () 
 
 // ── top-up honesty ─────────────────────────────────────────────────────────
 test('topUpRun refuses CLI engines with a reason a user can act on', () => {
-  // Fabricate the minimum state topUpRun inspects, via a real spawn that is
-  // immediately killed would cost tokens — so assert on the message contract
-  // through the unknown-run path plus the engine guard in isolation.
   assert.throws(() => topUpRun('nope-not-a-run'), /no such run/i);
+  for (const engine of CLI_ENGINES) {
+    assert.throws(
+      () => assertTopUpable({ id: 'x', engine, status: 'halted-budget', sessionId: 's1' }),
+      /one-shot batch invocations/,
+      `${engine} must say WHY it cannot be topped up`,
+    );
+  }
+});
+
+const halted = () => ({ id: 'r1', engine: 'claude', status: 'halted-budget', sessionId: 's1' });
+
+test('a halted Claude run with a session is topupable', () => {
+  assert.doesNotThrow(() => assertTopUpable(halted()));
+});
+
+test('a halt can only be spent ONCE', () => {
+  // The double-spend: the guard used to check a status that nothing ever
+  // changed, so a run stayed 'halted-budget' after being topped up and a second
+  // tap resumed the SAME session again on a second budget.
+  //
+  // This drives the REAL consumption, not a hand-set status — otherwise it
+  // would pass against the broken code, which is no test at all.
+  const run = halted();
+  assertTopUpable(run);
+  consumeHalt(run);
+  assert.throws(() => assertTopUpable(run), /not resumable/i,
+    'a topped-up run is still offering itself — this is the double-spend');
+});
+
+test('a spend that fails to spawn hands the top-up back', () => {
+  // Consuming first closes the two-taps window, but it must not eat the halt
+  // when the resume never starts — that would strand a run the user paid for.
+  const run = halted();
+  const restore = consumeHalt(run);
+  assert.throws(() => assertTopUpable(run), /not resumable/i, 'precondition: the halt is spent');
+  restore();
+  assert.doesNotThrow(() => assertTopUpable(run), 'a failed spawn stranded the run');
+});
+
+
+test('a run with no session id cannot be resumed however halted it looks', () => {
+  assert.throws(() => assertTopUpable({ ...halted(), sessionId: null }), /not resumable/i);
+});
+
+for (const status of ['running', 'done', 'killed', 'error']) {
+  test(`a ${status} run is not topupable`, () => {
+    assert.throws(() => assertTopUpable({ ...halted(), status }), /not resumable/i);
+  });
+}
+
+test('topUpRun spends the halt BEFORE it spawns, so there is no window', () => {
+  // Order, not presence. If the status were set after spawnRun returned, two
+  // taps arriving before the first spawn resolved would both pass the guard.
+  const src = readFleetSource();
+  const body = src.slice(src.indexOf('export function topUpRun'));
+  const marked = body.indexOf('consumeHalt(prev)');
+  const spawned = body.indexOf('spawnRun({');
+  assert.ok(marked > 0, 'topUpRun never marks the halt as spent');
+  assert.ok(spawned > marked, 'the halt must be spent BEFORE spawnRun, not after');
+  assert.ok(/catch[\s\S]{0,80}restore\(\)/.test(body), 'a failed spawn must hand the top-up back');
 });
 
 // ── budget + caps still apply across engines ───────────────────────────────
