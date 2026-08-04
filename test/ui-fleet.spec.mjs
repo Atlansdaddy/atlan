@@ -318,15 +318,25 @@ await test("the header burn meter reports today's burn on every tab", async () =
 });
 
 await test('the header burn meter moves while a run is burning', async () => {
-  // §4.6: fleet.burn frames only ever call paintRun(). #burnMeta — the one
-  // always-visible spend gauge — is repainted on load and on fleet.done, so it
-  // is frozen for exactly the window a user would be watching it.
+  // §4.6: #burnMeta — the one always-visible spend gauge — is repainted on load
+  // and on fleet.done, and app.js:349 repaints it only on a frame carrying
+  // `today`. fleet.burn carried none, so the meter froze for exactly the window
+  // a user would be watching it.
+  //
+  // These frames carry `today` because the SERVER now does: fleet.js broadcasts
+  // today: todayBurn(), which folds in every in-flight run. That half is pinned
+  // in test/fleet-engines.mjs — an injected frame is only ever as honest as the
+  // contract it copies, so the contract is asserted where it lives and this spec
+  // proves the client actually paints what arrives.
   await openFleet();
   const before = await page.locator('#burnMeta').innerText();
   await page.evaluate((run) => window.__inject({ t: 'fleet.run', run }), mkRun({ id: 'burner', tokens: 0, budget: 1000000 }));
   await page.waitForTimeout(150);
   for (const tok of [80000, 160000, 240000]) {
-    await page.evaluate((t) => window.__inject({ t: 'fleet.burn', id: 'burner', tokens: t, cost: t / 1e6, cacheRead: 0 }), tok);
+    await page.evaluate((t) => window.__inject({
+      t: 'fleet.burn', id: 'burner', tokens: t, cost: t / 1e6, cacheRead: 0,
+      today: { tokens: t, cost: t / 1e6, cacheRead: 0 },
+    }), tok);
     await page.waitForTimeout(120);
   }
   const cardMeta = await page.locator('#fleetRuns .runcard[data-id="burner"] .rmeta').textContent();

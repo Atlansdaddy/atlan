@@ -396,7 +396,13 @@ async function exec(run, prof) {
         if (u) {
           run.tokens += (u.input_tokens ?? 0) + (u.output_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0);
           run.cacheRead += (u.cache_read_input_tokens ?? 0); // cache hits, billed at ~0.1x — excluded from budget
-          broadcast({ t: 'fleet.burn', id: run.id, tokens: run.tokens, budget: run.budget, cost: run.cost, cacheRead: run.cacheRead });
+          // `today` rides along because #burnMeta — the one always-visible spend
+          // gauge — repaints only when a frame carries it. Without this it was
+          // painted on load and on fleet.done and frozen in between: the meter
+          // stood still for exactly the window someone would be watching it.
+          // todayBurn() already folds in every in-flight run, so the header is
+          // the server's number and the client never does spend arithmetic.
+          broadcast({ t: 'fleet.burn', id: run.id, tokens: run.tokens, budget: run.budget, cost: run.cost, cacheRead: run.cacheRead, today: todayBurn() });
           if (run.tokens >= run.budget && run.status === 'running') halt(run, q);
         }
         for (const b of m.message?.content ?? []) {

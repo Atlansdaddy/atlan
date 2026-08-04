@@ -25,13 +25,13 @@ _Free suites only. The E2E suite (real Claude runs) is opt-in — `RUN_PAID=1 no
 | Voice & Providers | TTS roster honesty (readiness tracks keys, roadmap items never claim ready), TTS input validation + clean degradation, SSML XML-escaping (no injection), Polly SigV4 signer, and the 12-provider AI-model spread. | ✅ 15/15 |
 | Escalation ladder | The chat escalation ladder: cheapest-rung-first with DETERMINISTIC escalation triggers (error, empty, truncated, stated incapacity) and no model grading itself. Includes the honest-limit test — a confidently wrong answer must NOT escalate, asserted so nobody later replaces the trigger with a self-critique wall — plus the rule that the hands-having agentic rung is never reachable silently from chat. | ✅ 30/30 |
 | Doc drift | Two ratchets in one file. (1) The docs' factual claims asserted against the CODE: tab count and names from index.html, engine roster from agents.js and fleet.js, template list from the UI, plus the status-convention requirements — a full sweep on 2026-08-02 found drift in BOTH directions across three docs, so the commit that changes a count now fails instead of the next reader. (2) The STRUCTURAL ratchet: web/public/app.js must not grow — new surfaces go to lib/ modules, and the ceiling only ever moves down. Both exist because prose and debt cannot be made to stop rotting by asking people to be careful. | ✅ 13/13 |
-| Fleet engines | The fleet is configurable across engines, and the run record cannot lie about it: per-engine capability roster (which profiles each can actually enforce HERE, mid-run vs pre-flight budget, resumable or not), refusal BEFORE a run exists when an engine cannot honestly enforce a profile, ungated runs reachable only by explicit acknowledgement, budget/concurrency/daily caps ahead of the engine branch, and KILL ALL working on both handle shapes. | ✅ 44/44 |
+| Fleet engines | The fleet is configurable across engines, and the run record cannot lie about it: per-engine capability roster (which profiles each can actually enforce HERE, mid-run vs pre-flight budget, resumable or not), refusal BEFORE a run exists when an engine cannot honestly enforce a profile, ungated runs reachable only by explicit acknowledgement, budget/concurrency/daily caps ahead of the engine branch, and KILL ALL working on both handle shapes. | ✅ 46/46 |
 | Vision / multimodal | Chat-only brains can receive image BYTES (OpenAI-compat image_url parts) instead of a filesystem path they cannot open, and a text-only provider REFUSES the turn rather than silently sending it text-only — the failure mode that let this bug hide for a week. Data-URL construction, size/format/empty guards, last-user-turn targeting, no-mutation-of-caller-history, and per-file error reporting. | ✅ 26/26 |
 | Cross-engine orchestration | Profile→native-flag projection per CLI, refusal when an engine cannot enforce a profile, credential scrubbing from the child env, and Atlan-side containment (disposable git worktree + diff gate) proving the real project stays untouchable — including a simulated proot host where no kernel sandbox exists. Live engine calls are opt-in via RUN_LIVE=1. | ✅ 8/8 |
 | UI/UX | Headless Chromium drives the real cockpit: tabs, engine roster, doctor/preflight render, key entry no-leak, XSS-safe render. | ✅ 13/13 |
 | Tour/Onboarding | Drives all tour steps live — every step spotlights a real visible element; handbook opens/searches/relaunches. | ✅ 10/10 |
 
-**Total: 425 passed, 0 failed across 19 suites.**
+**Total: 427 passed, 0 failed across 19 suites.**
 
 ## Unit
 
@@ -549,6 +549,8 @@ FLEET ENGINES SUITE
   ✓ a done run is not topupable
   ✓ a killed run is not topupable
   ✓ a error run is not topupable
+  ✓ every burn frame carries the day total, or the header gauge freezes
+  ✓ todayBurn folds in runs still in flight, not just the persisted total
   ✓ topUpRun spends the halt BEFORE it spawns, so there is no window
   ✓ budget is clamped identically regardless of engine
   ✓ concurrency and daily-token caps are checked before any engine branch
@@ -572,7 +574,7 @@ FLEET ENGINES SUITE
   ✓ AUDIT-1 · orchestration.mjs loads THIS repo, not another worktree
   ✓ AUDIT-3 · the containment diff has a real timestamp floor
 
-44 passed, 0 failed
+46 passed, 0 failed
 ```
 
 ## Vision / multimodal

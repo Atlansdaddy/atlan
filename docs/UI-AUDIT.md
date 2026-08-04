@@ -1,8 +1,7 @@
 # UI/UX audit — every surface, driven at 412×900
 
-**Status:** ACTIVE ledger. **25 open findings**, 5 spec files, 121 assertions
-(96 passing). Opened at 39 failures; 10 fixed, 5 were bad tests. All four P0s closed.
-(94 passing). Opened at 39 failures; 8 fixed, 5 were bad tests.
+**Status:** ACTIVE ledger. **24 open findings**, 5 spec files, 121 assertions
+(97 passing). Opened at 39 failures; 11 fixed, 5 were bad tests. All four P0s closed.
 **Method:** one Playwright spec per surface, driving the real cockpit against a
 throwaway server on free ports. No mocks, no fixtures — the specs click what a
 phone user clicks.
@@ -10,7 +9,7 @@ phone user clicks.
 ## How to read this file
 
 These specs are **not in `test/run-all.mjs` yet**, and that is deliberate. They
-currently fail 32 times, and every one of those failures is a real defect in the
+still fail 24 times, and every one of those failures is a real defect in the
 cockpit, not a bad assertion. Registering them today would turn the gate red and
 the only way back to green would be to weaken assertions — which is how a suite
 starts lying. Instead they run on demand, and **each spec joins the gate the day
@@ -56,7 +55,7 @@ where it does not.
 | # | Surface | Finding |
 |---|---------|---------|
 | ~~5~~ | Fleet | ~~KILL ALL fails silently.~~ **FIXED** — and the per-run kill, which had the same bug and was never reported. |
-| 6 | Fleet | Header burn meter is frozen during a live run: it under-reports in the only moments it matters. |
+| ~~6~~ | Fleet | ~~Header burn meter is frozen during a live run.~~ **FIXED** |
 | 7 | Doctor | A **failed** preflight re-run leaves the previous green verdict on screen ("safe to consider exposure") with zero check rows. A security gate showing a stale pass. |
 | 8 | Doctor | Preview URL bar misreports what the server stored (`…/dashboard?tab=1` shown, `…:5173` served). |
 | 9 | Doctor | Preview target does not survive a reload — bar and stored target disagree. |
@@ -144,6 +143,7 @@ the ratchet comes down, and the fix lands with unit tests that need no browser.
 |---|---|---|---|---|
 | `lib/editorguard.js` | 2031 → 2030 | ↓ | #1 #2 #3 #11 #12 #13 | 14 |
 | `lib/fleetactions.js` | 2030 → 2019 | ↓ | #4 #5 | 13 |
+| burn-gauge hoist | 2019 → 2016 | ↓ | #6 | 2 |
 
 Refactoring a 2,000-line IIFE is only safe because the specs exist first: 425
 gate assertions plus 121 UI-spec ones are the net that catches a bad move. The

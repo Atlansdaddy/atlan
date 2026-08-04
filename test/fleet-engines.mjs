@@ -216,6 +216,28 @@ for (const status of ['running', 'done', 'killed', 'error']) {
   });
 }
 
+test('every burn frame carries the day total, or the header gauge freezes', () => {
+  // #burnMeta repaints only on a frame that carries `today` (app.js:349). It was
+  // painted on load and on fleet.done and nowhere between, so the one
+  // always-visible spend gauge stood still during live runs — under-reporting in
+  // exactly the window someone would be watching it.
+  const src = readFleetSource();
+  const frame = src.slice(src.indexOf("t: 'fleet.burn'"));
+  const end = frame.indexOf('});');
+  assert.ok(end > 0, 'could not find the end of the fleet.burn broadcast');
+  assert.match(frame.slice(0, end), /today:\s*todayBurn\(\)/,
+    'the fleet.burn broadcast must carry today: todayBurn() — the client must never do spend arithmetic itself');
+});
+
+test('todayBurn folds in runs still in flight, not just the persisted total', () => {
+  // If it only read the file, `today` would lag a whole run behind and the
+  // header would jump at the end instead of moving during.
+  const src = readFleetSource();
+  const body = src.slice(src.indexOf('export function todayBurn'));
+  assert.match(body.slice(0, body.indexOf('\n}')), /r\.status === 'running'/,
+    'todayBurn must add in-flight runs, or the live gauge is always stale');
+});
+
 test('topUpRun spends the halt BEFORE it spawns, so there is no window', () => {
   // Order, not presence. If the status were set after spawnRun returned, two
   // taps arriving before the first spawn resolved would both pass the guard.

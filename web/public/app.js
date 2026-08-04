@@ -259,6 +259,10 @@ import { topUp, sendKill } from './lib/fleetactions.js';
   // ── message handling ──
   let sessionId = null;
   function handle(m) {
+    // Any frame carrying a day total repaints the header gauge. This sat inside
+    // `fleet.done` alone, so #burnMeta froze through every live run and jumped
+    // at the end. Hoisted so a frame added later cannot miss it again.
+    if (m.today) paintBurnToday(m.today);
     switch (m.t) {
       case 'chat.msg': addMsg(m.role, m.text, m.engine); break;
       case 'chat.rung': addRungLine(m); break;
@@ -346,7 +350,6 @@ import { topUp, sendKill } from './lib/fleetactions.js';
       }
       case 'fleet.done':
         upsertRun(m.run);
-        if (m.today) paintBurnToday(m.today);
         fleetPing(m.run);
         break;
       case 'fleet.killall': loadFleet(); break;
@@ -957,15 +960,9 @@ import { topUp, sendKill } from './lib/fleetactions.js';
     chatlog.append(line); scroll();
   }
 
-  function paintBurnToday(t) {
-    // Tokens are the real currency on a Claude subscription (they meter your
-    // plan's usage limits). The dollar figure is the SDK's ESTIMATE at public
-    // API rates — a gauge of work done, NOT a charge on a Pro/Max plan. Label
-    // it honestly so it never reads as money leaving the account. cacheRead =
-    // input tokens served from the prompt cache at ~0.1x — the caching win,
-    // shown so the savings are visible.
-    $('burnMeta').textContent = t.tokens ? burnLine(t) : '';
-  }
+  // Why this line is worded the way it is — tokens as the real currency, the
+  // dollar figure as an ESTIMATE and not a charge — lives with burnLine().
+  function paintBurnToday(t) { $('burnMeta').textContent = t.tokens ? burnLine(t) : ''; }
 
   function upsertRun(run) {
     fleetRuns.set(run.id, run);
