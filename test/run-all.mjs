@@ -60,6 +60,7 @@ const teardown = () => {
 const PAID = !!process.env.RUN_PAID;
 const SUITES = [
   ['Unit', 'test/unit.mjs', 'Pure functions in isolation: safe-arith evaluator, checker engine, Persona+ compilers, schema builders, scheduler math, token compare.'],
+  ['Doc drift', 'test/docdrift.mjs', 'Structural ratchet: web/public/app.js must not grow — new surfaces go to lib/ modules. Fails the commit that adds the debt.'],
   ['Function', 'test/function.mjs', 'Every HTTP endpoint contract + shape, plus data-store durability (corrupt/truncated JSON fails soft). (Spawns 1 tiny killed run.)'],
   ['Connection', 'test/connection.mjs', 'Live WebSocket + PTY: authed connect, 4001 on bad token, malformed-frame survival, multi-client broadcast, tmux round-trip, reconnection. (Spawns 2 tiny killed runs.)'],
   ['Security/Penetration', 'test/security.mjs', 'Auth bypass, SSRF (preview + harness), secret exfiltration, path traversal, stored-XSS, oversized-body DoS, profile privilege-escalation.'],
@@ -80,7 +81,7 @@ md += `This document is the evidence trail: each function is exercised, and the 
 md += `_Stamp: ${now}_\n\n`;
 md += PAID
   ? `_Includes the PAID E2E suite (real Claude runs)._\n\n`
-  : `_Free suites only. The E2E suite (real Claude runs) is opt-in — \`RUN_PAID=1 node test/run-all.mjs\`. Last standalone E2E result: **7/7 green** (fleet run to completion, budget-halt→top-up resume, harness good/bad + escalation, routine fire→inbox)._\n\n`;
+  : `_Free suites only. The E2E suite (real Claude runs) is opt-in — \`RUN_PAID=1 node test/run-all.mjs\`. Last standalone E2E result: **8/8 green, 2026-08-04 on SDK 0.3.221** (fleet run to completion, scout-canary side-effect check, budget-halt→top-up resume, harness good/bad + escalation, routine fire→inbox)._\n\n`;
 md += `## Summary\n\n| Suite | What it proves | Result |\n|---|---|---|\n`;
 
 const details = [];

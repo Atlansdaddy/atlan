@@ -83,9 +83,18 @@
     setTimeout(place, 120); // let the tab paint
   }
   function next() { idx === STEPS.length - 1 ? end() : show(idx + 1); }
+  // Tour state lives SERVER-side (/api/prefs): localStorage is per-origin and
+  // this cockpit spans at least two (loopback + tailnet), so a browser-only
+  // flag re-shows the bar on every other origin. localStorage stays as a
+  // same-origin fast path. '1' = completed, 'dismissed' = declined or started —
+  // both silence the bar forever; the ? button relaunches the tour any time.
+  function markTour(v) {
+    localStorage.setItem('atlanTourDone', v);
+    fetch('/api/prefs', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key: 'tour', value: v }) }).catch(() => {});
+  }
   function end() {
     ov.classList.remove('show');
-    localStorage.setItem('atlanTourDone', '1');
+    markTour('1');
     $('firstRun')?.remove();
   }
   $('tourNext').addEventListener('click', next);
@@ -108,13 +117,26 @@
   });
 
   // ── first run: offer, never force (shown once the user is past login) ──
-  if (!localStorage.getItem('atlanTourDone')) {
+  // Every exit from the bar writes the flag — completing the tour was the ONLY
+  // path that wrote it before, so "later" and abandon brought the bar back on
+  // every reload (docs/TUTORIAL-OVERHAUL.md §1).
+  function offerTour() {
     const bar = document.createElement('div');
     bar.id = 'firstRun';
     bar.innerHTML = `<span>👋 First dive? Let Atlan walk you through everything.</span><button class="btn hot" id="frGo">Take the tour</button><button class="btn ghost" id="frNo">later</button>`;
     document.body.append(bar);
-    bar.querySelector('#frGo').addEventListener('click', () => { bar.remove(); show(0); });
-    bar.querySelector('#frNo').addEventListener('click', () => bar.remove());
+    bar.querySelector('#frGo').addEventListener('click', () => { bar.remove(); markTour('dismissed'); show(0); });
+    bar.querySelector('#frNo').addEventListener('click', () => { bar.remove(); markTour('dismissed'); });
+  }
+  const localTour = localStorage.getItem('atlanTourDone');
+  if (localTour) {
+    // seen on this origin — sync forward so the OTHER origins stay quiet too
+    fetch('/api/prefs').then((r) => r.json()).then((p) => { if (!p.tour) markTour(localTour); }).catch(() => {});
+  } else {
+    fetch('/api/prefs').then((r) => r.json()).then((p) => {
+      if (p.tour) localStorage.setItem('atlanTourDone', p.tour); // cache for next load
+      else offerTour();
+    }).catch(offerTour); // server unreachable → offline-first, offer like before
   }
 
   window._tour = { show, STEPS }; // exposed for tests: the tour must be drivable

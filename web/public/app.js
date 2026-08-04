@@ -1072,17 +1072,22 @@
     const instruction = $('aiModalInput').value.trim();
     if (!instruction) return;
     const sel = cmEditor.getSelection();
-    // With no selection the model rewrites the ENTIRE file and his version
-    // dropped it straight over the buffer while keeping edCurrentPath — one
-    // reflexive Save and the real file is gone with no diff to look at. Make
-    // the destructive branch a deliberate choice.
-    if (!sel && !confirm('Replace the ENTIRE file with the AI\'s output?\n\nYour current unsaved edits will be lost. (Selecting text first edits just that part.)')) return;
+    // With no selection the model rewrites the ENTIRE file. The old blind
+    // confirm() fired before the model even ran — agreeing to output nobody had
+    // seen — and the result landed in the buffer with edCurrentPath intact, so
+    // one reflexive Save wrote unreviewed AI output over the real file. Now the
+    // result arrives as a PROPOSAL (same contract as sendToEditor): path
+    // cleared, Save inert until you choose a destination. Only remaining risk
+    // is unsaved manual edits in the buffer, so that's the only confirm left.
+    if (!sel && cmEditor.getValue() !== edClean
+      && !confirm('You have unsaved manual edits — the AI\'s rewrite will replace them in the buffer (one undo brings them back). Continue?')) return;
     $('aiModal').style.display = 'none';
     const [engine, model] = ($('modelSel')?.value || '').split('|');
+    const srcPath = edCurrentPath;
     $('edInlineAi').disabled = true;
     fetch('/api/editor/ai-edit', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ path: edCurrentPath, content: cmEditor.getValue(), selection: sel || null, instruction, engine, model }),
+      body: JSON.stringify({ path: srcPath, content: cmEditor.getValue(), selection: sel || null, instruction, engine, model }),
     }).then((r) => r.json()).then((j) => {
       $('edInlineAi').disabled = false;
       if (j.error) return addMsg('err', j.error);
@@ -1091,6 +1096,13 @@
         if (sel) cmEditor.replaceSelection(j.content);
         else cmEditor.setValue(j.content);
       });
+      if (!sel) {
+        // whole-file rewrite → proposal until saved, like sendToEditor
+        edClean = ''; edCurrentPath = null;
+        $('edName').textContent = 'AI rewrite · review, then Save';
+        $('edPath').value = '';
+        $('edPath').placeholder = `was ${srcPath} — review, then set a path to save`;
+      }
       $('edDirty').textContent = cmEditor.getValue() !== edClean ? '● unsaved' : '';
       if (j.fellBack) addMsg('claude', `Inline AI ran on ${j.engine} — the engine you picked isn't a chat brain.`);
     }).catch((e) => { $('edInlineAi').disabled = false; addMsg('err', String(e)); });

@@ -34,6 +34,7 @@ import { initHierarchy, listJobs, upsertJob, deleteJob, startJob, listRuns as li
 import { saveUpload, saveRef, turnContext } from './attachments.js';
 import { studioRoster, generateImage } from './studio.js';
 import { readFile, writeFile, listDir } from './files.js';
+import { getPrefs, setPref } from './prefs.js';
 import { voiceRoster, synthesize } from './voice.js';
 import {
   listPersonas, listCommands, upsertPersona, deletePersona, upsertCommand, deleteCommand,
@@ -305,6 +306,14 @@ app.post('/api/keys', (req, res) => {
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
+});
+
+// UI prefs live server-side because the cockpit spans origins (loopback +
+// tailnet) and localStorage doesn't — see docs/TUTORIAL-OVERHAUL.md §1b.
+app.get('/api/prefs', (_req, res) => res.json(getPrefs()));
+app.post('/api/prefs', (req, res) => {
+  const p = setPref(String(req.body?.key), req.body?.value);
+  p ? res.json(p) : res.status(400).json({ error: 'unknown pref' });
 });
 
 app.get('/api/preview/target', (_req, res) => res.json({ url: getPreviewTarget() }));

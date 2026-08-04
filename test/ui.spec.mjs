@@ -124,6 +124,41 @@ await test('rendered chat message is XSS-safe', async () => {
   assert.ok(!pwned, 'XSS executed from message content');
 });
 
+await test('inline-AI whole-file rewrite becomes a PROPOSAL — Save is inert until a path is chosen', async () => {
+  // REGRESSION (review 2026-08-04): the no-selection path used to drop the
+  // AI's output over the live buffer while KEEPING edCurrentPath, so one
+  // reflexive Save wrote unreviewed AI output over the real file. The contract
+  // now matches sendToEditor: whole-file results arrive path-less. Both
+  // endpoints are stubbed so this exercises pure client behaviour.
+  await page.route('**/api/file*', (route) => route.request().method() === 'GET'
+    ? route.fulfill({ json: { path: '/root/proj/x.js', name: 'x.js', content: 'const original = 1;\n' } })
+    : route.continue());
+  await page.route('**/api/editor/ai-edit', (route) =>
+    route.fulfill({ json: { ok: true, content: 'const rewritten = 2;\n' } }));
+
+  await page.locator('nav button:has-text("Editor")').click();
+  await page.fill('#edPath', '/root/proj/x.js');
+  await page.locator('#edOpen').click();
+  await page.waitForFunction(() => document.getElementById('edName')?.textContent === 'x.js');
+
+  await page.locator('#edInlineAi').click();
+  await page.fill('#aiModalInput', 'rewrite it');
+  await page.locator('#aiModalSubmit').click();
+  await page.waitForFunction(() =>
+    document.querySelector('#editor .CodeMirror')?.CodeMirror.getValue().includes('rewritten'), { timeout: 4000 });
+
+  assert.equal(await page.locator('#edName').innerText(), 'AI rewrite · review, then Save');
+  assert.equal(await page.inputValue('#edPath'), '', 'path survived — reflexive Save would hit the real file');
+  assert.ok((await page.locator('#edPath').getAttribute('placeholder')).includes('/root/proj/x.js'),
+    'original path not shown as the suggested destination');
+  // the teeth: Save without a path must refuse, not write
+  await page.locator('#edSave').click();
+  await page.waitForFunction(() =>
+    [...document.querySelectorAll('#chatlog .msg')].some((m) => m.textContent.includes('set a path to save')), { timeout: 3000 });
+  await page.unroute('**/api/file*');
+  await page.unroute('**/api/editor/ai-edit');
+});
+
 await test('no uncaught page errors during the run', async () => {
   assert.equal(consoleErrors.length, 0, 'page errors: ' + consoleErrors.join('; '));
 });

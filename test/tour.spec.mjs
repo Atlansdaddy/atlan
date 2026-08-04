@@ -25,6 +25,13 @@ await page.evaluate(async (pw) => {
   const ep = s.configured ? '/api/auth/login' : '/api/auth/setup';
   await fetch(ep, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ password: pw }) });
 }, 'atlan-test-pw-8x');
+// Tour state is SERVER-side now (per-origin localStorage re-showed the bar on
+// every other origin) — so "fresh browser" needs a fresh server pref too: the
+// UI suite ran first against this same throwaway server and may have synced
+// its own localStorage flag forward. Empty value deletes the pref.
+await page.evaluate(() => fetch('/api/prefs', {
+  method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key: 'tour', value: '' }),
+}));
 
 console.log('TOUR + HANDBOOK SUITE');
 
@@ -34,10 +41,25 @@ await test('first-run banner offers the tour to a fresh browser', async () => {
   assert.ok((await page.locator('#firstRun').innerText()).includes('tour'));
 });
 
-await test('banner "later" dismisses without marking done', async () => {
+await test('banner "later" is remembered — server-side, distinct from done', async () => {
   await page.locator('#frNo').click();
   assert.equal(await page.locator('#firstRun').count(), 0);
-  assert.equal(await page.evaluate(() => localStorage.getItem('atlanTourDone')), null);
+  // 'dismissed', not '1': silences the bar but stays distinguishable from a
+  // completed tour, so a future gentle nudge remains possible.
+  assert.equal(await page.evaluate(() => localStorage.getItem('atlanTourDone')), 'dismissed');
+  // and it must land in /api/prefs — that's what keeps the OTHER origin quiet
+  await page.waitForFunction(async () => {
+    const p = await fetch('/api/prefs').then((r) => r.json());
+    return p.tour === 'dismissed';
+  }, { timeout: 4000 });
+});
+
+await test('dismissal survives reload even with EMPTY localStorage (cross-origin case)', async () => {
+  // wiping localStorage simulates arriving on the cockpit's other origin
+  // (loopback vs tailnet) — only the server pref can keep the bar away here
+  await page.evaluate(() => localStorage.clear());
+  await page.goto(BASE, { waitUntil: 'networkidle' });
+  assert.equal(await page.locator('#firstRun').count(), 0, 'bar came back after "later"');
 });
 
 const stepCount = await page.evaluate(() => window._tour.STEPS.length);
