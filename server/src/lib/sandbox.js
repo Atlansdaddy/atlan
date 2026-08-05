@@ -36,11 +36,22 @@ import { join, isAbsolute } from 'node:path';
 //               Measured ENETUNREACH both to the internet AND to the cockpit's
 //               own 127.0.0.1 port — host loopback is a DIFFERENT loopback.
 //   rbind / into a fresh root, remount every mount in it READ-ONLY deepest-
-//   first, then reopen exactly the declared writable paths. Deny by default:
-//   the fence is the absence of a writable mount, not a check on a string, so
-//   there is no path spelling — `..`, unicode, symlink, race — that reaches
-//   past it. The kernel refuses with EROFS regardless of how you spell it.
-//   pivot_root + detach the old root so there is no `/oldroot` to walk back up.
+//   first (decoding mountinfo's octal escapes — see below), replace /tmp, /run
+//   and $HOME with empty tmpfs, then reopen exactly the declared readable and
+//   writable paths. Deny by default: the fence is the absence of a writable
+//   mount, not a check on a string, so there is no path spelling — `..`,
+//   unicode, symlink, race — that reaches past it. The kernel refuses with
+//   EROFS regardless of how you spell it. pivot_root + detach the old root so
+//   there is no `/oldroot` to walk back up.
+//
+//   AND THEN CHECK THE RESULT, not the steps. Every mount above can fail in
+//   ways nobody predicted, so before pivot_root the script asserts the property
+//   it actually promises: no mount under the new root is writable unless it was
+//   declared. If one is, the run is REFUSED. That check was added after a
+//   contextless review found a mount point containing a space staying writable
+//   (the kernel escapes it as \\040 in mountinfo, mount was handed the escaped
+//   string, the remount failed, and `|| true` swallowed it) — and it
+//   immediately caught a second case nobody had gone looking for.
 //
 //   THEN THE PART THAT MAKES IT REAL:
 //   setpriv --bounding-set=-all --no-new-privs before exec.
@@ -85,7 +96,14 @@ function checkPath(p, what) {
 // argument is ever parsed by the shell as syntax. That is a structural answer
 // to command injection rather than a quoting one: there is no quoting to get
 // wrong, and no encoding of a filename that becomes shell metacharacters.
-// Layout: <nWritable> <w…> <nMask> <m…> <cmd> <args…>
+// Layout: <emptyHome> <sealRun> <home> <nReadable> <r…> <nWritable> <w…>
+//         <nMask> <m…> <cmd> <args…>
+//
+// AND DO NOT PUT A BACKTICK IN A COMMENT IN HERE. This is a template literal;
+// a backtick ends it. One did, silently, and the shell received the first 23
+// lines of this script. Nothing crashed and nothing leaked — the probe found no
+// evidence and every confinedSpawn refused — but it was invisible until traced,
+// so there is now an assertion below that this script reaches its own last line.
 const SETUP = `
 set -e
 WD=$(pwd)
