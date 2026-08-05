@@ -103,6 +103,34 @@ export async function runDoctor() {
         ? 'bubblewrap not installed (optional) — on a Linux/WSL2 host: `apt install bubblewrap` + ATLAN_SANDBOX=1 to confine autonomous Bash'
         : 'unavailable in proot (no namespaces) — profiles gate tools; a native Linux/WSL2 host + ATLAN_SANDBOX=1 gives real OS confinement' };
     }),
+    check('confine', 'Homebuilt confinement ladder (atlan-confine)', async () => {
+      // Everything this reports was ESTABLISHED BY ATTEMPT on this boot. Nothing
+      // here reads /proc/sys, /sys/kernel/security/lsm, uname, an Android release
+      // or ANDROID_* — each of those has been observed to lie in at least one
+      // direction on a platform Atlan ships to, and one of them (the
+      // max_user_namespaces file) reads a large positive number on a kernel built
+      // WITHOUT user namespaces because kernel/ucount.c registers it with no
+      // CONFIG_USER_NS guard. A flag file lies; a forked child that performs the
+      // operation does not.
+      const { probe, ladderLines } = await import('./sandbox/probe.js');
+      const { LABEL, NO_FS_ON_THIS_DEVICE } = await import('./sandbox/tiers.js');
+      const { declaredTier } = await import('./config.js');
+      const v = probe();
+      const declared = declaredTier();
+      const failed = v.rungs.filter((r) => !r.ok);
+      const ladder = ladderLines(v).join(' · ');
+      const noFs = v.rungs.some((r) => r.id === 'landlock-canary' && !r.ok);
+      const detail = `established ${v.tier} (${LABEL[v.tier]}) · runs declare ${declared}`
+        + (v.arch ? ` · ${v.arch}` : '')
+        + (v.landlockAbi > 0 ? ` · landlock abi ${v.landlockAbi}` : '')
+        + ` — ${ladder}`
+        + (noFs ? ` — ${NO_FS_ON_THIS_DEVICE.replace(/\*\*/g, '')}` : '');
+      // ok tracks whether the run CAN START: established >= declared. A device
+      // that establishes less than every rung is not a failure to report as red
+      // if nothing asks for the missing rungs.
+      const order = ['T0', 'T1', 'T2', 'T3'];
+      return { ok: order.indexOf(v.tier) >= order.indexOf(declared), warn: failed.length > 0, detail: detail.slice(0, 1200) };
+    }),
     check('piper', 'Piper voice (local TTS)', async () => {
       // Optional "sounds good" local voice. Browser voice always works without
       // it; ElevenLabs/OpenAI cover BYO-key. Green only when the binary AND a

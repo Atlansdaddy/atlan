@@ -1,6 +1,8 @@
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { getStoredKey } from './keys.js';
+import { declaredTier } from './config.js';
+import { confineSpawn } from './sandbox/confine.js';
 
 // Agent CLIs (Codex, Antigravity, Grok Build, Copilot) driven headlessly —
 // Antigravity (`agy`) replaced the Gemini CLI when Google retired its free
@@ -135,7 +137,29 @@ export function agentTurn({ engine, cwd, text, send, state, model = null }) {
     return send({ t: 'chat.err', msg: `unknown agent: ${engine}` });
   }
 
-  const child = spawn(cmd, args, { cwd, env });
+  // IP-1. The model client itself. Egress is NOT closed here and the ledger
+  // says 'open-to-provider' rather than 'gated': this process is the thing
+  // talking to api.<provider>.com, so denying AF_INET would not narrow
+  // exfiltration, it would stop the agent thinking. What it gets is capability
+  // removal, plus — where the device proves Landlock — a grant list in which
+  // exactly ONE saved login is readable, so codex can no longer read grok's
+  // token. On an unrooted phone that second half does not exist and the T1
+  // string says so in words rather than hedging.
+  let conf = null;
+  try {
+    conf = confineSpawn({ declared: declaredTier(), cmd, args, cwd, engine });
+  } catch (err) {
+    // Refusal, not degradation: the run declared a tier this device does not
+    // establish, and the message names the rung that said no.
+    state.running = false;
+    send({ t: 'chat.err', msg: `${engineLabel(engine)}: ${String(err?.message ?? err)}` });
+    send({ t: 'atlan.mood', mood: 'alarmed' });
+    return;
+  }
+  const child = conf
+    ? spawn(conf.file, conf.args, { cwd, env, stdio: conf.stdio })
+    : spawn(cmd, args, { cwd, env });
+  if (conf) conf.writePolicy(child);
   child.stdin.end(); // codex waits on stdin otherwise
   let stderrTail = '';
   let sawText = false;

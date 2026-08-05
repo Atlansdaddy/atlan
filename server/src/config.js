@@ -57,6 +57,26 @@ export function sandboxOption() {
   return sandboxEnabled() ? { enabled: true, failIfUnavailable: false } : undefined;
 }
 
+// Homebuilt confinement tier the run DECLARES (server/src/sandbox/*). This is a
+// DECLARATION, not a request: if the device establishes less, the run refuses to
+// start and the Doctor names the rung that said no. Fail-closed is measured
+// against the declaration and never against an absolute — an absolute rule ("no
+// isolation, no run") turns the phone off, and a design that turns the primary
+// platform off is a design the operator disables, which is the same outcome as
+// no boundary with extra steps.
+//
+// DEFAULT IS T0 EVERYWHERE UNTIL THE ON-DEVICE LADDER IS MEASURED. T0 is not a
+// silent degrade: its UI string says "This run was explicitly allowed to start
+// ungated" in so many words. The ladder is green on the WSL2 accessory node
+// (2026-08-05, 15/15); the PHONE numbers are unmeasured, and the default moves
+// to T1 on the commit that attaches a phone transcript — not before. Raising it
+// on a device that cannot hold it would refuse every run, which is the correct
+// failure and still a bad default to ship blind.
+export function declaredTier() {
+  const t = process.env.ATLAN_CONFINE_TIER ?? file.confineTier ?? 'T0';
+  return /^T[0-3]$/.test(String(t)) ? String(t) : 'T0';
+}
+
 // Branding / identity — neutral defaults; a fork sets its own (logo stays a file)
 export const BRAND = {
   name: file.brand?.name ?? 'Atlan',

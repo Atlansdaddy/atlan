@@ -12,7 +12,8 @@ import { dirname } from 'node:path';
 //     off-profile tools are denied with a reason the agent can read.
 //  3. Idle = zero tokens — nothing runs unless spawned (or, M5c, scheduled).
 const __dirname = dirname(fileURLToPath(import.meta.url));
-import { FLEET_DIR, DAILY_TOKEN_CAP, MAX_CONCURRENT_RUNS, TURN_RESERVE, sandboxOption } from './config.js';
+import { FLEET_DIR, DAILY_TOKEN_CAP, MAX_CONCURRENT_RUNS, TURN_RESERVE, sandboxOption, declaredTier } from './config.js';
+import { confineBash, establish } from './sandbox/confine.js';
 
 // Budget reservation (peer review): reserve headroom for the current in-flight
 // turn so a single big generation can't overshoot the cap before we count it.
@@ -113,6 +114,19 @@ function publicRun(r) {
     resumedFrom: r.resumedFrom ?? null,
     source: r.source ?? null,
     cacheRead: r.cacheRead ?? 0,
+    // A NEW AXIS, NOT A REDEFINED ONE. `boundary` (written elsewhere in this
+    // tree) keeps its exact meaning — "was the engine's own native gate
+    // enforced" — because history.jsonl already holds months of records in that
+    // vocabulary, and redefining it would make old receipts silently
+    // incomparable. This rides alongside.
+    confinement: r.confinement ?? null,
+    // Counted, not rounded. fleet.js:38 records the live 2026-07-17 incident:
+    // the CLI auto-approves "safe" sandboxed Bash without ever calling
+    // canUseTool. We cannot prove from inside canUseTool that it was always
+    // called, so we report the calls we actually rewrote instead of asserting a
+    // boundary over calls we never saw.
+    bashCalls: r.bashCalls ?? 0,
+    bashConfined: r.bashConfined ?? 0,
   };
 }
 
@@ -143,11 +157,19 @@ export function spawnRun({ prompt, profile = 'scout', cwd = '/root', model = 'cl
   if (DAILY_TOKEN_CAP > 0 && todayBurn().tokens >= DAILY_TOKEN_CAP) {
     throw new Error(`daily token cap reached (${todayBurn().tokens}/${DAILY_TOKEN_CAP}) — resets tomorrow, or raise ATLAN_DAILY_TOKEN_CAP`);
   }
+  // FAIL-CLOSED, BEFORE A RUN ID EXISTS. If this device establishes less than
+  // the run declares, the run does not start — no degraded mode, no
+  // "unsandboxed but running" path that was not asked for by name. It throws
+  // here, in the same place and the same shape as the budget and concurrency
+  // refusals, so the ledger never sees a run and the UI never shows one.
+  const tier = declaredTier();
+  if (tier !== 'T0') establish(tier);
   budget = Math.min(2_000_000, Math.max(1000, Number(budget) || 150000));
   const run = {
     id: randomUUID().slice(0, 8), prompt: prompt.trim(), profile, cwd, model, budget,
     tokens: 0, cost: 0, status: 'running', startedAt: Date.now(), endedAt: null,
     lastLine: 'diving…', denials: [], resultText: null,
+    declaredTier: tier, confinement: null, bashCalls: 0, bashConfined: 0,
     sessionId: null, resume, resumedFrom, source: source ? String(source).slice(0, 80) : null,
     cacheRead: 0, // cache-read input tokens (~free) — measures caching savings
   };
@@ -199,6 +221,31 @@ async function exec(run, prof) {
             run.denials.push(`${tool}: ${gate.why}`);
             event(run, `⛔ ${tool} — ${gate.why}`);
             return { behavior: 'deny', message: `Atlan ${run.profile} profile: ${gate.why}` };
+          }
+          // IP-2. THIS is where Atlan gets its first real egress boundary: a
+          // shell the agent asked for is not the model client, so socket() can
+          // be refused for every address family — internet, Atlan's own cockpit
+          // on loopback, and Android's DNS resolver socket alike. It is four BPF
+          // instructions on a scalar domain argument: nothing is
+          // pattern-matched, so nothing can be evaded by encoding, splitting or
+          // indirection.
+          if (tool === 'Bash' && run.declaredTier !== 'T0') {
+            run.bashCalls++;
+            try {
+              const c = confineBash({ declared: run.declaredTier, command: String(input?.command ?? ''), cwd: run.cwd });
+              if (!c) throw new Error(`confinement returned nothing for ${run.declaredTier}`);
+              input = { ...input, command: c.command };
+              run.confinement = c.confinement;
+              run.bashConfined++;
+            } catch (err) {
+              // A shell we cannot confine, in a run that declared confinement,
+              // is denied — never run anyway. Same direction as every other
+              // failure in this file.
+              const why = String(err?.message ?? err);
+              run.denials.push(`Bash: ${why}`);
+              event(run, `⛔ Bash — ${why}`);
+              return { behavior: 'deny', message: `Atlan confinement: ${why}` };
+            }
           }
           event(run, `⚙ ${tool}`);
           return { behavior: 'allow', updatedInput: input };
