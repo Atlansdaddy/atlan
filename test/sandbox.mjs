@@ -12,13 +12,13 @@
 // is never printed as a pass. The last test asserts that the capability report
 // was honest about which of the two happened.
 import assert from 'node:assert';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:net';
 import {
   mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync,
   symlinkSync, linkSync, statSync,
 } from 'node:fs';
-import { homedir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   confinedSpawn, unconfinedSpawn, probeConfinement, confinementArgv, confinementReport,
@@ -56,6 +56,17 @@ writeFileSync(join(outside, 'bystander.txt'), 'untouched');
 const PROBE = probeConfinement({ net: 'none' });
 const KERNEL = PROBE.ran && Object.values(PROBE.controls).every((c) => c.ok);
 const NOKERNEL = `this host cannot confine — ${PROBE.raw.split('\n')[0].slice(0, 140)}`;
+
+// An INDEPENDENT read on whether this host can do namespaces at all, using none
+// of the code under test. Without it the suite has a hole big enough to drive a
+// regression through: break any control badly enough and the module's own probe
+// reports "cannot confine", every kernel test SKIPS instead of failing, and the
+// suite exits 0. That is exactly the failure this project's threat model
+// forbids — a green run that means nothing. So if the raw kernel will hand out a
+// user namespace and the module still could not confine, that is the MODULE's
+// defect, and the test at the end of this file fails on it.
+// (Added after mutation testing: four mutants initially "escaped" this way.)
+const HOST_CAN = spawnSync('unshare', ['--user', '--map-root-user', 'true'], { timeout: 10000 }).status === 0;
 
 // Run a shell snippet inside the real sandbox and hand back everything it said.
 // The snippet is passed as argv, never spliced into a command line.
@@ -179,6 +190,21 @@ for (const shape of ['cat-absolute', 'cat-relative', 'cat-dotdot', 'cat-double-s
 await K('a credential path that does not exist cannot be CREATED inside the run', async () => {
   const r = await inSandbox(`echo "made=$( (mkdir -p ${homedir()}/.aws && echo k > ${homedir()}/.aws/credentials) 2>/dev/null && echo MADE || echo refused )"`);
   assert.ok(/made=refused/.test(r.out), r.out);
+});
+await K('a credential under TMPDIR is handled, not fatal (the private /tmp shadows it first)', async () => {
+  // Regression guard from mutation testing: an earlier version tested whether the
+  // mask path existed at the SOURCE. Under the private /tmp the corresponding
+  // target does not exist, `mount` failed, `set -e` aborted the setup, and NOTHING
+  // RAN — a mask list containing one /tmp path bricked every run. Existence is
+  // tested at the target now. The credential must also be unreadable, whether
+  // because it was masked or because the tmpfs shadowed it.
+  const tmpCred = join(tmpdir(), `.atlan-spine-cred-${process.pid}`);
+  writeFileSync(tmpCred, SECRET, { mode: 0o600 });
+  try {
+    const r = await inSandbox(`echo "alive=yes"; echo "read=$(cat ${tmpCred} 2>/dev/null)"`, { mask: [tmpCred, credFile] });
+    assert.ok(/alive=yes/.test(r.out), `the run never started — the mask list aborted the setup: ${r.out}`);
+    assert.ok(!r.out.includes(SECRET), r.out);
+  } finally { rmSync(tmpCred, { force: true }); }
 });
 await K('masking is not a mutation: the credential is intact on the host afterwards', () => {
   assert.equal(readFileSync(credFile, 'utf8').trim(), SECRET);
@@ -529,6 +555,14 @@ await test('confinementReport says plainly what this host can and cannot do', ()
   assert.equal(typeof rep.available, 'boolean');
   assert.ok(rep.modes['net:none'] && rep.modes['net:shared']);
   assert.equal(rep.available, KERNEL || PROBE.ran);
+});
+await test('NO SILENT SKIPPING: a host that CAN do namespaces must get full coverage', () => {
+  // Judged against the raw kernel, not against the module's own opinion of
+  // itself. A broken control makes the module's probe report "cannot confine";
+  // without this test every kernel assertion below would skip and the suite
+  // would exit 0 green while enforcing nothing.
+  assert.ok(!(HOST_CAN && !KERNEL),
+    `unshare --user succeeds on this host, but the module could not establish confinement — that is a DEFECT, not a host limitation. Probe said: ${PROBE.raw.slice(0, 400)}`);
 });
 await test('HOST HONESTY: the suite reported its own coverage truthfully', () => {
   if (KERNEL) assert.equal(skip, 0, `${skip} kernel tests skipped although the host CAN confine — coverage was silently lost`);
