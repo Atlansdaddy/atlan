@@ -851,8 +851,16 @@ import { linkRowHtml } from './lib/joblink.js';
   });
 
   // ── preview ──
-  const PROXY = `http://${location.hostname}:4590/`;
-  const PREVIEW_ORIGIN = `http://${location.hostname}:4590`;
+  // Same-protocol preview: on https (phone via tailscale serve) the iframe must
+  // also be https or the browser silently blocks it as mixed content — :4591 is
+  // the TLS-terminated tailnet bridge to the preview proxy (server/preview-shim.mjs).
+  const PROXY = location.protocol === 'https:'
+    ? `https://${location.hostname}:4591/`
+    : `http://${location.hostname}:4590/`;
+  // Must match PROXY: on the phone the frame's origin is the https :4591 shim,
+  // and an origin-pinned listener aimed at :4590 would silently drop every
+  // console line and snapshot.
+  const PREVIEW_ORIGIN = new URL(PROXY).origin;
   let errCount = 0;
   function loadPreview() {
     fetch('/api/preview/target', {

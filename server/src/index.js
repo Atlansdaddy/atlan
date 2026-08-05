@@ -355,9 +355,15 @@ app.post('/api/preview/target', (req, res) => {
   // all, and the only recovery was restarting the server. Cheap to prevent,
   // and a self-DoS a user can trigger by pasting a plausible URL is a defect,
   // not a mistake on their part.
-  if (Number(u.port) === PREVIEW_PORT) {
+  // The tailnet shim (:4591, server/preview-shim.mjs) forwards straight back to
+  // :PREVIEW_PORT, so targeting it is the same loop one hop longer — observed
+  // live 2026-08-04: each round trip through the proxy prepended another inject
+  // tag until the request died as a megabyte 502 and the phone showed a blank
+  // frame.
+  const SHIM_PORT = 4591; // keep in sync with server/preview-shim.mjs
+  if (Number(u.port) === PREVIEW_PORT || Number(u.port) === SHIM_PORT) {
     return res.status(400).json({
-      error: `that IS the preview proxy (:${PREVIEW_PORT}) — pointing it at itself would loop. Give it the address your app actually listens on, e.g. http://127.0.0.1:5173`,
+      error: `that port is part of the preview plumbing (proxy :${PREVIEW_PORT} / tailnet shim :${SHIM_PORT}) — pointing the preview at it would loop. Give it the address your app actually listens on, e.g. http://127.0.0.1:5173`,
     });
   }
   setPreviewTarget(u.origin);
