@@ -116,12 +116,32 @@ const ALLOWED_ORIGINS = new Set([
   `http://127.0.0.1:${PORT}`, `http://localhost:${PORT}`,
   ...(process.env.ATLAN_ORIGIN ? [process.env.ATLAN_ORIGIN] : []),
 ]);
+// The HOSTNAMES behind those origins, kept alongside them.
+//
+// A Host check and an Origin check answer different questions — "was this
+// request addressed to a name that is us" vs "which page sent it" — and the
+// preview proxy needs the first one. It used to hardcode the loopback triple,
+// which is why preview could never load on a phone: the cockpit auto-allows its
+// own tailnet name here, three lines away, and the preview gate could not see
+// it. Deriving both from the same place is what stops that drifting apart again.
+const ALLOWED_HOSTS = new Set(['127.0.0.1', 'localhost', '::1']);
+const hostOf = (o) => { try { return new URL(o).hostname.replace(/^\[|\]$/g, ''); } catch { return null; } };
+for (const o of ALLOWED_ORIGINS) { const h = hostOf(o); if (h) ALLOWED_HOSTS.add(h); }
+
 // Add a legitimate origin at runtime — used to auto-allow this host's own tailnet
 // name (see tailnet.js) so reaching the cockpit from your phone over Tailscale
 // needs no manual ATLAN_ORIGIN. Safe: only origins WE derive from the machine's
 // own identity get added; a rebinding/cross-site page still sends a foreign origin.
-export function allowOrigin(o) { if (o) ALLOWED_ORIGINS.add(o); }
+export function allowOrigin(o) {
+  if (!o) return;
+  ALLOWED_ORIGINS.add(o);
+  const h = hostOf(o);
+  if (h) ALLOWED_HOSTS.add(h);
+}
 export function allowedOrigins() { return [...ALLOWED_ORIGINS]; }
+/** Names this machine answers to. Derived, never attacker-supplied. */
+export function allowedHosts() { return [...ALLOWED_HOSTS]; }
+export function hostAllowed(name) { return ALLOWED_HOSTS.has(String(name || '').replace(/^\[|\]$/g, '')); }
 export function originOk(req) {
   const o = req.headers?.origin;
   if (!o) return true; // non-browser (automation) — bearer-gated

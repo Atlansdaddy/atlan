@@ -143,6 +143,32 @@ await test('preview proxy lets a same-origin/no-Origin request through the gate'
   assert.notEqual(s, 0, 'preview proxy not reachable at all');
 });
 
+// The gate used to hardcode the loopback triple for Host, which made preview
+// STRUCTURALLY impossible on a phone — the tailnet name is correct, it simply
+// was not on the list. A shim was written to work around that by STRIPPING the
+// Origin header, which silently re-opened the cross-site vector this very suite
+// tests three cases up (measured 2026-08-05: 403 direct, 200 through the shim).
+// The gate now reads the same derived host set the cockpit already uses, so no
+// shim and no header surgery. These pin both halves of that.
+const DERIVED_HOST = new URL(process.env.ATLAN_ORIGIN ?? 'http://127.0.0.1').hostname;
+await test('preview proxy ACCEPTS a host this machine actually answers to', async () => {
+  const s = await rawStatus(PREVIEW_PORT, { Host: DERIVED_HOST });
+  assert.notEqual(s, 403,
+    `a derived host (${DERIVED_HOST}) was rejected — this is what made preview impossible on a phone`);
+});
+await test('preview proxy still refuses a lookalike of a derived host', async () => {
+  // Suffix and prefix games are how a sloppy host check gets beaten. Exact
+  // hostname match only — never startsWith/endsWith/includes.
+  assert.equal(await rawStatus(PREVIEW_PORT, { Host: `${DERIVED_HOST}.evil.com` }), 403, 'suffix lookalike allowed');
+  assert.equal(await rawStatus(PREVIEW_PORT, { Host: `evil${DERIVED_HOST}` }), 403, 'prefix lookalike allowed');
+});
+await test('a cross-site Origin is refused even when the Host is legitimate', async () => {
+  // The exact hole the shim opened: right Host, attacker Origin. Stripping the
+  // Origin turned this into a 200.
+  assert.equal(await rawStatus(PREVIEW_PORT, { Host: DERIVED_HOST, origin: 'http://evil.example' }), 403,
+    'cross-site Origin allowed through on a legitimate Host — the shim regression');
+});
+
 // ── SSRF: harness base override must stay loopback ──
 await test('harness base override refuses off-loopback targets', async () => {
   const { status, body } = await j(await authed('/api/harness/run', {

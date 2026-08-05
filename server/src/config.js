@@ -28,6 +28,12 @@ export const DEFAULT_BUILD_PROJECT = pick('ATLAN_BUILD_PROJECT', 'defaultBuildPr
 // Ports
 export const PORT = Number(pick('ATLAN_PORT', 'port', 4589));
 export const PREVIEW_PORT = Number(pick('ATLAN_PREVIEW_PORT', 'previewPort', 4590));
+// The TLS front door a phone reaches the preview through, when one exists — e.g.
+// `tailscale serve --bg --https=4591 4590`. This process never terminates TLS
+// itself, so it cannot discover that port; 0 means "none configured" rather than
+// a guessed default, because guessing 4591 is exactly how one operator's setup
+// ended up hardcoded into shared code.
+export const PREVIEW_TLS_PORT = Number(pick('ATLAN_PREVIEW_TLS_PORT', 'previewTlsPort', 0));
 
 // Aggregate spend controls (peer review, 2026-07-22): per-run budgets don't
 // bound concurrent runs, so a global daily token ceiling + a concurrency cap

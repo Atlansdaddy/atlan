@@ -42,7 +42,7 @@ import {
   compilePersona, compileCommand, templateSchema, toolSchema, harnessRun,
 } from './personas.js';
 
-import { PORT, PREVIEW_PORT, PROJECTS_DIR, DEFAULT_BUILD_PROJECT } from './config.js';
+import { PORT, PREVIEW_PORT, PREVIEW_TLS_PORT, PROJECTS_DIR, DEFAULT_BUILD_PROJECT } from './config.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const WEB = join(__dirname, '../../web/public');
@@ -337,6 +337,10 @@ app.post('/api/prefs', (req, res) => {
   p ? res.json(p) : res.status(400).json({ error: 'unknown pref' });
 });
 
+// Ports the CLIENT needs but must never hardcode. The preview iframe's URL is
+// built from these; a literal in app.js is what baked one operator's tailscale
+// setup into shared code and made preview impossible for everyone else.
+app.get('/api/config', (_req, res) => res.json({ previewPort: PREVIEW_PORT, previewTlsPort: PREVIEW_TLS_PORT }));
 app.get('/api/preview/target', (_req, res) => res.json({ url: getPreviewTarget() }));
 const LOCAL_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]', '::1']);
 app.post('/api/preview/target', (req, res) => {
@@ -355,15 +359,14 @@ app.post('/api/preview/target', (req, res) => {
   // all, and the only recovery was restarting the server. Cheap to prevent,
   // and a self-DoS a user can trigger by pasting a plausible URL is a defect,
   // not a mistake on their part.
-  // The tailnet shim (:4591, server/preview-shim.mjs) forwards straight back to
-  // :PREVIEW_PORT, so targeting it is the same loop one hop longer — observed
-  // live 2026-08-04: each round trip through the proxy prepended another inject
-  // tag until the request died as a megabyte 502 and the phone showed a blank
-  // frame.
-  const SHIM_PORT = 4591; // keep in sync with server/preview-shim.mjs
-  if (Number(u.port) === PREVIEW_PORT || Number(u.port) === SHIM_PORT) {
+  // Any TLS front door (`tailscale serve`) forwards straight back here, so
+  // targeting it is the same loop one hop longer — observed live 2026-08-04:
+  // each round trip prepended another inject tag until the request died as a
+  // megabyte 502 and the phone showed a blank frame. PREVIEW_TLS_PORT is that
+  // front door; 0 disables the check rather than guessing a number.
+  if (Number(u.port) === PREVIEW_PORT || (PREVIEW_TLS_PORT && Number(u.port) === PREVIEW_TLS_PORT)) {
     return res.status(400).json({
-      error: `that port is part of the preview plumbing (proxy :${PREVIEW_PORT} / tailnet shim :${SHIM_PORT}) — pointing the preview at it would loop. Give it the address your app actually listens on, e.g. http://127.0.0.1:5173`,
+      error: `that IS the preview proxy (:${PREVIEW_PORT}${PREVIEW_TLS_PORT ? ` / its TLS front door :${PREVIEW_TLS_PORT}` : ''}) — pointing it at itself would loop. Give it the address your app actually listens on, e.g. http://127.0.0.1:5173`,
     });
   }
   setPreviewTarget(u.origin);

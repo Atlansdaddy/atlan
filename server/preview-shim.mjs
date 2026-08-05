@@ -1,3 +1,31 @@
+// ⚠ SUPERSEDED 2026-08-05 — DO NOT RUN. Kept for provenance, not for use.
+//
+// This file is no longer needed: preview.js now accepts any host the cockpit
+// itself answers to (auth.js allowedHosts(), derived from `tailscale status`),
+// so `tailscale serve --bg --https=<port> <PREVIEW_PORT>` reaches the preview
+// proxy directly. Set ATLAN_PREVIEW_TLS_PORT to that port and the client builds
+// the right URL. One process fewer, one port fewer, nothing hardcoded.
+//
+// It is also actively unsafe. `proxyReq.removeHeader('origin')` below strips
+// Origin, so previewOriginOk() takes its `if (!o) return true` branch and lets
+// cross-site requests through. Measured 2026-08-05: `Origin: http://evil.example`
+// gets 403 direct to :4590 and 200 through this shim — the exact vector the gate
+// exists to close. It refuses to start for that reason; the override exists only
+// so the failure is explicit rather than mysterious.
+//
+// Deleting it is John's call, not mine. Until then it cannot run by accident.
+if (!process.env.ATLAN_ALLOW_SUPERSEDED_SHIM) {
+  console.error(
+    'preview-shim.mjs is SUPERSEDED and unsafe (it strips Origin, re-opening the\n'
+    + 'cross-site vector preview.js blocks). Use instead:\n'
+    + '  tailscale serve --bg --https=4591 4590\n'
+    + '  ATLAN_PREVIEW_TLS_PORT=4591   (or previewTlsPort in atlan.config.json)\n'
+    + 'then restart the cockpit. See server/src/preview.js.',
+  );
+  process.exit(1);
+}
+
+// ── original implementation below, unchanged, for the record ────────────────
 // Tailnet bridge for the preview proxy (:4590).
 //
 // The preview proxy deliberately listens on loopback and rejects any request

@@ -20,6 +20,8 @@ import { fmtTok, statusLabel, burnLine, runMetaLine } from './lib/burn.js';
 import { openInto, saveTo } from './lib/editorguard.js';
 import { topUp, sendKill } from './lib/fleetactions.js';
 import { linkRowHtml } from './lib/joblink.js';
+import { previewUrl } from './lib/previewurl.js';
+import { appendConsoleLine } from './lib/previewconsole.js';
 
 (() => {
   const $ = (id) => document.getElementById(id);
@@ -851,16 +853,12 @@ import { linkRowHtml } from './lib/joblink.js';
   });
 
   // ── preview ──
-  // Same-protocol preview: on https (phone via tailscale serve) the iframe must
-  // also be https or the browser silently blocks it as mixed content — :4591 is
-  // the TLS-terminated tailnet bridge to the preview proxy (server/preview-shim.mjs).
-  const PROXY = location.protocol === 'https:'
-    ? `https://${location.hostname}:4591/`
-    : `http://${location.hostname}:4590/`;
-  // Must match PROXY: on the phone the frame's origin is the https :4591 shim,
-  // and an origin-pinned listener aimed at :4590 would silently drop every
-  // console line and snapshot.
-  const PREVIEW_ORIGIN = new URL(PROXY).origin;
+  // Ports come from the server, never from a literal here — see lib/previewurl.js.
+  let PROXY = null, PREVIEW_ORIGIN = null, previewWhy = null;
+  function resolvePreviewUrl(cfg) {
+    const r = previewUrl({ protocol: location.protocol, hostname: location.hostname, port: cfg?.previewPort, tlsPort: cfg?.previewTlsPort });
+    PROXY = r.url; PREVIEW_ORIGIN = r.origin; previewWhy = r.why;
+  }
   let errCount = 0;
   function loadPreview() {
     fetch('/api/preview/target', {
@@ -869,25 +867,14 @@ import { linkRowHtml } from './lib/joblink.js';
       body: JSON.stringify({ url: $('previewUrl').value.trim() }),
     }).then((r) => r.json()).then((j) => {
       if (j.error) return addConsoleLine('error', j.error);
+      if (!PROXY) return addConsoleLine('error', previewWhy); // says what to configure, never a blank frame
       $('previewFrame').src = PROXY + '?t=' + Date.now();
     }).catch(() => addConsoleLine('error', 'cockpit server unreachable'));
   }
   $('previewGo').addEventListener('click', loadPreview);
   $('previewUrl').addEventListener('keydown', (e) => { if (e.key === 'Enter') loadPreview(); });
 
-  function addConsoleLine(level, text) {
-    const box = $('previewConsole');
-    if (box.firstChild?.classList?.contains('hint')) box.innerHTML = '';
-    const div = document.createElement('div');
-    div.className = 'cl ' + level;
-    const t = document.createElement('span');
-    t.className = 'ct';
-    t.textContent = new Date().toLocaleTimeString([], { hour12: false });
-    div.append(t, document.createTextNode(text));
-    box.append(div);
-    while (box.children.length > 80) box.firstChild.remove();
-    box.scrollTop = box.scrollHeight;
-  }
+  const addConsoleLine = (level, text) => appendConsoleLine($('previewConsole'), level, text);
   $('consoleClear').addEventListener('click', () => { $('previewConsole').innerHTML = ''; errCount = 0; updateSeen(); });
 
   window.addEventListener('message', (e) => {
@@ -2011,6 +1998,10 @@ import { linkRowHtml } from './lib/joblink.js';
     setTimeout(() => layer.remove(), 4200);
   }
 
+  // Ask the server where the preview lives before anything can open it. On
+  // failure previewUrl() still returns the http answer, so a cockpit on plain
+  // loopback keeps working even if this request never lands.
+  fetch('/api/config').then((r) => r.json()).then(resolvePreviewUrl).catch(() => resolvePreviewUrl(null));
   connect();
   greet();
   initVoice();
