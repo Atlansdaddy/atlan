@@ -14,11 +14,11 @@
 // Atlan's Node is not sandboxed, so it reads the artifact directly out of
 // $CODEX_HOME/generated_images/<thread_id>/ and files it as a normal attachment.
 // That turns a hard phone-only blocker into a non-event.
-import { spawn } from 'node:child_process';
 import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { saveUpload } from './attachments.js';
+import { spawnAgentCli } from './agents.js';
 
 const CODEX_HOME = process.env.CODEX_HOME ?? join(homedir(), '.codex');
 const GEN_DIR = join(CODEX_HOME, 'generated_images');
@@ -70,7 +70,13 @@ export async function generateImage({ prompt, cwd = process.cwd(), send }) {
     `Use the built-in image_gen tool to generate this image. Do not use the CLI fallback and do not ask for an API key. Do not try to copy or move the file afterwards — leave it where the tool writes it. Prompt: ${prompt}`];
 
   return new Promise((resolve, reject) => {
-    const child = spawn('codex', args, { cwd });
+    // Was `spawn('codex', args, { cwd })` — which inherited the cockpit's whole
+    // environment, so an image prompt ran with ATLAN_TOKEN and every provider
+    // key in scope. Same launcher as the chat engines now: allowlisted
+    // environment, every non-codex credential store masked, ~/.codex kept
+    // writable because that is where image_gen writes and where newestImage()
+    // collects from.
+    const child = spawnAgentCli('codex', 'codex', args, { cwd });
     child.stdin.end();
     let threadId = null, buf = '', stderrTail = '';
     const timer = setTimeout(() => { child.kill(); reject(new Error('image generation timed out (5min)')); }, TIMEOUT_MS);

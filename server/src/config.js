@@ -73,6 +73,26 @@ export const LOCAL_LLM_BASE = pick('ATLAN_LOCAL_LLM_BASE', 'localLlmBase', 'http
 // documented phone/home-node layout (~/android-sdk), not a literal /root.
 export const ANDROID_SDK = pick('ATLAN_ANDROID_SDK', 'androidSdk', join(homedir(), 'android-sdk'));
 
+// OS confinement for the exec-mode agent CLIs (server/src/lib/sandbox.js). The
+// Agent SDK's `sandbox` option above does not reach those four — agents.js and
+// studio.js spawn them directly with their native gates switched off.
+//
+// Off by default, and that default is a PHONE decision rather than a shrug:
+// Termux/proot has no user namespaces, so confining unconditionally would refuse
+// every run and Atlan would not start on its primary platform. What it must
+// never do is pretend. So the switch has THREE states, not two:
+//   unset  — no confinement; every spawn still carries a `{enforced:false}`
+//            descriptor and the Doctor reports it in those words.
+//   1      — confine where the host proves it can; where it cannot, run with the
+//            ungated label attached. The label is the contract — there is no
+//            code path that asks for a boundary and silently does without one.
+//   strict — confine or do not run. For a home node taking untrusted work, where
+//            "it did not run" is the correct outcome.
+export function confineMode() {
+  const v = String(pick('ATLAN_CONFINE', 'confine', '')).trim();
+  return v === 'strict' ? 'strict' : v === '1' ? 'on' : 'off';
+}
+
 // Branding / identity — neutral defaults; a fork sets its own (logo stays a file)
 export const BRAND = {
   name: file.brand?.name ?? 'Atlan',
