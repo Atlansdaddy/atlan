@@ -114,10 +114,17 @@ export async function runDoctor() {
       // all, and reads `n/a` on hosts where Landlock IS actively enforcing — a
       // flag file is not evidence, so none is consulted.
       const { confinementReport } = await import('./lib/sandbox.js');
-      const { confineMode } = await import('./config.js');
+      const { confineMode, APP_ROOT } = await import('./config.js');
+      const { credentialTargets, credentialPreflight } = await import('./lib/credblind.js');
       const mode = confineMode();
       const rep = confinementReport();
       const gated = Object.entries(rep.modes['net:shared']).filter(([, v]) => v.ok).map(([k]) => k);
+      // A hardlinked credential defeats the mask no matter how well the
+      // namespaces work, so it outranks everything else this check reports.
+      const linked = credentialPreflight(credentialTargets({ appRoot: APP_ROOT })).filter((p) => p.kind === 'hardlinked');
+      if (linked.length) {
+        return { ok: false, warn: true, detail: `${linked.map((p) => p.path).join(', ')} has a second hardlink — a credential mask cannot hide an inode that has another name. Remove the extra link; ATLAN_CONFINE=strict refuses to run until you do` };
+      }
       if (!rep.available) {
         return { ok: false, warn: true, detail: mode === 'strict'
           ? 'ATLAN_CONFINE=strict but this host cannot create user namespaces (proot/Termux) — agent-CLI runs are REFUSED here'

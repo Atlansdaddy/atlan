@@ -98,9 +98,28 @@ mount --make-rslave "$NR/newroot"
 # DENY BY DEFAULT. Remount every mount under the new root read-only, deepest
 # first — a shallower remount does not cover a mount stacked on top of it, so
 # doing parents first would silently leave children writable.
-awk -v p="$NR/newroot" 'index($5,p)==1 {print length($5), $5}' /proc/self/mountinfo \
-  | sort -rn | cut -d' ' -f2- \
-  | while read -r m; do mount -o remount,bind,ro "$m" 2>/dev/null || true; done
+# A mount path containing a NEWLINE cannot be carried through a line-oriented
+# pipeline at all, so the run is refused rather than the mount skipped. Skipping
+# is what the previous version effectively did, and skipping leaves it WRITABLE.
+if grep -q '\\\\012' /proc/self/mountinfo; then
+  echo "atlan-confine: a mount path contains a newline — refusing to confine" >&2; exit 91
+fi
+
+# The kernel OCTAL-ESCAPES field 5 of mountinfo: space is \\040, tab \\011,
+# backslash \\134. The previous version passed that escaped string straight to
+# mount, so a mount point named "/media/user/My Passport" was addressed as
+# "/media/user/My\\040Passport", which does not exist — the remount failed, the
+# failure was swallowed by "|| true", and the volume stayed READ-WRITE inside a
+# sandbox stamped enforced:true. Auto-mounted removable media are named exactly
+# like that, so this was not exotic. Found by a contextless filesystem review,
+# 2026-08-05; reproduced end to end before this fix was written.
+# NUL cannot appear in a path, so a tab separator is unambiguous once unescaped.
+awk -v p="$NR/newroot" 'index($5,p)==1 {
+    s=$5; gsub(/\\\\040/," ",s); gsub(/\\\\011/,"\\t",s); gsub(/\\\\134/,"\\\\",s)
+    print length(s) "\\t" s
+  }' /proc/self/mountinfo \\
+  | sort -rn | cut -f2- \\
+  | while IFS= read -r m; do mount -o remount,bind,ro "$m" 2>/dev/null || true; done
 
 # A private /tmp. Kills temp files, editor swap files and any core dump from
 # outliving the run or being visible to it — and gives pivot_root a writable
@@ -108,21 +127,89 @@ awk -v p="$NR/newroot" 'index($5,p)==1 {print length($5), $5}' /proc/self/mounti
 mount -t tmpfs tmpfs "$NR/newroot/tmp"
 mkdir -p "$NR/newroot/tmp/.oldroot"
 
+# $1 = empty-home mode, $2 = seal-/run mode. Both consumed before the counts.
+EMPTYHOME=$1; SEALRUN=$2; HOMEDIR=$3; shift 3
+
+# Mounts the child may legitimately still write. Seeded here and appended to as
+# each writable region is created, then used by the property check at the end.
+: > "$NR/allow"
+echo "$NR/newroot/tmp" >> "$NR/allow"
+
+# SEAL /run. A network namespace does not isolate filesystem-bound unix sockets:
+# with the host root rbind-ed in, /run/tailscale/tailscaled.sock, the docker
+# socket, the systemd journal and the D-Bus system bus all arrive intact, and
+# read-only does not stop connect(). MEASURED: a child with net:'none' and
+# outbound TCP returning ENETUNREACH connected to tailscaled's control socket and
+# read 6KB of tailnet status back — real egress through a daemon that has the
+# network the child was denied. An empty tmpfs removes the socket files, so there
+# is no path to connect to. (Found by a contextless network review, 2026-08-05.)
+#
+# Sealed for BOTH net modes, not just net:'none'. With a shared network stack the
+# sockets are not new egress, but /run/docker.sock and friends are still a
+# straight path to privileges the agent was never given. What a shared-network
+# run does need is $XDG_RUNTIME_DIR — the antigravity CLI keeps its token in the
+# system keyring, which it reaches over D-Bus at /run/user/<uid>/bus — so the
+# caller declares that one path as writable and gets it back, and nothing else.
+if [ "$SEALRUN" = 1 ]; then
+  mount -t tmpfs tmpfs "$NR/newroot/run" 2>/dev/null || true
+  # Mounts UNDER /run are now shadowed by that tmpfs and unreachable by path,
+  # but they are still listed in mountinfo. /run/user is one, it is rw, and the
+  # property check below would otherwise refuse every run on any systemd host.
+  echo "$NR/newroot/run" >> "$NR/allow"
+fi
+
+# EMPTY HOME. The mask list is a denylist, and a denylist is a list of the
+# credentials somebody remembered — the exact criticism this module levels at
+# environment denylists one layer up. Measured against it: .env.production,
+# config.json, an editor's .auth-token.swp, ~/.vault-token and
+# ~/.config/anthropic/key were all readable through a working mask set.
+# So HOME becomes an EMPTY tmpfs and only declared paths are bound back in.
+# Unlisted is invisible by construction, which is what "allowlist" has to mean.
+# Remounted read-only after the binds below, so HOME itself is not a writable
+# hole; anything the engine must write is a declared writable path.
+if [ "$EMPTYHOME" = 1 ] && [ -n "$HOMEDIR" ]; then
+  mkdir -p "$NR/newroot$HOMEDIR"
+  mount -t tmpfs tmpfs "$NR/newroot$HOMEDIR"
+  # Same shadowing note as /run: anything mounted under HOME is now unreachable
+  # by path but still appears in mountinfo.
+  echo "$NR/newroot$HOMEDIR" >> "$NR/allow"
+fi
+
 # Reopen exactly the declared writable paths (mkdir first: a workspace under
-# /tmp was just shadowed by the private tmpfs and has to be recreated there).
+# /tmp or under an emptied HOME was just shadowed and has to be recreated there).
+# Declared READ-ONLY paths FIRST, so a narrower writable path below can stack on
+# top of a broader readable one. ~/.gitconfig is the load-bearing example: an
+# emptied HOME otherwise leaves every commit authorless.
+n=$1; shift
+while [ "$n" -gt 0 ]; do
+  if [ -e "$1" ]; then
+    if [ -d "$1" ]; then mkdir -p "$NR/newroot$1"; else mkdir -p "$(dirname "$NR/newroot$1")"; : > "$NR/newroot$1" 2>/dev/null || true; fi
+    if mount --bind "$1" "$NR/newroot$1" 2>/dev/null; then mount -o remount,bind,ro "$NR/newroot$1" 2>/dev/null || true; fi
+  fi
+  shift; n=$((n-1))
+done
+
 n=$1; shift
 while [ "$n" -gt 0 ]; do
   mkdir -p "$NR/newroot$1"
   mount --bind "$1" "$NR/newroot$1"
   mount -o remount,bind,rw "$NR/newroot$1"
+  echo "$NR/newroot$1" >> "$NR/allow"
   shift; n=$((n-1))
 done
+
+if [ "$EMPTYHOME" = 1 ] && [ -n "$HOMEDIR" ]; then
+  mount -o remount,ro "$NR/newroot$HOMEDIR" 2>/dev/null || true
+fi
+if [ "$SEALRUN" = 1 ]; then
+  mount -o remount,ro "$NR/newroot/run" 2>/dev/null || true
+fi
 
 # Mask credentials. A file becomes /dev/null (reads return empty); a directory
 # becomes an empty read-only tmpfs. Existence is tested at the TARGET, i.e. in
 # the view the child will actually get — a path already shadowed by the private
-# /tmp above needs no mask and has no mount point to attach one to. Anything
-# still absent stays absent: the root is read-only, so nothing can create it.
+# /tmp or by an emptied HOME needs no mask and has no mount point to attach one
+# to. Anything still absent stays absent: the root is read-only.
 n=$1; shift
 while [ "$n" -gt 0 ]; do
   if [ -d "$NR/newroot$1" ]; then mount -t tmpfs -o ro,size=4k tmpfs "$NR/newroot$1"
@@ -130,6 +217,33 @@ while [ "$n" -gt 0 ]; do
   fi
   shift; n=$((n-1))
 done
+
+# ── THE PROPERTY CHECK ────────────────────────────────────────────────────
+# Everything above is a sequence of steps that can individually fail. This
+# asserts the RESULT instead: no mount under the new root is writable unless we
+# declared it. It catches the escaped-path case above, a mount type that refuses
+# remount,bind,ro (FUSE, sshfs), a submount the loop never reached (/run/user was
+# one — measured), and whatever the next one turns out to be. Verifying the
+# property rather than the steps is the only version of this that stays true.
+#
+# If anything remains, the run is REFUSED. Not logged, not degraded, not
+# "enforced:true with a caveat" — the previous behaviour left it writable and
+# reported success, which is the fail-open this whole module exists to avoid.
+awk -v p="$NR/newroot" 'index($5,p)==1 && $6 ~ /(^|,)rw(,|$)/ {
+    s=$5; gsub(/\\\\040/," ",s); gsub(/\\\\011/,"\\t",s); gsub(/\\\\134/,"\\\\",s); print s
+  }' /proc/self/mountinfo > "$NR/rw.list"
+while IFS= read -r m; do
+  [ -n "$m" ] || continue
+  ok=0
+  while IFS= read -r a; do
+    [ -n "$a" ] || continue
+    case "$m" in "$a"|"$a"/*) ok=1; break;; esac
+  done < "$NR/allow"
+  if [ "$ok" = 0 ]; then
+    echo "atlan-confine: writable mount not declared: $m — refusing to confine" >&2
+    exit 92
+  fi
+done < "$NR/rw.list"
 
 cd "$NR/newroot"
 pivot_root . tmp/.oldroot
@@ -149,18 +263,47 @@ cd "$WD" 2>/dev/null || cd /
 exec setpriv --bounding-set=-all --inh-caps=-all --no-new-privs -- "$@"
 `;
 
+// SETUP is a template literal, so a stray backtick in one of its comments ENDS
+// the string. That happened: a comment reading "swallowed by `|| true`" closed
+// the template 130 lines early, and the shell received a 23-line script that
+// stopped after the newline guard. Nothing crashed — the probe simply found no
+// evidence and every confinedSpawn refused, which is the fail-closed design
+// working as intended on an internal defect rather than a hostile host. It is
+// still a defect, and a silent one, so it gets a structural guard: the script
+// must end where it is supposed to end.
+if (!/exec setpriv --bounding-set=-all[\s\S]*"\$@"\s*$/.test(SETUP) || !SETUP.includes('pivot_root')) {
+  throw new Error('atlan/sandbox: the confinement script is truncated — a backtick in a comment ends the template literal');
+}
+
 // Build the argv for `unshare`. Exported so the capability probe below can run
 // the EXACT construction that ships — a probe of some other, simpler command
 // would prove nothing about this one.
-export function confinementArgv({ writable = [], mask = [], net = 'none', cmd, args = [] }) {
+export function confinementArgv({
+  writable = [], readable = [], mask = [], net = 'none',
+  // HOME becomes an empty tmpfs with only `writable`/`readable` bound back in.
+  // Default ON: the alternative is the credential denylist a contextless review
+  // walked straight through (~/.vault-token, ~/.config/<vendor>/key, an editor's
+  // .swp sibling — none of them on any list, all of them readable).
+  emptyHome = true, home = process.env.HOME || '',
+  // /run replaced by an empty tmpfs. On by default for BOTH network modes:
+  // a network namespace does not isolate filesystem-bound unix sockets, and
+  // /run/docker.sock reaches privileges no agent was granted whether or not the
+  // IP stack is up.
+  sealRun = true,
+  cmd, args = [],
+} = {}) {
   const w = writable.map((p) => checkPath(p, 'writable path'));
+  const r = readable.map((p) => checkPath(p, 'readable path'));
   const m = mask.map((p) => checkPath(p, 'mask path'));
+  if (home) checkPath(home, 'home');
   if (!cmd) throw new Error('cmd is required');
   return [
     '--user', '--map-root-user', '--mount', '--pid', '--fork', '--kill-child',
     '--propagation', 'private',
     ...(net === 'none' ? ['--net'] : []),
     '--', 'sh', '-c', SETUP, 'atlan-confine',
+    emptyHome ? '1' : '0', sealRun ? '1' : '0', home,
+    String(r.length), ...r,
     String(w.length), ...w,
     String(m.length), ...m,
     cmd, ...args,
@@ -219,6 +362,17 @@ export function probeConfinement({ net = 'none', scratch = defaultScratch(), for
         `echo "outside=$( (echo x > ${shq(outside)}/probe) 2>/dev/null && echo rw || echo ro )"`,
         `echo "etc=$( (echo x > /etc/${CANARY}) 2>/dev/null && echo rw || echo ro )"`,
         `echo "mask=$( cat ${shq(secret)} 2>/dev/null | head -c 64 )"`,
+        // POSITIVE proof the mask exists, not just that the read came back empty.
+        // An empty read also happens when the canary was merely SHADOWED — by the
+        // private /tmp, or by an emptied HOME — and a contextless review used
+        // exactly that to make this probe certify `credentials: ok` on a run where
+        // no mask mount had been created at all. A verdict that cannot tell
+        // "hidden" from "never there" converts a refusal into a false assurance,
+        // which is the worst bug this module can have.
+        `echo "maskmount=$( grep -c ${shq(' ' + secret + ' ')} /proc/self/mountinfo 2>/dev/null )"`,
+        // A network namespace does not isolate filesystem unix sockets. With
+        // sealRun the socket files are gone, so this counts what is left.
+        `echo "socks=$( find /run /var/run -maxdepth 4 -type s 2>/dev/null | wc -l )"`,
         `echo "caps=$( grep CapBnd /proc/self/status | tr -d '\\t ' )"`,
         `echo "procscrape=$( cat /proc/${sib.pid}/environ 2>/dev/null | tr -d '\\0' | head -c 64 )"`,
         `echo "pids=$( ls -d /proc/[0-9]* 2>/dev/null | wc -l )"`,
@@ -227,8 +381,13 @@ export function probeConfinement({ net = 'none', scratch = defaultScratch(), for
         `echo "net=$( ${shq(process.execPath)} -e 'const s=require("net").connect({host:"1.1.1.1",port:443});s.setTimeout(2500);s.on("connect",()=>{console.log("open");process.exit(0)});s.on("error",e=>{console.log(e.code);process.exit(0)});s.on("timeout",()=>{console.log("timeout");process.exit(0)})' 2>/dev/null )"`,
         `echo "done=1"`,
       ].join('\n');
+      // `readable: [root]` matters: HOME is an empty tmpfs in the shipped
+      // construction, and the probe's own canary lives under HOME. Without it
+      // the canary would be shadowed rather than masked — which is precisely the
+      // false-assurance bug the maskmount check above exists to catch, and the
+      // probe would trip its own trap.
       const r = spawnSync('unshare', confinementArgv({
-        writable: [ws], mask: [secret], net, cmd: 'sh', args: ['-c', script],
+        readable: [root], writable: [ws], mask: [secret], net, cmd: 'sh', args: ['-c', script],
       }), { encoding: 'utf8', timeout: 30000, cwd: root });
       out = (r.stdout || '') + '\n' + (r.stderr || '');
       if (r.error) out += `\nspawn-error=${r.error.code || r.error.message}`;
@@ -251,8 +410,9 @@ export function probeConfinement({ net = 'none', scratch = defaultScratch(), for
       // tries to umount the mask. The second half is the one that matters:
       // without the capability drop the umount succeeds and the secret is back.
       credentials: {
-        ok: ran && v('mask') === '' && v('unmask') === '' && v('caps') === 'CapBnd:0000000000000000',
-        evidence: `masked-read=${JSON.stringify(v('mask'))} after-umount=${JSON.stringify(v('unmask'))} ${v('caps')}`,
+        ok: ran && v('mask') === '' && v('unmask') === '' && v('caps') === 'CapBnd:0000000000000000'
+          && Number(v('maskmount')) >= 1,
+        evidence: `masked-read=${JSON.stringify(v('mask'))} mask-mount-present=${v('maskmount')} after-umount=${JSON.stringify(v('unmask'))} ${v('caps')}`,
       },
       // The sibling's environment is unreachable and only the run's own
       // processes are visible.
@@ -268,8 +428,17 @@ export function probeConfinement({ net = 'none', scratch = defaultScratch(), for
       // Only claimed when a netns was actually requested. With net:'shared'
       // this is honestly false — there is no egress gate, and saying so is the
       // whole point of the descriptor.
+      // "No network" has to mean every transport, not just the IP stack. The
+      // first version of this check tested one outbound TCP connect and the
+      // descriptor then advertised "no network access at all" — a contextless
+      // review used the gap between those two sentences to reach tailscaled's
+      // control socket from inside a namespace reporting ENETUNREACH. So the
+      // count of reachable unix sockets is now part of the verdict.
       network: net === 'none'
-        ? { ok: ran && ['ENETUNREACH', 'EHOSTUNREACH', 'EAFNOSUPPORT'].includes(String(v('net'))), evidence: `outbound-connect=${v('net')}` }
+        ? {
+          ok: ran && ['ENETUNREACH', 'EHOSTUNREACH', 'EAFNOSUPPORT'].includes(String(v('net'))) && Number(v('socks')) === 0,
+          evidence: `outbound-connect=${v('net')} unix-sockets-reachable=${v('socks')}`,
+        }
         : { ok: false, evidence: 'net:"shared" — the run keeps the host network stack; no egress gate exists' },
     };
     const res = { ran, controls, raw: out.trim().slice(0, 4000) };
@@ -293,10 +462,38 @@ export function resetProbeCache() { cache = new Map(); }
 // wants an unconfined run calls unconfinedSpawn() and holds the label.
 export function confinedSpawn(cmd, args = [], opts = {}) {
   const {
-    writable = [], mask = [], net = 'none',
+    writable = [], readable = [], mask = [], net = 'none',
+    emptyHome = true, home,
     require: required = ['filesystem', 'credentials', 'procIsolation', 'privDrop', ...(net === 'none' ? ['network'] : [])],
     scratch, ...spawnOpts
   } = opts;
+
+  // An empty requirement list used to sail through — nothing missing, so nothing
+  // refused — and the child came back stamped `enforced: true` with an empty
+  // controls object, having verified precisely nothing. A descriptor that
+  // asserts enforcement it never checked is a lie told to every downstream
+  // consumer, so asking for confinement of nothing is now an error.
+  // (Found by a contextless review of the module's self-assessment, 2026-08-05.)
+  if (!Array.isArray(required) || required.length === 0) {
+    throw new Error('confinedSpawn requires a non-empty `require` list — a run that verifies nothing must not be labelled enforced');
+  }
+
+  // An inherited file descriptor is a transport the namespaces never see. A
+  // socket connected in the PARENT keeps working after the child enters a new
+  // network namespace and after execve — MEASURED: a caller passing a live
+  // 127.0.0.1 socket as fd 3 got bytes out of a net:'none' child that was
+  // simultaneously reporting ENETUNREACH. The caller here is Atlan itself, so
+  // this is defence in depth rather than a boundary — but a launcher whose
+  // promise can be voided by one option deserves to refuse that option.
+  if (spawnOpts.stdio !== undefined) {
+    const s = spawnOpts.stdio;
+    const extra = Array.isArray(s)
+      ? s.length > 3 || s.slice(0, 3).some((e) => typeof e === 'number' && e > 2)
+      : false;
+    if (extra) {
+      throw new Error('confinedSpawn refuses extra stdio file descriptors — an inherited socket is egress the network namespace cannot see');
+    }
+  }
 
   // Resolve writable roots through realpath BEFORE planning. A workspace given
   // as a symlink would otherwise be bind-mounted at its link path while the
@@ -307,6 +504,10 @@ export function confinedSpawn(cmd, args = [], opts = {}) {
     const s = checkPath(p, 'writable path');
     if (!existsSync(s)) throw new Error(`writable path does not exist: ${s}`);
     return realpathSync(s);
+  });
+  const r = readable.map((p) => {
+    const s = checkPath(p, 'readable path');
+    return existsSync(s) ? realpathSync(s) : s;
   });
   const m = mask.map((p) => {
     const s = checkPath(p, 'mask path');
@@ -323,9 +524,12 @@ export function confinedSpawn(cmd, args = [], opts = {}) {
     );
   }
 
-  const child = spawn('unshare', confinementArgv({ writable: w, mask: m, net, cmd, args }), spawnOpts);
+  const childHome = home ?? spawnOpts.env?.HOME ?? process.env.HOME ?? '';
+  const child = spawn('unshare', confinementArgv({
+    writable: w, readable: r, mask: m, net, emptyHome, home: childHome, cmd, args,
+  }), spawnOpts);
   child.confinement = {
-    enforced: true, net, writable: w, masked: m.length,
+    enforced: true, net, writable: w, readable: r, masked: m.length, emptyHome,
     controls: Object.fromEntries(required.map((k) => [k, probe.controls[k].evidence])),
   };
   return child;

@@ -115,6 +115,24 @@ export function credentialTargets({ appRoot, home = homedir(), keepFor = null } 
   return out;
 }
 
+// Paths that must survive HOME being replaced by an empty tmpfs (sandbox.js
+// `emptyHome`). Deliberately tiny, and deliberately READ-ONLY.
+//
+// This is the allowlist half of the credential story. Masking by name was a
+// denylist, and a contextless review walked straight through it: `.env.production`
+// (the list had `.env` and `.env.local`), a `config.json` holding a token, an
+// editor's `.auth-token.swp` sibling, `~/.vault-token`, `~/.config/anthropic/key`
+// — none on any list, all readable through a mask set that was working exactly as
+// written. Emptying HOME inverts it: unlisted is invisible by construction, and
+// the only question left is what has to be added back for the engine to work.
+//
+// `.gitconfig` is here because without it every commit an agent makes is
+// authorless. The engine's own auth store is NOT here — it goes in the writable
+// set, because these CLIs rewrite their token on refresh.
+export function homeReadable(home = homedir()) {
+  return ['.gitconfig', '.config/git'].map((f) => join(home, f));
+}
+
 // ── 3. preconditions the mask depends on ──────────────────────────────────
 // A bind mask is attached to a PATH. It hides every way of SPELLING that path —
 // `..`, a symlink, a unicode homograph, a case variant, a race — because the

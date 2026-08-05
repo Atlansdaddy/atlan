@@ -6,7 +6,7 @@ import { killTree } from './procTree.js';
 import { interactiveGate } from './enginePolicy.js';
 import { confineMode, APP_ROOT } from './config.js';
 import { confinedSpawn, unconfinedSpawn } from './lib/sandbox.js';
-import { childEnv, credentialTargets, VENDOR_STORES } from './lib/credblind.js';
+import { childEnv, credentialTargets, credentialPreflight, homeReadable, VENDOR_STORES } from './lib/credblind.js';
 
 // ── live chat-path agent CLIs ─────────────────────────────────────────────
 // Every child spawned here is REGISTERED, because every child spawned here runs
@@ -163,22 +163,63 @@ export function spawnAgentCli(engine, cmd, args, { cwd, grant = {} } = {}) {
   const home = homedir();
   const env = childEnv(process.env, { grant });
   const mask = credentialTargets({ appRoot: APP_ROOT, home, keepFor: engine });
-  const writable = [cwd, ...(VENDOR_STORES[engine] ?? []).map((d) => join(home, d))]
-    .filter((p) => existsSync(p));
+  const writable = [
+    cwd,
+    ...(VENDOR_STORES[engine] ?? []).map((d) => join(home, d)),
+    // /run is replaced by an empty tmpfs so no agent can reach docker.sock,
+    // tailscaled's control socket or the system bus. $XDG_RUNTIME_DIR is the one
+    // thing that has to come back: the antigravity CLI keeps its token in the
+    // system keyring and reaches it over D-Bus at /run/user/<uid>/bus. Declared,
+    // so it is one named path rather than the whole of /run.
+    ...(process.env.XDG_RUNTIME_DIR ? [process.env.XDG_RUNTIME_DIR] : []),
+  ].filter((p) => existsSync(p));
   // net:'shared' is the honest setting, not a convenience: these CLIs have to
   // reach their provider, and Atlan has no egress allowlist yet. The descriptor
   // records network as unenforced so nothing downstream can claim otherwise.
+  // HOME is replaced by an empty tmpfs and only these come back: the engine's own
+  // auth store (writable — it rewrites its token on refresh) and ~/.gitconfig
+  // (read-only — without it every commit an agent makes is authorless). Every
+  // other credential under HOME is gone by construction rather than by name.
+  const readable = homeReadable(home);
   // detached: its own process GROUP, so killTree's negative-PID signal reaches
   // the shells and tool children these CLIs spawn — without it a kill hits only
-  // the immediate pid and the real workers carry on. Neither branch had this
+  // the immediate pid and the real workers carry on. NEITHER branch had this
   // line: confinement never needed it, and the tracking work that did need it
-  // spawned directly. It survives the merge only because it was put back here,
-  // and test/walls.mjs's orphaned-child assertion is what would have caught it.
-  const opts = { cwd, env, writable, mask, net: 'shared', detached: true };
+  // spawned directly rather than through here. It exists only because the merge
+  // put it back, and test/walls.mjs's orphaned-child assertion is what would
+  // have caught its absence.
+  const opts = { cwd, env, writable, readable, mask, net: 'shared', home, detached: true };
   const mode = confineMode();
-  if (mode === 'off') return unconfinedSpawn(cmd, args, { ...opts, acknowledgeUnconfined: true });
+
+  // The one bypass a path mask cannot cover: a hardlink planted earlier is a
+  // second directory entry for the same inode, and the mask follows the path,
+  // not the inode. MEASURED — the alias reads the secret straight through a
+  // working mask. It is detectable though, because st_nlink on a credential file
+  // is 1 unless somebody made another name for it. A fact about the inode, not a
+  // pattern match on a filename.
+  //
+  // Under `strict` that is a refusal: someone has already staged the bypass, and
+  // starting the run anyway would be enforcing a boundary we know is open. Under
+  // `1` it rides along on the descriptor so the Doctor and the caller can see it
+  // — a legitimate backup can produce the same signal, and bricking a working
+  // phone-node setup over an ambiguous signal is the wrong trade.
+  const credIssues = credentialPreflight(mask);
+  if (mode === 'strict' && credIssues.some((p) => p.kind === 'hardlinked')) {
+    throw new Error(
+      `refusing to run: ${credIssues.filter((p) => p.kind === 'hardlinked').map((p) => p.path).join(', ')} — ` +
+      'a second name for this inode already exists, so the credential mask would not actually hide it. Nothing was spawned.',
+    );
+  }
+
+  if (mode === 'off') {
+    const c = unconfinedSpawn(cmd, args, { ...opts, acknowledgeUnconfined: true });
+    c.confinement.credentialIssues = credIssues;
+    return c;
+  }
   try {
-    return confinedSpawn(cmd, args, opts);
+    const c = confinedSpawn(cmd, args, opts);
+    c.confinement.credentialIssues = credIssues;
+    return c;
   } catch (err) {
     // strict = the run does not happen. This is the fail-closed branch, and it
     // throws rather than returning a child, so a caller cannot use the result
@@ -186,7 +227,9 @@ export function spawnAgentCli(engine, cmd, args, { cwd, grant = {} } = {}) {
     if (mode === 'strict') throw err;
     // ATLAN_CONFINE=1 on a host that cannot confine (the phone). Runs, but the
     // descriptor carries the kernel's own reason it could not be gated.
-    return unconfinedSpawn(cmd, args, { ...opts, acknowledgeUnconfined: true });
+    const c = unconfinedSpawn(cmd, args, { ...opts, acknowledgeUnconfined: true });
+    c.confinement.credentialIssues = credIssues;
+    return c;
   }
 }
 

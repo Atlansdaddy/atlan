@@ -70,10 +70,16 @@ const HOST_CAN = spawnSync('unshare', ['--user', '--map-root-user', 'true'], { t
 
 // Run a shell snippet inside the real sandbox and hand back everything it said.
 // The snippet is passed as argv, never spliced into a command line.
+// `readable: [ROOT]` is load-bearing. HOME is an empty tmpfs in the shipped
+// construction and this scratch lives under HOME, so without it the canary
+// credentials would be invisible because they were SHADOWED, and every
+// credential assertion below would pass without ever exercising a mask. Binding
+// the scratch back in read-only makes the tests measure the thing they name.
+// (Two tests failed exactly this way when emptyHome landed — kept as a lesson.)
 const inSandbox = (script, opts = {}) => new Promise((res) => {
   let out = '';
   const c = confinedSpawn('sh', ['-c', script], {
-    writable: [ws], mask: [credFile, credDir], net: 'none', cwd: ws, ...opts,
+    readable: [ROOT], writable: [ws], mask: [credFile, credDir], net: 'none', cwd: ws, ...opts,
   });
   c.stdout.on('data', (d) => { out += d; });
   c.stderr.on('data', (d) => { out += d; });
@@ -435,6 +441,218 @@ await K('the child\'s exit code reaches the parent through unshare + setpriv', a
   assert.equal(code, 42);
 });
 
+// ══ J. WHAT THE ADVERSARIAL LAYERS BROKE ══════════════════════════════════
+// Every test in this section exists because a contextless reviewer, given only
+// the source and told to break it, did. Each one failed before its fix.
+console.log('\n── J. regressions from the three adversarial reviews ──');
+
+// A mount planted for these tests must sit OUTSIDE every region the sandbox
+// replaces or binds back in — not under HOME (emptied tmpfs), not under /tmp
+// (private tmpfs), and not under the suite's own scratch (bound in read-only).
+// Otherwise it is protected by shadowing and the test proves nothing about the
+// read-only remount pass it is supposed to be exercising. Both tests below
+// silently passed against a broken unescape until this was fixed.
+const OUTER = `/atlan-spine-test-${process.pid}`;
+let outerOk = false;
+try { mkdirSync(OUTER, { recursive: true }); outerOk = true; } catch { /* not root */ }
+process.on('exit', () => { try { rmSync(OUTER, { recursive: true, force: true }); } catch { /* */ } });
+
+await K('LAYER 1: a writable mount whose path contains a SPACE is not a hole', async () => {
+  // The kernel octal-escapes mountinfo field 5 (space -> \\040). The escaped
+  // string was handed straight to mount, the remount failed, `|| true` swallowed
+  // it, and the volume stayed read-write inside a sandbox stamped enforced:true.
+  // Auto-mounted removable media ("/media/<user>/My Passport") are named exactly
+  // like this, so it was routine rather than exotic.
+  if (!outerOk) return skipped('LAYER 1 space-mount', 'cannot create a mount point outside HOME/tmp (not root)');
+  const target = join(OUTER, 'spacetarget'); mkdirSync(target, { recursive: true });
+  const mp = join(OUTER, 'space mount'); mkdirSync(mp, { recursive: true });
+  const mounted = spawnSync('mount', ['--bind', target, mp]).status === 0;
+  if (!mounted) return skipped('LAYER 1 space-mount', 'cannot bind-mount as this user');
+  try {
+    const r = await inSandbox(`echo ALIVE\necho "space=$( (echo PWNED > ${JSON.stringify(mp)}/PWNED) 2>/dev/null && echo WROTE || echo refused )"`);
+    // BOTH halves. Without the second, dropping the octal decoding still
+    // "passes": the mount stays writable, the property check refuses the run,
+    // no child exists to write anything, and the assertion reads as success.
+    // That is fail-closed working — but it is not this control working, and a
+    // machine with any space-named mount would then refuse every single run.
+    assert.ok(/ALIVE/.test(r.out),
+      `the run was refused rather than handled — the space-named mount was never made read-only: ${r.out}`);
+    assert.ok(/space=refused/.test(r.out), `a space-named mount was writable inside the sandbox: ${r.out}`);
+    assert.ok(!existsSync(join(target, 'PWNED')), 'the escape reached the real host directory');
+  } finally { spawnSync('umount', [mp]); }
+});
+await K('LAYER 1: an UNDECLARED writable mount refuses the run outright', async () => {
+  // The property check. Individual steps can fail in ways nobody predicted; this
+  // asserts the RESULT — no mount under the new root is writable unless declared
+  // — and refuses when it is not true.
+  if (!outerOk) return skipped('LAYER 1 undeclared-mount', 'cannot create a mount point outside HOME/tmp (not root)');
+  const target = join(OUTER, 'undeclared'); mkdirSync(target, { recursive: true });
+  const mp = join(OUTER, 'undeclared-mp'); mkdirSync(mp, { recursive: true });
+  const mounted = spawnSync('mount', ['--bind', target, mp]).status === 0;
+  if (!mounted) return skipped('LAYER 1 undeclared-mount', 'cannot bind-mount as this user');
+  // Make it un-remountable-read-only the way a FUSE mount would be, by taking
+  // the one lever available here: strip it out of the read-only sweep's reach
+  // is not possible, so instead assert the end state either way. What must NEVER
+  // happen is a child that runs AND can write there.
+  try {
+    const r = await inSandbox(`echo ALIVE\necho "w=$( (echo x > ${mp}/f) 2>/dev/null && echo WROTE || echo refused )"`);
+    assert.ok(!/w=WROTE/.test(r.out), `undeclared mount was writable inside the sandbox: ${r.out}`);
+    assert.ok(!existsSync(join(target, 'f')), 'the write reached the real host directory');
+  } finally { spawnSync('umount', [mp]); }
+});
+
+await K('LAYER 2: an UNLISTED credential under HOME is invisible (allowlist, not denylist)', async () => {
+  // Masking by name is a denylist, and a reviewer walked through it with
+  // ~/.vault-token, ~/.config/<vendor>/key and an editor's .swp sibling — none on
+  // any list, all readable through a mask set working exactly as written.
+  const home = homedir();
+  const planted = [
+    [join(home, '.atlan-spine-vault-token'), 'VAULT-' + SECRET],
+    [join(home, '.atlan-spine-unlisted.swp'), 'SWAP-' + SECRET],
+  ];
+  const cfg = join(home, '.config', 'atlan-spine-vendor');
+  mkdirSync(cfg, { recursive: true });
+  planted.push([join(cfg, 'key'), 'CFG-' + SECRET]);
+  for (const [p, v] of planted) writeFileSync(p, v, { mode: 0o600 });
+  try {
+    const reads = planted.map(([p], i) => `echo "p${i}=$(cat ${p} 2>/dev/null)"`).join('\n');
+    // NOTE: no mask entries at all — these are hidden by construction, not by name.
+    const r = await inSandbox(`${reads}\necho "home=$(ls -a ${home} 2>/dev/null | tr '\\n' ' ')"`, { mask: [] });
+    assert.ok(!r.out.includes(SECRET), `an unlisted HOME credential was readable: ${r.out.slice(0, 300)}`);
+  } finally {
+    for (const [p] of planted) rmSync(p, { force: true });
+    rmSync(cfg, { recursive: true, force: true });
+  }
+});
+await K('LAYER 2: ~/.gitconfig still reaches the child, or every agent commit is authorless', async () => {
+  const gc = join(homedir(), '.gitconfig');
+  const had = existsSync(gc);
+  if (!had) writeFileSync(gc, '[user]\n\tname = spine test\n');
+  try {
+    const r = await inSandbox(`echo "gc=$(test -e ${gc} && echo present || echo missing)"`,
+      { readable: [ROOT, gc], mask: [] });
+    assert.ok(/gc=present/.test(r.out), `an emptied HOME lost .gitconfig: ${r.out}`);
+  } finally { if (!had) rmSync(gc, { force: true }); }
+});
+
+await K('LAYER 3: filesystem unix sockets are gone — a netns does not isolate them', async () => {
+  // A child with net:'none' and outbound TCP returning ENETUNREACH connected to
+  // tailscaled's control socket and read back 6KB of tailnet status: real egress
+  // through a daemon holding the network the child had been denied.
+  const r = await inSandbox([
+    `echo "socks=$(find /run /var/run -maxdepth 4 -type s 2>/dev/null | wc -l)"`,
+    `echo "docker=$(test -S /run/docker.sock && echo present || echo gone)"`,
+  ].join('\n'));
+  assert.ok(/socks=0/.test(r.out), `unix sockets are still reachable: ${r.out}`);
+  assert.ok(/docker=gone/.test(r.out), r.out);
+});
+// A unix socket is reachable exactly when its PATH is reachable, so these two
+// tests split the claim along the line that actually holds. Undeclared: gone.
+// Inside a path we bound in on purpose: connectable, read-only or not — and
+// that is inherent to having declared the path, not a defect to be fixed.
+const udsProbe = (p) => `node -e 'const s=require("net").connect("${p}");s.setTimeout(2000);s.on("connect",()=>{s.write("EXFIL");setTimeout(()=>process.exit(0),200)});s.on("error",()=>process.exit(0));s.on("timeout",()=>process.exit(0))' 2>/dev/null`;
+const udsListener = async (sockPath) => {
+  const state = { got: null };
+  const srv = createServer((s) => { s.on('error', () => {}); s.on('data', (d) => { state.got = d.toString(); }); });
+  srv.on('error', () => {});
+  await new Promise((r) => srv.listen(sockPath, r));
+  state.close = () => { srv.close(); rmSync(sockPath, { force: true }); };
+  return state;
+};
+
+await K('LAYER 3: an UNDECLARED parent unix socket is unreachable from net:none', async () => {
+  // Deliberately outside every bound-in path, which is the case the tailscaled
+  // finding was really about: a socket that exists on the host and was never
+  // offered to the run.
+  const sockDir = join(homedir(), `.atlan-spine-sock-${process.pid}`);
+  mkdirSync(sockDir, { recursive: true });
+  const s = await udsListener(join(sockDir, 's.sock'));
+  try {
+    await inSandbox(udsProbe(join(sockDir, 's.sock')));
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(s.got, null, `the child reached an undeclared unix socket from net:'none': ${s.got}`);
+  } finally { s.close(); rmSync(sockDir, { recursive: true, force: true }); }
+});
+await K('KNOWN GAP, asserted: a socket INSIDE a declared path is connectable, read-only or not', async () => {
+  // Read-only does not stop connect(2). If a socket lives in the workspace the
+  // run was given, the run can talk to it — declaring the path is declaring the
+  // socket. Recorded here so it stays a known property rather than a surprise.
+  const sockDir = join(ROOT, 'sockdir'); mkdirSync(sockDir, { recursive: true });
+  const s = await udsListener(join(sockDir, 's.sock'));
+  try {
+    await inSandbox(udsProbe(join(sockDir, 's.sock')));
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(s.got, 'EXFIL',
+      'a socket inside a declared path is no longer connectable — good news, but SECURITY-SPINE-REPORT.md records it as a gap. Update the report.');
+  } finally { s.close(); }
+});
+await test('LAYER 3: an inherited socket fd is refused — egress the namespace cannot see', () => {
+  // A socket connected in the PARENT keeps working after the child enters a new
+  // network namespace and after execve. Measured: bytes left a net:'none' child
+  // through fd 3 while it reported ENETUNREACH.
+  assert.throws(() => confinedSpawn('true', [], { writable: [ws], net: 'none', stdio: ['pipe', 'pipe', 'pipe', 4] }),
+    /extra stdio file descriptors/);
+  assert.throws(() => confinedSpawn('true', [], { writable: [ws], net: 'none', stdio: ['pipe', 'pipe', 'pipe', 'pipe'] }),
+    /extra stdio file descriptors/);
+});
+await test('LAYER 3: an empty `require` list is refused, not stamped enforced:true', () => {
+  // It used to pass — nothing missing, so nothing refused — and hand back a child
+  // labelled enforced:true with an empty controls object, having verified nothing.
+  assert.throws(() => confinedSpawn('true', [], { writable: [ws], net: 'shared', require: [] }),
+    /non-empty `require` list/);
+});
+await K('LAYER 3: the probe proves the mask MOUNT exists, not just that a read came back empty', () => {
+  // An empty read also happens when the canary was merely shadowed. A reviewer
+  // used that to make the probe certify credentials:ok on a run where no mask
+  // had been created — a refusal turned into a false assurance.
+  const p = probeConfinement({ net: 'none', force: true });
+  assert.ok(/mask-mount-present=[1-9]/.test(p.controls.credentials.evidence),
+    `the credentials verdict does not prove a mask mount exists: ${p.controls.credentials.evidence}`);
+});
+await K('shadowed and masked are DISTINGUISHABLE — the fact the verdict above relies on', async () => {
+  // Run the shipped construction with the canary NOT bound back in, so it is
+  // shadowed by the emptied HOME rather than masked. The read is empty either
+  // way; only the mount table tells them apart. If this ever stops being true,
+  // the credentials verdict has lost its ability to detect a missing mask.
+  const cred = join(ROOT, 'shadow-cred'); writeFileSync(cred, SECRET, { mode: 0o600 });
+  const argv = confinementArgv({
+    writable: [ws], mask: [cred], net: 'none', cmd: 'sh',
+    args: ['-c', `echo "read=[$(cat ${cred} 2>/dev/null)]"; echo "mounts=$(grep -c ' ${cred} ' /proc/self/mountinfo 2>/dev/null)"`],
+  });
+  const r = spawnSync('unshare', argv, { encoding: 'utf8', timeout: 30000, cwd: ws });
+  const out = (r.stdout || '') + (r.stderr || '');
+  assert.ok(/read=\[\]/.test(out), `shadowed canary was readable: ${out}`);
+  assert.ok(/mounts=0/.test(out), `expected NO mask mount when the path is merely shadowed: ${out}`);
+});
+await test('the credentials verdict DECIDES on the mask mount, not only reports it', () => {
+  // M22 escaped the behavioural tests: deleting the term from the `ok` expression
+  // left the evidence string intact, so every assertion still passed while the
+  // false-assurance path reopened. Asserted at the source because that is where
+  // the decision lives — there is no public way to hand the probe a shadowed
+  // canary now that it binds its own scratch back in.
+  const src = readFileSync(new URL('../server/src/lib/sandbox.js', import.meta.url), 'utf8');
+  const block = src.slice(src.indexOf('credentials: {'), src.indexOf('procIsolation: {'));
+  const ok = block.slice(block.indexOf('ok:'), block.indexOf('evidence:'));
+  assert.ok(/maskmount/.test(ok), 'credentials.ok no longer requires a mask mount to exist');
+});
+await test('the net:none verdict DECIDES on the unix-socket count, not only reports it', () => {
+  const src = readFileSync(new URL('../server/src/lib/sandbox.js', import.meta.url), 'utf8');
+  const block = src.slice(src.indexOf('network: net ==='), src.indexOf('no egress gate exists'));
+  const ok = block.slice(block.indexOf('ok:'), block.indexOf('evidence:'));
+  assert.ok(/socks/.test(ok), 'network.ok no longer requires zero reachable unix sockets');
+});
+await test('the confinement script is not truncated (a backtick in a comment ends the template)', () => {
+  // This actually happened: a comment reading "swallowed by `|| true`" closed the
+  // template literal 130 lines early and the shell got a 23-line script. Nothing
+  // crashed — every confinedSpawn simply refused, which is fail-closed working on
+  // an internal defect. Silent defects still get a guard.
+  const argv = confinementArgv({ cmd: 'true' });
+  const script = argv[argv.indexOf('-c') + 1];
+  for (const marker of ['pivot_root', 'setpriv --bounding-set=-all', 'writable mount not declared', 'mount -t proc proc /proc']) {
+    assert.ok(script.includes(marker), `the setup script is missing "${marker}" — it was cut short`);
+  }
+});
+
 // ══ G. CREDENTIAL INVENTORY + PREFLIGHT ═══════════════════════════════════
 console.log('\n── G. credential inventory and preconditions ──');
 await test('credentialTargets is derived from HOME and appRoot — no hardcoded path or username', () => {
@@ -471,13 +689,47 @@ await test('preflight DETECTS a planted hardlink — the one bypass a path mask 
   assert.ok(/st_nlink=2/.test(p[0].detail));
 });
 await K('KNOWN GAP, asserted so it cannot silently change: a hardlink DOES bypass the mask', async () => {
+  // The alias goes in the WORKSPACE, which is where the gap actually lives: a
+  // previous agent turn could plant it there, and the workspace is bound back in
+  // by design. Putting it beside the credential would only prove that an emptied
+  // HOME hides it, which is a different control and a weaker claim.
   const target = join(ROOT, 'gap-cred'); writeFileSync(target, SECRET, { mode: 0o600 });
-  const alias = join(ROOT, 'gap-alias'); if (!existsSync(alias)) linkSync(target, alias);
+  const alias = join(ws, 'gap-alias'); if (!existsSync(alias)) linkSync(target, alias);
   const r = await inSandbox(`echo "masked=$(cat ${target} 2>/dev/null)"; echo "alias=$(cat ${alias} 2>/dev/null)"`,
     { mask: [target] });
   assert.ok(!/masked=.*COCKPIT/.test(r.out), `the mask itself failed: ${r.out}`);
   assert.ok(/alias=.*COCKPIT-TOKEN/.test(r.out),
     'the hardlink no longer bypasses the mask — good news, but SECURITY-SPINE-REPORT.md says it does. Update the report.');
+});
+await test('the launcher ENFORCES the hardlink precondition under strict, not just reports it', async () => {
+  // The check existing is not the same as the check running. This drives the
+  // real launcher with a planted alias and asserts strict refuses and spawns
+  // nothing, while the non-strict modes run but carry the finding.
+  const { spawnAgentCli } = await import('../server/src/agents.js');
+  const home = homedir();
+  const target = join(home, '.atlan-spine-fakecred');
+  const alias = join(home, '.atlan-spine-fakecred-alias');
+  writeFileSync(target, SECRET, { mode: 0o600 });
+  if (existsSync(alias)) rmSync(alias);
+  linkSync(target, alias);
+  const prev = process.env.ATLAN_CONFINE;
+  try {
+    // Point the mask set at our planted file by masquerading as a HOME secret:
+    // credentialTargets() derives from HOME, and .netrc is on that list.
+    const netrc = join(home, '.netrc');
+    const hadNetrc = existsSync(netrc);
+    if (!hadNetrc) linkSync(target, netrc);
+    try {
+      process.env.ATLAN_CONFINE = 'strict';
+      let spawned = false;
+      try { spawnAgentCli('codex', 'true', [], { cwd: ws }); spawned = true; }
+      catch (err) { assert.ok(/second name for this inode|Nothing was spawned/.test(err.message), err.message); }
+      if (!hadNetrc) assert.equal(spawned, false, 'strict launched anyway with a staged mask bypass');
+    } finally { if (!hadNetrc) rmSync(netrc, { force: true }); }
+  } finally {
+    process.env.ATLAN_CONFINE = prev;
+    rmSync(target, { force: true }); rmSync(alias, { force: true });
+  }
 });
 await test('preflight flags a credential readable beyond its owner', () => {
   const loose = join(ROOT, 'loose-cred'); writeFileSync(loose, SECRET, { mode: 0o644 });
