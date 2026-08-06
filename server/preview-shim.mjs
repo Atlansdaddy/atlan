@@ -31,7 +31,7 @@ if (!process.env.ATLAN_ALLOW_SUPERSEDED_SHIM) {
 // The preview proxy deliberately listens on loopback and rejects any request
 // whose Host isn't loopback (anti-rebinding gate in src/preview.js). That's
 // correct for a browser on this machine — and it means the phone, which reaches
-// the cockpit via tailscale serve (https://johnpc.tail7538c0.ts.net), can never
+// the cockpit via tailscale serve (https://<this-host>.<tailnet>.ts.net), can never
 // load the preview iframe: port 4590 isn't served, http-in-https is mixed
 // content, and the gate would 403 the foreign Host anyway.
 //
