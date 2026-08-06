@@ -4,6 +4,8 @@
   "defaultBuildProject": "/home/you/projects/myapp",
   "port": 4589,
   "previewPort": 4590,
+  "_previewTlsPort": "Set ONLY if you reach the cockpit over https (e.g. `tailscale serve`). An http iframe inside an https page is silently blocked as mixed content, so the preview needs a TLS front door in front of previewPort: run `tailscale serve --bg --https=4591 4590`, then set this to 4591. Left at 0 the preview tells you this instead of guessing a port.",
+  "previewTlsPort": 0,
   "brand": {
     "name": "Atlan",
     "contactEmail": "you@example.com"

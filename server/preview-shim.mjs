@@ -49,7 +49,14 @@ import { createProxyMiddleware } from 'http-proxy-middleware';
 
 const PREVIEW = 'http://127.0.0.1:4590';
 const SHIM_PORT = 4591;
-const ALLOWED_HOSTS = new Set(['johnpc.tail7538c0.ts.net', '127.0.0.1', 'localhost', '::1']);
+// Was a literal set containing one operator's tailnet name. Removed: this file
+// is dead and cannot run, but a hardcoded hostname sitting in the tree is still
+// the pattern the whole user-agnostic pass exists to eliminate, and a sweep that
+// waves it through because "the file is inert" is a sweep that will wave the
+// next one through too. Derived from the environment, like everything else.
+const ALLOWED_HOSTS = new Set(
+  ['127.0.0.1', 'localhost', '::1', process.env.ATLAN_SHIM_HOST].filter(Boolean),
+);
 
 const hostOk = (req) =>
   ALLOWED_HOSTS.has(String(req.headers.host || '').split(':')[0].replace(/^\[|\]$/g, ''));

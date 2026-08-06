@@ -1,7 +1,14 @@
 # UI/UX audit — every surface, driven at 412×900
 
-**Status:** ACTIVE ledger. **22 open findings**, 5 spec files, 121 assertions
-(99 passing). Opened at 39 failures; 13 fixed, 5 were bad tests. All four P0s closed.
+**Status:** ACTIVE ledger. **19 open findings**, 5 spec files, 121 assertions.
+Opened at 39 failures; 16 fixed, 5 were bad tests. All four P0s closed.
+
+**Read the score with its run location.** The suite scores **103/18 from /tmp**
+and **102/19 from /root/atlan**, on the same tree. `guardPath(…, blockAppRoot)`
+rejects a selected project that *is* `APP_ROOT`, and `isUnder` returns true on
+equality — so when the checkout sits inside `PROJECTS_DIR`, one Editor assertion
+flips. Nothing is wrong with either number; they answer different questions.
+Until the run location is pinned, **this score cannot be used as a ratchet.**
 **Method:** one Playwright spec per surface, driving the real cockpit against a
 throwaway server on free ports. No mocks, no fixtures — the specs click what a
 phone user clicks.
@@ -9,7 +16,7 @@ phone user clicks.
 ## How to read this file
 
 These specs are **not in `test/run-all.mjs` yet**, and that is deliberate. They
-still fail 22 times, and every one of those failures is a real defect in the
+still fail 19 times (from /root/atlan; 18 from /tmp — see the note above), and every one of those failures is a real defect in the
 cockpit, not a bad assertion. Registering them today would turn the gate red and
 the only way back to green would be to weaken assertions — which is how a suite
 starts lying. Instead they run on demand, and **each spec joins the gate the day
@@ -71,8 +78,8 @@ where it does not.
 | # | Surface | Finding |
 |---|---------|---------|
 | 15 | Editor | ☰ on `/root/atlan` is a dead button: `loadTree` returns before un-hiding `#edTreeBox`, and the reason goes to the chat log. |
-| 16 | Doctor/Scan | `#scanProjSel` renders blank (`selectedIndex -1`) — the hardcoded `/root` option at `index.html:64` is never in the list `app.js:1462` assigns from. |
-| 17 | Doctor/Scan | Run scan from a cold load issues **zero** `/api/scan` requests. Silent no-op. |
+| ~~16~~ | Doctor/Scan | ~~`#scanProjSel` renders blank (`selectedIndex -1`).~~ **FIXED** by the user-agnostic merge — `index.html` now ships a real placeholder option instead of a hardcoded `/root`. |
+| ~~17~~ | Doctor/Scan | ~~Run scan from a cold load issues zero `/api/scan` requests.~~ **FIXED** — same cause as #16; the picker had no selectable value to send. |
 | 18 | Doctor | Local-brain card is all-or-nothing: `supported:false` still renders an unlabeled empty select plus a Swap button that no-ops. |
 | 19 | Fleet | A new job's first link row shows a blank command picker even with commands loaded, so saving is rejected for having no link. |
 | 20 | Doctor | Snapshot button sticks at "📸 …" forever with nothing loaded. |

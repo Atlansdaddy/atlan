@@ -110,7 +110,11 @@ export async function engineRoster() {
     } else {
       ready = !!getKey(p.keyEnv);
     }
-    roster.push({ id, label: p.label, model: p.defaultModel, ready, needs: id === 'local' ? 'start llama-server :8080' : p.keyEnv });
+    // The hint must name the port we actually PROBE. It read ':8080' while the
+    // probe used LOCAL_LLM_BASE, so with ATLAN_LOCAL_LLM_BASE set the cockpit
+    // told the operator to start a server on a port it was not looking at —
+    // Doctor said :9099 and this said :8080, in the same session.
+    roster.push({ id, label: p.label, model: p.defaultModel, ready, needs: id === 'local' ? `start llama-server on ${LOCAL_LLM_BASE}` : p.keyEnv });
   }
   return roster;
 }
