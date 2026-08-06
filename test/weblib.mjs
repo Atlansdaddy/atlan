@@ -20,6 +20,7 @@ import {
 } from '../web/public/lib/enginepicker.js';
 import { fmtTok, statusLabel, burnLine, runMetaLine } from '../web/public/lib/burn.js';
 import { linkRowHtml } from '../web/public/lib/joblink.js';
+import { effectiveTheme, nextTheme, editorThemeFor, themeButtonGlyph } from '../web/public/lib/theme.js';
 
 // `atob` is a browser global. Node 16+ provides it, but assert it exists rather
 // than let one test fail cryptically if that ever changes.
@@ -412,6 +413,36 @@ test('a topped-up run reads as topped up, never as finished', () => {
   // the run did not finish, it handed its session to the run in `resumedInto`.
   assert.equal(statusLabel('resumed'), 'topped up →');
   assert.notEqual(statusLabel('resumed'), statusLabel('done'));
+});
+
+// ── theme ──────────────────────────────────────────────────────────────────
+test('effectiveTheme: an explicit choice beats the system preference', () => {
+  assert.equal(effectiveTheme('dark', true), 'dark');
+  assert.equal(effectiveTheme('light', false), 'light');
+});
+
+test('effectiveTheme: no choice → follow the system; dark is the native fallback', () => {
+  assert.equal(effectiveTheme(null, true), 'light');
+  assert.equal(effectiveTheme(null, false), 'dark');
+  // garbage in storage must not become a theme
+  assert.equal(effectiveTheme('solarized', false), 'dark');
+  assert.equal(effectiveTheme('', true), 'light');
+});
+
+test('nextTheme is a strict two-state flip, whatever the input', () => {
+  assert.equal(nextTheme('light'), 'dark');
+  assert.equal(nextTheme('dark'), 'light');
+  assert.equal(nextTheme(undefined), 'light'); // unknown ≠ light → flips to light
+});
+
+test('editor skin follows the axis', () => {
+  assert.equal(editorThemeFor('light'), 'default');
+  assert.equal(editorThemeFor('dark'), 'material-darker');
+});
+
+test('theme button shows the DESTINATION, not the state', () => {
+  assert.equal(themeButtonGlyph('light'), '🌙');
+  assert.equal(themeButtonGlyph('dark'), '☀️');
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);

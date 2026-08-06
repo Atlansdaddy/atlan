@@ -1,4 +1,4 @@
-import { resolve, dirname } from 'node:path';
+import { resolve, dirname, relative, isAbsolute } from 'node:path';
 import { existsSync, realpathSync } from 'node:fs';
 import { APP_ROOT, PROJECTS_DIR } from './config.js';
 
@@ -31,9 +31,17 @@ export const SENSITIVE = /(^|\/)\.(ssh|aws|gnupg|gcloud|docker|kube|copilot|code
 // Linux test run has on the win32 behaviour.
 export const isSensitive = (p) => SENSITIVE.test(String(p).replace(/\\/g, '/'));
 
+// Separator-agnostic containment test. The old `root + '/'` prefix check knew
+// only POSIX separators, so on win32 (`C:\Users\x\proj`) every legitimate path
+// missed the prefix and the guard failed CLOSED — safe, but the editor, tree,
+// attachments and git were all dead there. path.relative() speaks the host's
+// separators (and win32 drive-letter case) natively: inside ⇢ a plain relative
+// path; outside ⇢ starts with '..' or stays absolute (a different drive).
 export function isUnder(p, root) {
-  const r = root.endsWith('/') ? root : root + '/';
-  return p === root || p.startsWith(r);
+  const a = resolve(String(p)), r = resolve(String(root));
+  if (a === r) return true;
+  const rel = relative(r, a);
+  return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel);
 }
 
 // Resolve + validate a path.

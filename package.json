@@ -3,12 +3,10 @@
   "private": true,
   "version": "0.1.0",
   "workspaces": [
-    "server",
-    "web"
+    "server"
   ],
   "scripts": {
     "dev": "npm run dev -w server",
-    "web": "npm run dev -w web",
     "test": "bash test/run.sh",
     "sync:preflight": "node scripts/sync-preflight.mjs"
   },

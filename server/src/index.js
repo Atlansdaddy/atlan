@@ -337,10 +337,23 @@ app.post('/api/prefs', (req, res) => {
   p ? res.json(p) : res.status(400).json({ error: 'unknown pref' });
 });
 
-// Ports the CLIENT needs but must never hardcode. The preview iframe's URL is
-// built from these; a literal in app.js is what baked one operator's tailscale
-// setup into shared code and made preview impossible for everyone else.
-app.get('/api/config', (_req, res) => res.json({ previewPort: PREVIEW_PORT, previewTlsPort: PREVIEW_TLS_PORT }));
+// Instance facts the CLIENT needs but must never hardcode. Three separate bugs
+// came from baking these into app.js:
+//   · the preview port — any ATLAN_PREVIEW_PORT override (or the test harness)
+//     pointed the iframe at a dead port AND made the origin check silently drop
+//     every console message and snapshot;
+//   · the scheme/TLS front door — an http frame inside an https page is blocked
+//     as mixed content, which is why preview could never load on a phone, and
+//     the first workaround hardcoded one operator's tailscale port;
+//   · the projects root — placeholders and copy named the author's own /root.
+// Two of those were fixed independently on two branches, each adding its own
+// /api/config. Express serves the FIRST match, so the second route was dead and
+// its field silently absent. One route, all three facts.
+app.get('/api/config', (_req, res) => res.json({
+  previewPort: PREVIEW_PORT,
+  previewTlsPort: PREVIEW_TLS_PORT,
+  projectsDir: PROJECTS_DIR,
+}));
 app.get('/api/preview/target', (_req, res) => res.json({ url: getPreviewTarget() }));
 const LOCAL_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]', '::1']);
 app.post('/api/preview/target', (req, res) => {
@@ -373,21 +386,22 @@ app.post('/api/preview/target', (req, res) => {
   res.json({ url: u.origin });
 });
 
-// Candidate project dirs: anything in /root with a .git or package.json.
+// Candidate project dirs: anything in PROJECTS_DIR with a .git or package.json.
 app.get('/api/projects', (_req, res) => {
   const out = [];
   for (const name of readdirSync(PROJECTS_DIR)) {
     if (name.startsWith('.')) continue;
-    const p = `${PROJECTS_DIR}/${name}`;
+    const p = join(PROJECTS_DIR, name);
     try {
       if (!statSync(p).isDirectory()) continue;
-      const hasGit = existsQuiet(`${p}/.git`);
-      const hasPkg = existsQuiet(`${p}/package.json`);
+      const hasGit = existsQuiet(join(p, '.git'));
+      const hasPkg = existsQuiet(join(p, 'package.json'));
       if (hasGit || hasPkg) out.push({ name, path: p });
     } catch { /* unreadable dir */ }
   }
   res.json(out);
 });
+
 function existsQuiet(p) { try { statSync(p); return true; } catch { return false; } }
 
 const server = createServer(app);
@@ -423,7 +437,7 @@ function cockpitContext(tab, cwd) {
   const lines = [`time ${date} ${clock}` + (lastActivityAt ? ` (last exchange ${fmtGap(now - lastActivityAt)} ago)` : '')];
   lastActivityAt = now;
   lines.push(`tab: ${TAB_NAMES[tab] || 'Chat'}`);
-  lines.push(`project: ${cwd || '/root'}`);
+  lines.push(`project: ${cwd || PROJECTS_DIR}`);
   const running = listRuns().filter((r) => r.status === 'running');
   const burn = todayBurn();
   lines.push(running.length
@@ -483,16 +497,16 @@ wss.on('connection', (ws, req) => {
         pending.errors = []; pending.snaps = (isClaude || isAgentCli) ? [] : pending.snaps;
 
         // live self-awareness (incl. clock) rides the uncached tail — always fresh, ~0 token cost
-        text += cockpitContext(currentTab, (claude && claude.cwd) || m.cwd || '/root');
+        text += cockpitContext(currentTab, (claude && claude.cwd) || m.cwd || PROJECTS_DIR);
 
         if (isAgentCli) {
           const state = agentState.get(m.engine) ?? {};
           agentState.set(m.engine, state);
-          agentTurn({ engine: m.engine, cwd: m.cwd || '/root', text, send, state, model: m.model });
+          agentTurn({ engine: m.engine, cwd: m.cwd || PROJECTS_DIR, text, send, state, model: m.model });
         } else if (isClaude) {
           if (!claude || (m.cwd && claude.cwd !== m.cwd)) {
             claude?.dispose(); // end the old warm session before replacing it (cwd changed)
-            claude = new ClaudeSession({ cwd: m.cwd || '/root', model: m.model || 'claude-fable-5', send });
+            claude = new ClaudeSession({ cwd: m.cwd || PROJECTS_DIR, model: m.model || 'claude-fable-5', send });
           } else if (m.model) {
             claude.setModel(m.model); // warm-session model switch — no respawn, keeps context
           }
@@ -542,7 +556,7 @@ wss.on('connection', (ws, req) => {
         runBuild(m.path || DEFAULT_BUILD_PROJECT, send);
         break;
       case 'pty.open':
-        openPty(m.name || 'main', ws, { cols: m.cols, rows: m.rows, cwd: m.cwd || '/root' });
+        openPty(m.name || 'main', ws, { cols: m.cols, rows: m.rows, cwd: m.cwd || PROJECTS_DIR });
         break;
       case 'pty.input':
         writePty(m.name || 'main', m.data);

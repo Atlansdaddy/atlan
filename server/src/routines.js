@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnRun, isActive } from './fleet.js';
 import { listPersonas, compilePersona } from './personas.js';
+import { PROJECTS_DIR } from './config.js';
 
 // Routines = scheduled, budgeted, reported fleet runs. Same three fleet
 // guarantees apply; a routine is just a spawnRun on a clock. Missed fires are
@@ -47,7 +48,7 @@ export function upsertRoutine(r) {
     prompt: S(r.prompt, 8000),
     personaId: listPersonas().some((p) => p.id === r.personaId) ? r.personaId : null,
     profile: ['scout', 'builder', 'verifier'].includes(r.profile) ? r.profile : 'scout',
-    cwd: S(r.cwd, 300) || '/root',
+    cwd: S(r.cwd, 300) || PROJECTS_DIR,
     model: S(r.model, 80) || 'claude-haiku-4-5-20251001',
     budget: Math.min(2_000_000, Math.max(1000, Number(r.budget) || 50000)),
     enabled: r.enabled !== false,

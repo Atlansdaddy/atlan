@@ -134,26 +134,8 @@ import { appendConsoleLine } from './lib/previewconsole.js';
     if (next && next !== visible[i]) next.click();
   }
 
-  // ── light/dark theme (spine — every template gets the toggle) ──
-  // Only the Glass template defines a light palette today, so under Classic and
-  // MidAtlantic this flips the attribute and nothing visibly changes. That's
-  // the graceful-degradation case, not a bug: the axis is global, the palettes
-  // are per-template.
-  const themeBtn = $('themeBtn');
-  if (themeBtn) {
-    const applyTheme = (t) => {
-      document.documentElement.setAttribute('data-theme', t);
-      themeBtn.textContent = t === 'light' ? '🌙' : '☀️';
-      themeBtn.title = t === 'light' ? 'switch to dark theme' : 'switch to light theme';
-      try { localStorage.setItem('theme', t); } catch (e) { /* private mode */ }
-    };
-    let saved = 'dark';
-    try { saved = localStorage.getItem('theme') || 'dark'; } catch (e) { /* private mode */ }
-    applyTheme(saved);
-    themeBtn.addEventListener('click', () => {
-      applyTheme(document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light');
-    });
-  }
+  // (light/dark axis moved to theme.js — its own spine script, decisions in
+  //  lib/theme.js. Every template now answers data-theme with a light palette.)
 
   // ── Atlan alive: mood engine + halo canvas ──
   // Mood is real state, never decoration: calm=idle, building=agents/build
@@ -730,7 +712,8 @@ import { appendConsoleLine } from './lib/previewconsole.js';
     }
   }).catch(() => {});
   $('projSel').addEventListener('change', () => {
-    $('projName').textContent = $('projSel').value.split('/').pop() || '/root';
+    // separator-agnostic: project paths are host paths (win32 sends C:\…)
+    $('projName').textContent = $('projSel').value.split(/[\\/]/).pop() || 'no project';
     $('buildProj').textContent = $('projSel').value;
     sessionId = null; // new cwd = new session store
   });
@@ -764,7 +747,8 @@ import { appendConsoleLine } from './lib/previewconsole.js';
     if (cmEditor) { cmEditor.refresh(); return; }
     CodeMirror.modeURL = 'vendor/cm/mode/%N/%N.js';
     cmEditor = CodeMirror($('editor'), {
-      lineNumbers: true, theme: 'material-darker', autoCloseBrackets: true, matchBrackets: true,
+      lineNumbers: true, autoCloseBrackets: true, matchBrackets: true,
+      theme: document.documentElement.getAttribute('data-theme') === 'light' ? 'default' : 'material-darker',
       styleActiveLine: true, indentUnit: 2, tabSize: 2, lineWrapping: false,
       value: '// Open a file above, browse with ☰, or type here and Save to a new path.\n',
     });
@@ -853,7 +837,16 @@ import { appendConsoleLine } from './lib/previewconsole.js';
   });
 
   // ── preview ──
-  // Ports come from the server, never from a literal here — see lib/previewurl.js.
+  // Every port here is CONFIG, never a constant — see lib/previewurl.js.
+  //
+  // Two separate incidents landed on this same line. With :4590 baked in, any
+  // ATLAN_PREVIEW_PORT override (or the test harness) pointed the iframe at a
+  // dead port AND made the origin check below silently drop every console
+  // message and snapshot. And with the scheme baked in, an http frame inside an
+  // https page was blocked as mixed content, which is why preview could never
+  // load on a phone. previewUrl() answers both, and when it cannot answer
+  // honestly it returns null plus the setting that fixes it rather than
+  // guessing a port that was right for exactly one machine.
   let PROXY = null, PREVIEW_ORIGIN = null, previewWhy = null;
   function resolvePreviewUrl(cfg) {
     const r = previewUrl({ protocol: location.protocol, hostname: location.hostname, port: cfg?.previewPort, tlsPort: cfg?.previewTlsPort });
@@ -1452,7 +1445,7 @@ import { appendConsoleLine } from './lib/previewconsole.js';
     const root = $('scanProjSel').value;
     if (!root) return;
     $('scanBtn').disabled = true;
-    $('scanMeta').textContent = 'scanning ' + (root.split('/').pop() || root) + ' …';
+    $('scanMeta').textContent = 'scanning ' + (root.split(/[\\/]/).pop() || root) + ' …';
     $('scanList').innerHTML = '';
     fetch('/api/scan?path=' + encodeURIComponent(root)).then((r) => r.json()).then((res) => {
       $('scanBtn').disabled = false;

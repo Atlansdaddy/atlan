@@ -16,10 +16,11 @@
 // That turns a hard phone-only blocker into a non-event.
 import { spawn } from 'node:child_process';
 import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { saveUpload } from './attachments.js';
 
-const CODEX_HOME = process.env.CODEX_HOME ?? `${process.env.HOME ?? '/root'}/.codex`;
+const CODEX_HOME = process.env.CODEX_HOME ?? join(homedir(), '.codex');
 const GEN_DIR = join(CODEX_HOME, 'generated_images');
 const TIMEOUT_MS = 300000;
 

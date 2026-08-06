@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { getStoredKey } from './keys.js';
 
 // Agent CLIs (Codex, Antigravity, Grok Build, Copilot) driven headlessly —
@@ -10,7 +11,9 @@ import { getStoredKey } from './keys.js';
 // gated primary; these are extra hands for repos you trust them in.
 
 export function agentStatus() {
-  const home = process.env.HOME ?? '/root';
+  // homedir() is right on every platform; `HOME ?? '/root'` broke auth
+  // detection for anyone not running as root (and always on Windows).
+  const home = homedir();
   return [
     {
       id: 'codex',
@@ -68,7 +71,7 @@ export function copilotBin() {
   return existsSync('/usr/local/bin/copilot') ? '/usr/local/bin/copilot' : null;
 }
 function copilotAuthed() {
-  return existsSync(`${process.env.HOME ?? '/root'}/.copilot`);
+  return existsSync(`${homedir()}/.copilot`);
 }
 
 // Grok Build (xAI's official CLI, open to SuperGrok / X Premium+ since
@@ -82,7 +85,7 @@ export function grokBin() {
   return existsSync('/usr/local/bin/grok') ? '/usr/local/bin/grok' : null;
 }
 function grokAuthed() {
-  return existsSync(`${process.env.HOME ?? '/root'}/.grok/auth.json`);
+  return existsSync(`${homedir()}/.grok/auth.json`);
 }
 
 // Antigravity CLI (agy) — Gemini CLI's successor (Google retired the gemini
@@ -92,12 +95,12 @@ function grokAuthed() {
 // `agy -p` — plain text out, no stream-json in 1.x; `-c` continues the most
 // recent conversation, which is how a chat thread persists across turns.
 export function agyBin() {
-  const home = process.env.HOME ?? '/root';
+  const home = homedir();
   if (existsSync(`${home}/.local/bin/agy`)) return `${home}/.local/bin/agy`;
   return existsSync('/usr/local/bin/agy') ? '/usr/local/bin/agy' : null;
 }
 function agyAuthed() {
-  return existsSync(`${process.env.HOME ?? '/root'}/.gemini/antigravity-cli`);
+  return existsSync(`${homedir()}/.gemini/antigravity-cli`);
 }
 
 export function agentTurn({ engine, cwd, text, send, state, model = null }) {

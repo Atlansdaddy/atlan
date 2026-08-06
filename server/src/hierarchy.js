@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync } from 'node:fs';
 import { atomicWrite } from './fsutil.js';
 import { join } from 'node:path';
-import { FLEET_DIR, PROJECTS_DIR } from './config.js';
+import { FLEET_DIR, PROJECTS_DIR, LOCAL_LLM_BASE } from './config.js';
 import { listCommands, listPersonas, compilePersona, compileCommand, templateSchema, runCheckers } from './personas.js';
 import { getStoredKey } from './keys.js';
 import { agentExec } from './agentExec.js';
@@ -26,7 +26,7 @@ export function initHierarchy(fn) { if (fn) broadcast = fn; }
 // Tier endpoints are env-overridable (tests point local/cloud-sm at mock
 // engines to exercise the escalation ladder without real spend). An overridden
 // base needs no key.
-const localBase = process.env.ATLAN_TIER_LOCAL_BASE || 'http://127.0.0.1:8080/v1';
+const localBase = process.env.ATLAN_TIER_LOCAL_BASE || `${LOCAL_LLM_BASE}/v1`;
 // Rungs spread across BOTH model strength and capability class, and every rung
 // is something this device can actually reach. The old middle rung was DeepSeek
 // behind DEEPSEEK_API_KEY — unconfigured, so every escalation threw
@@ -38,7 +38,7 @@ const localBase = process.env.ATLAN_TIER_LOCAL_BASE || 'http://127.0.0.1:8080/v1
 const cloudBase = process.env.ATLAN_TIER_CLOUDSM_BASE || 'https://generativelanguage.googleapis.com/v1beta/openai';
 export const TIERS = {
   //                                                                                                              constrained = grammar/schema-locked JSON out
-  local:    { engine: 'local',    base: localBase, keyEnv: null,                                                   model: 'qwen',            constrained: true,  label: 'on-phone Qwen (free)' },
+  local:    { engine: 'local',    base: localBase, keyEnv: null,                                                   model: 'qwen',            constrained: true,  label: 'local model (free)' },
   'cloud-sm': { engine: 'gemini', base: cloudBase, keyEnv: process.env.ATLAN_TIER_CLOUDSM_BASE ? null : 'GEMINI_API_KEY', model: 'gemini-3.6-flash', constrained: true, label: 'Gemini Flash (free tier)' },
   // Opus 5 rather than Fable 5: it leads SWE-bench Verified (~80.8%) for the
   // code-shaped work this rung catches, and Fable's thinking cannot be disabled.

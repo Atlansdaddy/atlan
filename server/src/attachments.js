@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdirSync, writeFileSync, existsSync, statSync, readFileSync, realpathSync } from 'node:fs';
 import { basename, join, resolve, extname } from 'node:path';
 import { APP_ROOT, PROJECTS_DIR } from './config.js';
-import { SENSITIVE } from './guards.js';
+import { SENSITIVE, isUnder } from './guards.js';
 import { getStoredKey } from './keys.js';
 import { MULTIMODAL_MODEL } from './brains.js';
 
@@ -61,14 +61,13 @@ export async function saveUpload({ name, mime, data }) {
 // from this one and lost .fleet/.env, so there is now a single source of truth.
 export function saveRef({ path }) {
   const p = resolve(String(path || ''));
-  const root = PROJECTS_DIR.endsWith('/') ? PROJECTS_DIR : PROJECTS_DIR + '/';
-  if (p !== PROJECTS_DIR && !p.startsWith(root)) throw new Error(`references must live under ${PROJECTS_DIR}`);
+  if (!isUnder(p, PROJECTS_DIR)) throw new Error(`references must live under ${PROJECTS_DIR}`);
   if (SENSITIVE.test(p)) throw new Error('that path looks like credentials/secrets — not attachable');
   if (!existsSync(p)) throw new Error('no such path');
   // Symlink guard (fleet scout audit 2026-07-22): a link under the project
   // pointing outside it, or at a secret, must not be attachable.
   const real = realpathSync(p);
-  if (real !== PROJECTS_DIR && !real.startsWith(root)) throw new Error('symlink escapes the project root — refused');
+  if (!isUnder(real, PROJECTS_DIR)) throw new Error('symlink escapes the project root — refused');
   if (SENSITIVE.test(real)) throw new Error('resolves to a credentials/secrets path — refused');
   const isDir = statSync(p).isDirectory();
   return { id: randomUUID().slice(0, 8), kind: isDir ? 'folder' : 'file', name: basename(p), path: p, note: null };
