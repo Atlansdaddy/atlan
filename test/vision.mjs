@@ -20,8 +20,11 @@ import {
 } from '../server/src/vision.js';
 
 let pass = 0, fail = 0;
-function test(name, fn) {
-  try { fn(); pass++; console.log(`  ✓ ${name}`); }
+// Awaits the body so a test can exercise an async path — brainChat's refusal
+// returns before any fetch, so calling it for real costs nothing. Sync tests are
+// unaffected: awaiting a non-promise is a no-op.
+async function test(name, fn) {
+  try { await fn(); pass++; console.log(`  ✓ ${name}`); }
   catch (err) { fail++; console.log(`  ✗ ${name} — ${err.message}`); }
 }
 
@@ -219,17 +222,44 @@ test('buildImageParts on an empty list is empty, not an error', () => {
 });
 
 // ── the regression guard for the original bug ──────────────────────────────
-test('brainChat refuses rather than silently sending images text-only', () => {
-  // The original failure mode: turn succeeds, image ignored, model guesses.
-  // Assert on the source contract because exercising it needs a live provider.
-  const src = readFileSync(new URL('../server/src/brains.js', import.meta.url), 'utf8');
-  assert.ok(/providerDoesVision/.test(src), 'brainChat must check vision capability');
-  assert.ok(/cannot receive images/.test(src), 'and must say so plainly');
-  assert.ok(/attachImagesToHistory/.test(src), 'and must actually attach the bytes');
-  assert.ok(/messages,/.test(src), 'and must SEND the multimodal messages, not the original history');
+// This used to grep brains.js for four strings. A text search cannot tell a
+// live refusal from a DEAD BRANCH: wrapping the check as
+// `if (false && !providerDoesVision(provider))` leaves all four strings on
+// their original lines, and the suite — whose own description calls this "the
+// failure mode that let this bug hide for a week" — stayed green while the bug
+// was back in exactly the form the guard was written for.
+// (Mutation pass, 2026-08-06.)
+//
+// So: CALL it. The refusal returns before any fetch, so a text-only provider
+// with no key requirement exercises the branch with zero network and zero spend.
+await test('brainChat REFUSES a text-only provider an image turn', async () => {
+  const { brainChat } = await import('../server/src/brains.js');
+  assert.equal(providerDoesVision('local'), false, 'fixture assumption broke: local now does vision');
+  const frames = [];
+  await brainChat({
+    provider: 'local',
+    model: 'whatever',
+    history: [{ role: 'user', content: 'what is in this picture?' }],
+    images: ['/tmp/atlan-vision-does-not-need-to-exist.png'],
+    send: (f) => frames.push(f),
+  });
+  const err = frames.find((f) => f.t === 'chat.err');
+  assert.ok(err, 'the turn was NOT refused — frames: ' + JSON.stringify(frames).slice(0, 300));
+  assert.match(err.msg, /cannot receive images/, err.msg);
+  assert.equal(frames.filter((f) => f.t === 'chat.msg').length, 0, 'it was sent text-only after "refusing"');
 });
 
-import { readFileSync } from 'node:fs';
+await test('the multimodal parts really reach the message a vision provider gets', () => {
+  // The mirror image: proving the refusal fires is only half of it, because
+  // refusing EVERYTHING would also satisfy the test above.
+  const out = attachImagesToHistory(
+    [{ role: 'user', content: 'look' }],
+    [{ type: 'image_url', image_url: { url: 'data:image/png;base64,AAA' } }],
+  );
+  const last = out.at(-1);
+  assert.ok(Array.isArray(last.content), 'the last user turn was not made multimodal');
+  assert.ok(last.content.some((c) => c.type === 'image_url'), 'the image part never reached the message');
+});
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

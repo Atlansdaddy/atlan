@@ -21,28 +21,11 @@ import { agyBin, grokBin, copilotBin } from './agents.js';
 // interactive path — threading, resume, live tool frames, mood. This owns the
 // batch path: one prompt, one answer, a token count, and a hard timeout.
 
-/**
- * Kill a spawned CLI and everything it started.
- *
- * `child.kill()` signals ONE pid. These CLIs run shells and tool children, so
- * a plain SIGTERM left descendants alive while the fleet reported the run
- * killed — a kill guarantee that was not one. Signalling the negative pid hits
- * the whole process group (the child is spawned `detached`, so it leads one),
- * and SIGKILL follows if SIGTERM is ignored.
- *
- * Exported for testing: the escalation is the part most likely to rot.
- */
-export function killTree(child, { graceMs = 3000 } = {}) {
-  if (!child?.pid) return false;
-  const signal = (sig) => {
-    try { process.kill(-child.pid, sig); return true; }      // whole group
-    catch { try { child.kill(sig); return true; } catch { return false; } } // group gone → try the pid
-  };
-  const sent = signal('SIGTERM');
-  const t = setTimeout(() => { if (child.exitCode === null && child.signalCode === null) signal('SIGKILL'); }, graceMs);
-  t.unref?.();  // never hold the event loop open on a process that already left
-  return sent;
-}
+// killTree now lives in procTree.js so the interactive chat path can use the
+// same guarantee without agents.js and agentExec.js importing each other.
+// Re-exported here because fleet.js and the suites already import it from this
+// module, and the guarantee is the same one.
+export { killTree } from './procTree.js';
 
 const BIN = {
   codex: () => 'codex',
@@ -144,6 +127,14 @@ export async function agentExec({
   const host = sandboxCapableHost();
   const useContainment = contain === true || (contain === null && !host.ok);
 
+  // openContained is AWAITED. It used to be fully synchronous — cpSync of the
+  // whole project, or execFileSync('git worktree add') — running on the event
+  // loop inside the POST /api/fleet/run handler, so every contained run froze
+  // the entire single-threaded cockpit for the length of the copy: measured
+  // 566ms for a 20k-file project on an SSD, and this is the MANDATORY path on
+  // the phone, where flash is several times slower. During the stall the
+  // terminal is dead, preview frames are dropped and permission cards cannot be
+  // answered. (Cross-vendor adversarial review, 2026-08-06.)
   let gate, workspace = null, runDir = cwd;
   if (host.ok) {
     // KERNEL FIRST, ALWAYS — even when containment is also requested.
@@ -160,7 +151,7 @@ export async function agentExec({
     // workspace on top. (Cross-vendor adversarial review, 2026-08-02.)
     gate = policyArgs(engine, profile, { allowUnsandboxed });
     if (useContainment) {
-      workspace = openContained(cwd, engine);
+      workspace = await openContained(cwd, engine);
       runDir = workspace.dir;
     }
   } else {
@@ -168,7 +159,7 @@ export async function agentExec({
     // only thing that starts under proot — but it is pointed at a disposable
     // copy, and its environment is stripped of every credential we hold.
     gate = policyArgs(engine, profile, { allowUnsandboxed: true });
-    workspace = openContained(cwd, engine);
+    workspace = await openContained(cwd, engine);
     runDir = workspace.dir;
   }
 
@@ -205,8 +196,10 @@ export async function agentExec({
 
     child.stdout.on('data', (d) => { out += d; });
     child.stderr.on('data', (d) => { err += d.toString().slice(0, 4000); });
-    const finish = (fn) => { try { fn(); } finally { if (workspace && !keepWorkspace) workspace.cleanup(); } };
-    let keepWorkspace = false;
+    // cleanup() is async and deliberately NOT awaited: the caller already has
+    // the patch (see containment.diff), so teardown is pure housekeeping and must
+    // not hold the event loop while a big tree is removed.
+    const finish = (fn) => { try { fn(); } finally { if (workspace) Promise.resolve(workspace.cleanup()).catch(() => {}); } };
 
     child.on('error', (e) => {
       clearTimeout(timer);
@@ -264,6 +257,9 @@ export async function agentExec({
         boundary: [gate.enforced ? 'kernel' : null, workspace ? 'atlan' : null].filter(Boolean).join('+') || 'none',
         proposal,
         exitCode: code,
+        // The tail of stderr. Dropping it meant a caller could see 
+        // and still have nothing to tell the user about what went wrong.
+        stderr: err.trim().slice(-600),
       }));
     });
   });

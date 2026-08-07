@@ -72,8 +72,31 @@ await test("reading Atlan's own state (.fleet/auth.json) is refused", async () =
 await test("reading Atlan's own source (server/src/auth.js) is refused", async () => {
   assert.equal((await api('/api/file?path=' + encodeURIComponent(`${APP}/server/src/auth.js`))).status, 400);
 });
+// THE NEGATIVE WRITE MUST NOT BE LIVE FIRE.
+//
+// This used to POST `{path: <the REAL checkout>/server/src/auth.js, content:
+// '// pwned'}` — an actual destructive write at the actual repo, with no
+// sandbox copy and no restore. It passes while the guard holds; the moment the
+// guard regresses (a refactor, a bad merge, a mutation run) the SUITE ITSELF
+// empties auth.js. Verified 2026-08-06 by disabling both blockAppRoot belts in
+// a scratch worktree under $HOME: `node test/editor.mjs` took auth.js from 191
+// lines to the single line `// pwned`. Paired with the auto-respawning
+// supervisor that SECURITY.md names as the reason this guard exists,
+// `node test/run-all.mjs` stops being the detector and becomes the delivery
+// mechanism — and every later suite in that run is measuring a broken tree.
+//
+// A CANARY path proves the same rule and is strictly STRONGER: it asserts the
+// refusal AND that nothing was created, so a 400 that wrote anyway — which the
+// old status-only assertion would have happily passed — now fails.
+const CANARY = `${APP}/.atlan-editor-negative-canary`;
 await test("overwriting Atlan's own source is refused (auth-rewrite → respawn vector)", async () => {
-  assert.equal((await api('/api/file', { method: 'POST', body: JSON.stringify({ path: `${APP}/server/src/auth.js`, content: '// pwned' }) })).status, 400);
+  rmSync(CANARY, { force: true });
+  const r = await api('/api/file', { method: 'POST', body: JSON.stringify({ path: CANARY, content: '// pwned' }) });
+  assert.equal(r.status, 400, 'a write into the app repo was ACCEPTED');
+  assert.equal(existsSync(CANARY), false, 'the guard answered 400 but wrote the file anyway');
+  // The real respawn vector is still asserted — by READING it, which cannot
+  // damage anything.
+  assert.equal((await api('/api/file?path=' + encodeURIComponent(`${APP}/server/src/auth.js`))).status, 400);
 });
 await test('the app repo is hidden from the file tree', async () => {
   const t = await j(await api('/api/tree?path=' + encodeURIComponent(PROJ)));
@@ -85,7 +108,13 @@ await test('reading outside the project is refused', async () => {
   assert.equal((await api('/api/file?path=' + encodeURIComponent('/etc/passwd'))).status, 400);
 });
 await test('writing outside the project is refused', async () => {
-  assert.equal((await api('/api/file', { method: 'POST', body: JSON.stringify({ path: '/etc/atlan-pwn', content: 'x' }) })).status, 400);
+  // Same rule as the app-root canary above: assert the refusal AND the absence.
+  // This suite runs as root on the reference platform, so a regression here used
+  // to mean the test itself wrote into /etc.
+  const outside = '/etc/atlan-pwn';
+  const r = await api('/api/file', { method: 'POST', body: JSON.stringify({ path: outside, content: 'x' }) });
+  assert.equal(r.status, 400);
+  assert.equal(existsSync(outside), false, 'the guard answered 400 but wrote outside the project anyway');
 });
 await test('reading a folder as a file errors cleanly', async () => {
   assert.equal((await api('/api/file?path=' + encodeURIComponent(FIX))).status, 400);

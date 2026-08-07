@@ -15,7 +15,7 @@ const MANIFEST_BY_PROBE_NAME = (() => {
   return out;
 })();
 //
-// Why the stableId hash exists: a finding's default uid=197610(jviru) gid=197610 groups=197610 field uses byte offsets, so any
+// Why the stableId hash exists: a finding's default `id` field uses byte offsets, so any
 // edit above a vulnerability invents a new id. That makes suppression and "have I seen
 // this before" comparisons impossible. stableId() hashes (probe + file + title + ±3-line
 // whitespace-normalized context) instead, so trivial reformats don't perturb the ID.

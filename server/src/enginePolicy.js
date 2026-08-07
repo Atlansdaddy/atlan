@@ -136,6 +136,38 @@ export function policyArgs(engine, profile, { allowUnsandboxed = false } = {}) {
   return { args, enforced: true, why: `${engine} native ${profile} gate` };
 }
 
+// ── the INTERACTIVE chat path ─────────────────────────────────────────────
+// agents.js drives these four CLIs for a live chat turn, and there it must run
+// them full-auto: an exec-mode CLI is all-or-nothing on approvals, and there is
+// no per-tool callback to hang a permission card on. That is a real constraint,
+// not a shortcut — but it has to be STATED somewhere a checker can read.
+//
+// It wasn't. agents.js spelled the bypass flags out inline, and preflight.js
+// separately rendered a hardcoded green row reading "sessions run permission-mode
+// default — every dangerous tool asks you first". Both were about the same four
+// engines, neither knew the other existed, and the one the user is told to trust
+// before exposing the cockpit was the one that was false.
+//
+// So the flags come from here, the honesty check reads the same table, and
+// `gated:false` travels with them. If an engine ever grows a real interactive
+// gate, this entry changes and both the launcher and the check follow it.
+export function interactiveGate(engine) {
+  const spec = ENGINE_POLICY[engine];
+  if (!spec) return null;
+  return {
+    args: spec.bypass,
+    // No exec-mode CLI exposes per-tool approval, so an interactive turn on one
+    // of these has NO human in the loop — a prompt-injected instruction runs.
+    gated: false,
+    why: `${engine} runs exec-mode with ${spec.bypass.join(' ')} — no per-tool approval exists on this CLI`,
+  };
+}
+
+/** The engines the interactive chat path can start ungated. Data, not prose. */
+export function ungatedInteractiveEngines() {
+  return Object.keys(ENGINE_POLICY).filter((id) => interactiveGate(id)?.gated === false);
+}
+
 // For the Doctor surface: say plainly what is and isn't gated here.
 export function policyReport() {
   const host = sandboxCapableHost();

@@ -1,7 +1,7 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { randomUUID } from 'node:crypto';
-import { appendFileSync, mkdirSync, readFileSync } from 'node:fs';
-import { atomicWrite } from './fsutil.js';
+import { appendFileSync, mkdirSync, readFileSync, existsSync } from 'node:fs';
+import { atomicWrite, readJsonState } from './fsutil.js';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { dirname } from 'node:path';
@@ -14,7 +14,7 @@ import { dirname } from 'node:path';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 import { FLEET_DIR, DAILY_TOKEN_CAP, MAX_CONCURRENT_RUNS, TURN_RESERVE, sandboxOption, PROJECTS_DIR } from './config.js';
 import { agentExec, killTree } from './agentExec.js';
-import { isUnder } from './guards.js';
+import { isUnder, guardPath, resolveInProjects } from './guards.js';
 import { engineFidelity, policyArgs } from './enginePolicy.js';
 
 // Engines that report no usage numbers at all. Admitting one under a token
@@ -99,6 +99,8 @@ export function initFleet(broadcastFn, notifyFn) {
   if (notifyFn) notify = notifyFn;
 }
 
+// Named so the turn wall and the message that reports hitting it cannot drift.
+const MAX_TURNS = 40;
 const READONLY = new Set(['Read', 'Grep', 'Glob', 'LS']);
 // Defense in depth, learned live on 2026-07-17: canUseTool alone is NOT a
 // gate — the CLI auto-approves "safe" sandboxed Bash (and settings allowlists,
@@ -122,13 +124,33 @@ const PROFILES = {
   builder: {
     label: 'Builder — files + bash, writes scoped to project',
     disallowed: NEVER.filter((t) => t !== 'TodoWrite'),
+    // The write scope is `cwd` AND the same walls every other write surface in
+    // this codebase enforces.
+    //
+    // `isUnder(p, cwd)` alone was the whole gate, and `cwd` arrives from the
+    // caller — POST /api/fleet/run passes req.body straight through, and a
+    // saved routine fires unattended on a timer. So `cwd:'/'` made every path
+    // on the host "under cwd" and this returned ok:true for /etc/hosts,
+    // ~/.ssh/authorized_keys, .fleet/auth.json and server/src/auth.js — which
+    // the supervisor loop re-executes on the next restart. The editor refused
+    // the identical write through guardPath; the autonomous path had never been
+    // wired to it. spawnRun now bounds cwd itself, and this bounds the target
+    // even when cwd is legitimately the projects root (which CONTAINS the
+    // cockpit's own repo on the home node).
+    // (Cross-vendor adversarial review, 2026-08-06.)
     check(tool, input, cwd) {
       if (READONLY.has(tool) || tool === 'TodoWrite' || tool === 'Bash') return { ok: true };
       if (tool === 'Edit' || tool === 'Write' || tool === 'NotebookEdit') {
-        const p = resolve(String(input?.file_path ?? input?.notebook_path ?? ''));
-        return isUnder(p, cwd)
-          ? { ok: true }
-          : { ok: false, why: `writes must stay under ${cwd}` };
+        const raw = String(input?.file_path ?? input?.notebook_path ?? '');
+        const p = resolve(raw);
+        if (!isUnder(p, cwd)) return { ok: false, why: `writes must stay under ${cwd}` };
+        try {
+          // Same guard as the editor: inside PROJECTS_DIR, never Atlan's own
+          // source/state, never a credential file. mustExist:false — a builder
+          // creating a new file is the normal case.
+          guardPath(p, { mustExist: false, blockAppRoot: true, verb: 'writable' });
+        } catch (err) { return { ok: false, why: err.message }; }
+        return { ok: true };
       }
       return { ok: false, why: 'not in builder profile — no web, no subagents, outbound goes through the user' };
     },
@@ -147,19 +169,75 @@ export const profileList = Object.entries(PROFILES).map(([id, p]) => ({ id, labe
 export const PROFILES_FOR_TEST = PROFILES;
 
 // ── burn ledger (per-day totals survive restarts; live run burn is in-memory) ──
+//
+// A CORRUPT ledger must not read as a zero ledger. `catch { return {} }` meant a
+// truncated burn.json silently disabled ATLAN_DAILY_TOKEN_CAP — the one global
+// spend wall — and the first commitBurn() then overwrote the file, destroying
+// the evidence. readJsonState moves the bad file aside instead, and `ledgerLost`
+// keeps the fact visible so admission can fail CLOSED rather than open.
+let ledgerLost = null;   // quarantine path of the last corrupt ledger, or null
 function dateKey() { return new Date().toISOString().slice(0, 10); }
-function loadBurn() { try { return JSON.parse(readFileSync(BURN, 'utf8')); } catch { return {}; } }
+function loadBurn() {
+  const { value, corrupt } = readJsonState(BURN, {});
+  if (corrupt) ledgerLost = corrupt;
+  // The refusal is keyed to the QUARANTINE FILE still being there, not to a
+  // flag that sticks for the life of the process. Once the operator has done
+  // what the error message asks — restored the ledger or deleted the bad copy —
+  // the cockpit works again immediately. A wall you cannot climb back over
+  // without a restart is a wall that gets disabled instead of fixed.
+  if (ledgerLost && !existsSync(ledgerLost)) ledgerLost = null;
+  return value;
+}
 export function todayBurn() {
   const d = { tokens: 0, cost: 0, cacheRead: 0, ...loadBurn()[dateKey()] };
   for (const r of runs) if (r.status === 'running') { d.tokens += r.tokens; d.cost += r.cost; d.cacheRead += r.cacheRead ?? 0; }
+  if (ledgerLost) d.ledgerLost = ledgerLost;
   return d;
 }
+/** Has the durable spend record been lost this process? (quarantine path, or null) */
+export function burnLedgerLost() { return ledgerLost; }
 function commitBurn(tokens, cost, cacheRead = 0) {
   const b = loadBurn();
   const d = { tokens: 0, cost: 0, cacheRead: 0, ...b[dateKey()] };
   d.tokens += tokens; d.cost += cost; d.cacheRead += cacheRead;
   b[dateKey()] = d;
   atomicWrite(BURN, JSON.stringify(b));
+}
+
+// ── in-flight register (survives an abnormal death) ───────────────────────
+// finish() is the only place that commits burn and appends the report card, and
+// finish() runs only when exec/execCli completes. A SIGKILL — the documented OOM
+// / phantom-process-killer case on the phone, and every supervisor respawn —
+// skipped it entirely: the run vanished with no card, no history line, and its
+// tokens invisible to the daily cap, so the ceiling under-counted exactly the
+// runs a user most needs a receipt for. This register is written at spawn,
+// updated as usage streams in, and cleared by finish(); anything still in it at
+// boot died with the last process and is reconciled below.
+// (Cross-vendor adversarial review, 2026-08-06.)
+const INFLIGHT = join(FLEET_DIR, 'inflight.json');
+function writeInflight() {
+  const live = runs.filter((r) => r.status === 'running')
+    .map((r) => ({ ...publicRun(r), prompt: r.prompt, _tokens: r.tokens, _cost: r.cost, _cacheRead: r.cacheRead ?? 0 }));
+  try { atomicWrite(INFLIGHT, JSON.stringify(live)); } catch { /* best-effort */ }
+}
+export function recoverInflight() {
+  const { value } = readJsonState(INFLIGHT, []);
+  const lost = Array.isArray(value) ? value : [];
+  if (!lost.length) { try { atomicWrite(INFLIGHT, '[]'); } catch { /* */ } return []; }
+  for (const r of lost) {
+    // The spend HAPPENED. Commit it so the daily cap counts it, then write the
+    // report card the user would otherwise never see.
+    commitBurn(r._tokens ?? 0, r._cost ?? 0, r._cacheRead ?? 0);
+    const card = {
+      ...r, status: 'interrupted', endedAt: Date.now(),
+      lastLine: `interrupted — the cockpit died mid-run (${r._tokens ?? 0} tok spent, recorded on restart)`,
+    };
+    delete card._tokens; delete card._cost; delete card._cacheRead;
+    try { appendFileSync(HISTORY, JSON.stringify(card) + '\n'); } catch { /* */ }
+  }
+  try { atomicWrite(INFLIGHT, '[]'); } catch { /* */ }
+  console.warn(`[fleet] ${lost.length} run(s) were in flight when the cockpit last died — recorded as interrupted, their burn added to today's total.`);
+  return lost.map((r) => r.id);
 }
 
 // ── runs ──
@@ -189,6 +267,9 @@ function publicRun(r) {
     // never "cost nothing". A ledger reader must be able to tell those apart.
     tokensKnown: r.tokensKnown ?? true,
     proposal: r.proposal ?? null,       // contained runs produce a diff, not a result
+    // The CLI path's process exit status. null on the Claude path (no process
+    // of ours) and while a run is still going.
+    exitCode: r.exitCode ?? null,
   };
 }
 
@@ -218,6 +299,15 @@ export function spawnRun({
   if (!FLEET_ENGINES.includes(engine)) {
     throw new Error(`unknown engine: ${engine} — one of ${FLEET_ENGINES.join(', ')}`);
   }
+  // `cwd` IS the write boundary — for the builder profile's own check, for the
+  // kernel gate agentExec asks for, and for the containment copy. It arrived
+  // unvalidated from POST /api/fleet/run (raw client JSON) and from saved
+  // routines that fire unattended on a timer, so `cwd:'/'` handed the agent the
+  // whole filesystem. Bound it here, once, with the shared guard — before a run
+  // id exists, before the ledger sees it. blockAppRoot is deliberately OFF: a
+  // scout auditing Atlan's own repo is a real and wanted use, and the builder's
+  // per-write check is what refuses the cockpit's source and state.
+  cwd = resolveInProjects(cwd || PROJECTS_DIR, { mustExist: true });
   // Model default is PER ENGINE. A hardcoded claude-haiku default was fine
   // while the fleet was Claude-only and becomes a bug the moment it is not.
   if (!model) model = engine === 'claude' ? 'claude-haiku-4-5-20251001' : null;
@@ -238,6 +328,13 @@ export function spawnRun({
   if (MAX_CONCURRENT_RUNS > 0 && active.size >= MAX_CONCURRENT_RUNS) {
     throw new Error(`too many runs in flight (${active.size}/${MAX_CONCURRENT_RUNS}) — let some finish or KILL ALL`);
   }
+  // Read the ledger FIRST — that is what discovers (or clears) a corruption.
+  const committed = todayBurn();
+  if (DAILY_TOKEN_CAP > 0 && ledgerLost) {
+    // The cap is computed from a file we just found unreadable. Admitting a run
+    // against an unknown total is how a corrupt ledger became an unlimited one.
+    throw new Error(`the spend ledger was unreadable and has been set aside at ${ledgerLost} — today's committed total is unknown, so the daily cap cannot be enforced. Restore that file, or delete it to accept the loss and start today's count from zero.`);
+  }
   if (DAILY_TOKEN_CAP > 0) {
     // Count what is COMMITTED plus what is already PROMISED to in-flight runs.
     //
@@ -251,7 +348,7 @@ export function spawnRun({
     const inFlight = runs
       .filter((r) => r.status === 'running')
       .reduce((sum, r) => sum + Math.max(0, r.budget - r.tokens), 0);
-    const projected = todayBurn().tokens + inFlight;
+    const projected = committed.tokens + inFlight;
     if (projected >= DAILY_TOKEN_CAP) {
       throw new Error(`daily token cap would be exceeded (${projected}/${DAILY_TOKEN_CAP}, including ${inFlight} reserved by runs still in flight) — let some finish, or raise ATLAN_DAILY_TOKEN_CAP`);
     }
@@ -272,6 +369,7 @@ export function spawnRun({
   };
   runs.unshift(run);
   if (runs.length > 200) runs.pop();
+  writeInflight();   // so an OOM kill a second from now still leaves a receipt
   broadcast({ t: 'fleet.run', run: publicRun(run) });
   broadcast({ t: 'atlan.mood', mood: 'building', agents: active.size + 1 });
   // fire-and-forget: exec self-handles internally, but a stray rejection must
@@ -319,6 +417,7 @@ async function execCli(run) {
     run.boundary = res.boundary;
     run.proposal = res.proposal ?? null;
     run.resultText = res.text || null;
+    run.exitCode = res.exitCode ?? null;
     // A contained run changed a disposable copy, never the project. Say so in
     // the one line the inbox shows, or a reviewer will assume it landed.
     if (res.proposal) {
@@ -327,6 +426,21 @@ async function execCli(run) {
       run.lastLine = (res.text || 'surfaced').slice(0, 120);
     }
     if (run.status === 'running') run.status = 'done';
+    // A NON-ZERO EXIT IS A FAILURE, even when the CLI printed something first.
+    // agentExec only rejects on `!text && code !== 0`, so any partial output
+    // suppressed the failure entirely: a stream disconnect, an auth expiry or an
+    // OOM mid-turn came back as status 'done', lastLine = the truncated answer,
+    // and a "❖ Fleet run surfaced" success notification. Nothing in publicRun,
+    // history.jsonl or the push said the run had died. For the 'plain'-parse
+    // engines it was worse — a startup banner counted as the result.
+    // The partial text is KEPT (it may be all the user gets); the status tells
+    // the truth about it.
+    // (Cross-vendor adversarial review, 2026-08-06.)
+    if (res.exitCode != null && res.exitCode !== 0 && run.status === 'done') {
+      run.status = 'error';
+      const why = (res.stderr || '').trim().split('\n').pop() || 'no error output';
+      run.lastLine = `${run.engine} exited ${res.exitCode} — partial output kept: ${why}`.slice(0, 160);
+    }
     // Post-hoc budget: this path cannot interrupt a turn, so an overrun is
     // RECORDED rather than prevented. Marking it keeps the ledger honest and
     // gives the UI something true to show.
@@ -346,13 +460,14 @@ async function execCli(run) {
 async function exec(run, prof) {
   const framed = `[Atlan fleet run · profile: ${run.profile} · HARD budget: ${run.budget} tokens — past it every tool is refused and the run halts. Off-profile tools are auto-denied; don't fight denials, work within the profile. End with a compact report of what you found or did.]\n\n${run.prompt}`;
   let q = null;
+  let resultError = null;
   try {
     q = query({
       prompt: framed,
       options: {
         cwd: run.cwd,
         model: run.model,
-        maxTurns: 40,
+        maxTurns: MAX_TURNS,
         // CRITICAL: no inherited settings. Accumulated always-allow rules in
         // settings.local.json would let tools walk past the profile without
         // ever reaching canUseTool — proven live by a scout running `ls` on
@@ -402,6 +517,7 @@ async function exec(run, prof) {
           // stood still for exactly the window someone would be watching it.
           // todayBurn() already folds in every in-flight run, so the header is
           // the server's number and the client never does spend arithmetic.
+          writeInflight(); // checkpoint: an OOM after this still counts these tokens
           broadcast({ t: 'fleet.burn', id: run.id, tokens: run.tokens, budget: run.budget, cost: run.cost, cacheRead: run.cacheRead, today: todayBurn() });
           if (run.tokens >= run.budget && run.status === 'running') halt(run, q);
         }
@@ -414,7 +530,26 @@ async function exec(run, prof) {
       } else if (m.type === 'result') {
         if (m.total_cost_usd != null) run.cost = m.total_cost_usd;
         if (m.session_id) run.sessionId = m.session_id;
+        // THE RESULT MESSAGE CARRIES THE VERDICT, and it was being read only for
+        // cost and session id. The SDK's result subtype is
+        // 'success' | 'error_max_turns' | 'error_during_execution' |
+        // 'error_max_budget_usd' | 'error_max_structured_output_retries', and an
+        // error subtype RESOLVES the iterator rather than throwing — so a run
+        // that hit the maxTurns:40 wall mid-task, or died during execution, fell
+        // out of this loop with status still 'running', was set to 'done', got
+        // lastLine 'surfaced' and fired the success notification. Indistinguish-
+        // able, in the record and in the push, from a run that finished the job.
+        // (Cross-vendor adversarial review, 2026-08-06.)
+        if (m.is_error || (typeof m.subtype === 'string' && m.subtype.startsWith('error'))) {
+          resultError = m.subtype || 'error';
+        }
       }
+    }
+    if (resultError && run.status === 'running') {
+      run.status = 'error';
+      run.lastLine = resultError === 'error_max_turns'
+        ? `cut off at the ${MAX_TURNS}-turn wall — the task was NOT finished; re-run with a narrower prompt`
+        : `the agent run ended in error (${resultError}) — partial output kept`;
     }
     if (run.status === 'running') { run.status = 'done'; run.lastLine = 'surfaced'; }
     // The Claude path's profile IS enforced — by disallowedTools at the CLI
@@ -448,6 +583,7 @@ function finish(run) {
   active.delete(run.id);
   if (!run.endedAt) run.endedAt = Date.now();
   commitBurn(run.tokens, run.cost, run.cacheRead);
+  writeInflight(); // this run is no longer in flight — drop it from the register
   try { appendFileSync(HISTORY, JSON.stringify({ ...publicRun(run), prompt: run.prompt }) + '\n'); } catch { /* best-effort: history append is non-critical, a disk error here must not fail the run */ }
   broadcast({ t: 'fleet.done', run: publicRun(run), today: todayBurn() });
   broadcast({

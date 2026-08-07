@@ -1,11 +1,12 @@
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, readFileSync } from 'node:fs';
-import { atomicWrite } from './fsutil.js';
+import { mkdirSync } from 'node:fs';
+import { atomicWrite, readJsonState } from './fsutil.js';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnRun, isActive } from './fleet.js';
 import { listPersonas, compilePersona } from './personas.js';
 import { PROJECTS_DIR } from './config.js';
+import { resolveInProjects } from './guards.js';
 
 // Routines = scheduled, budgeted, reported fleet runs. Same three fleet
 // guarantees apply; a routine is just a spawnRun on a clock. Missed fires are
@@ -15,7 +16,17 @@ import { FLEET_DIR } from './config.js';
 mkdirSync(FLEET_DIR, { recursive: true });
 const FILE = join(FLEET_DIR, 'routines.json');
 
-let state = (() => { try { return JSON.parse(readFileSync(FILE, 'utf8')); } catch { return { routines: [], paused: false }; } })();
+// A CORRUPT store must not read as an EMPTY store. `catch { return {routines:[]} }`
+// meant a truncated routines.json silently dropped every scheduled routine —
+// no notify, no broadcast, no log line — and the next state change persisted the
+// empty list straight over it, making the loss permanent. The user found out
+// when a nightly audit they relied on had quietly stopped firing. readJsonState
+// moves the bad file aside instead of overwriting it, and `loadError` carries
+// the quarantine path into listRoutines() so the surface can say so.
+// (Cross-vendor adversarial review, 2026-08-06.)
+const loaded = readJsonState(FILE, { routines: [], paused: false });
+let state = loaded.value;
+const loadError = loaded.corrupt;
 const persist = () => atomicWrite(FILE, JSON.stringify(state, null, 1));
 
 let broadcast = () => {};
@@ -37,7 +48,11 @@ function sanitizeCadence(c) {
 }
 
 export function listRoutines() {
-  return { routines: state.routines.map((r) => ({ ...r, nextDueAt: state.paused || !r.enabled ? null : dueAt(r) })), paused: state.paused };
+  return {
+    routines: state.routines.map((r) => ({ ...r, nextDueAt: state.paused || !r.enabled ? null : dueAt(r) })),
+    paused: state.paused,
+    loadError: loadError || null,
+  };
 }
 
 export function upsertRoutine(r) {
@@ -48,7 +63,10 @@ export function upsertRoutine(r) {
     prompt: S(r.prompt, 8000),
     personaId: listPersonas().some((p) => p.id === r.personaId) ? r.personaId : null,
     profile: ['scout', 'builder', 'verifier'].includes(r.profile) ? r.profile : 'scout',
-    cwd: S(r.cwd, 300) || PROJECTS_DIR,
+    // Bound at SAVE time, with the same guard spawnRun uses. A routine is the
+    // one path that spends unattended on a timer, so a cwd it will refuse at
+    // 3am should be refused now, while a human is looking at the form.
+    cwd: resolveInProjects(S(r.cwd, 300) || PROJECTS_DIR, { mustExist: true }),
     model: S(r.model, 80) || 'claude-haiku-4-5-20251001',
     budget: Math.min(2_000_000, Math.max(1000, Number(r.budget) || 50000)),
     enabled: r.enabled !== false,
@@ -84,11 +102,22 @@ function dueAt(r) {
   if (r.cadence.kind === 'every') {
     return (r.lastFireAt ?? r.createdAt) + r.cadence.minutes * 60_000;
   }
-  // daily: today's HH:MM if not fired since then, else tomorrow's
+  // daily: today's HH:MM if that slot is still open, else tomorrow's.
+  //
+  // "Still open" is measured from the last fire OR, for a routine that has
+  // never fired, from when it was CREATED. It used to fall back to 0, so a
+  // brand-new daily routine always saw today's slot as unconsumed — set up a
+  // "09:00 daily" at 2pm and `dueAt` came back five hours in the PAST, which
+  // tick() reads as due and fires within 30 seconds. A real budgeted agent run,
+  // unconfirmed, against the user's project, when every cron-like scheduler
+  // (and this file's own header: "a dead server must not wake up and spend")
+  // says it waits until tomorrow.
+  // (Cross-vendor adversarial review, 2026-08-06.)
   const [h, m] = r.cadence.at.split(':').map(Number);
   const today = new Date(); today.setHours(h, m, 0, 0);
   const t = today.getTime();
-  if ((r.lastFireAt ?? 0) < t) return t;            // today's slot still open
+  const consumedSince = r.lastFireAt ?? r.createdAt ?? 0;
+  if (consumedSince < t) return t;                  // today's slot still open
   return t + 24 * 3600_000;
 }
 
@@ -152,7 +181,21 @@ function tick() {
   const now = Date.now();
   for (const r of state.routines) {
     if (!r.enabled || r.missed) continue;
-    if (now < dueAt(r)) continue;
+    const due = dueAt(r);
+    if (now < due) continue;
+    // THE GRACE WINDOW APPLIES HERE TOO. It only ever existed in the boot sweep,
+    // so a slot missed while the process was alive but not ticking — a laptop
+    // asleep, a phone in doze, a long stop-the-world — fired late and silently
+    // instead of being flagged. "Missed fires are FLAGGED, never auto-run late"
+    // has to hold in both places or it is not the rule.
+    if (now > due + graceMs(r)) {
+      r.missed = true;
+      r.lastFireAt = now;   // consume the slot so this doesn't loop
+      persist();
+      broadcast({ t: 'routines.changed' });
+      notify('⏰ Routine slot missed', `${r.name} came due while Atlan wasn't ticking — open Fleet → Routines to run it late.`).catch(() => {});
+      continue;
+    }
     try {
       fireRoutine(r.id);
     } catch (err) {

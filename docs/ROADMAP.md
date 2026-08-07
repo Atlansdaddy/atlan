@@ -140,12 +140,24 @@ Fleet reached zero and is in the gate; the other four specs join as they clear.
 | Editor | 3 | `☰` is a dead button on some paths, and says why on a screen you are not on |
 
 ### 2.1 Session state does not outlive the socket
-Tested, architectural. `index.js:452` declares `claude`, `brainHistory`,
-`agentState` and `pending` **inside** `wss.on('connection')`, so all four die
-with the WebSocket. `claudeEngine.js:98`'s crash-recovery `resume` can therefore
-only fire within one socket lifetime. Any drop is total amnesia — which is
+Tested, architectural. `index.js` declares `claude`, `brainHistory`,
+`agentState` and `pending` **inside** `wss.on('connection')`, so the client's
+CONTEXT dies with the WebSocket. `claudeEngine.js`'s crash-recovery `resume` can
+therefore only fire within one socket lifetime. Any drop is total amnesia —
 exactly the 2026-08-04 transcript, where a fresh session ran
 `find /root -mmin -180` to reconstruct what it had been doing 40 seconds earlier.
+
+**Correction, 2026-08-06: the state died but the PROCESS did not.** Going out of
+scope is not teardown. `claude` held a warm `ClaudeSession` whose `_input()`
+generator loops until `dispose()` flips `_closed`, and `dispose()` was reachable
+from exactly one place — a cwd change. There was no `ws.on('close')` handler at
+all, so every dropped socket left a live `claude` CLI (~258 MB) running forever,
+unreachable, holding `pendingPerms` promises that could never resolve; `app.js`
+reconnects 1.5s after every close, so a flaky phone link minted a fresh one per
+turn. The chat-path agent CLIs were worse: registered nowhere, so they survived
+the socket, survived KILL ALL (`killed: 0`), and survived SIGKILL of the cockpit
+itself. Both are now torn down on close, and KILL ALL reaches both.
+Pinned by `test/walls.mjs`.
 
 There is also no inbound replay: `pendingOut` queues messages going out, nothing
 queues what comes back, and there is no server-side transcript to re-fetch. A

@@ -295,14 +295,21 @@ details.thinking summary{cursor:pointer;font-size:11.5px;color:var(--teal);lette
 details.thinking .tbody{font-size:11.5px;line-height:1.5;color:var(--dim);white-space:pre-wrap;word-break:break-word;margin-top:6px;
   max-height:240px;overflow-y:auto;font-family:ui-monospace,monospace}
 
-/* guide: tour + handbook */
-#helpBtn{flex:0 0 auto;width:30px;height:30px;border-radius:50%;border:1px solid var(--line);background:transparent;
-  color:var(--dim);font-weight:800;font-size:14px;margin-left:6px}
-#helpBtn:active{color:var(--teal);border-color:var(--teal)}
-/* voice: header toggle + mic listening state */
-#voiceBtn{flex:0 0 auto;width:30px;height:30px;border-radius:50%;border:1px solid var(--line);background:transparent;
-  color:var(--dim);font-size:14px;margin-left:6px}
-#voiceBtn:active{color:var(--teal);border-color:var(--teal)}
+/* Header icon buttons — ONE rule for all three (guide, voice, theme).
+   #themeBtn had no base-sheet styling at all: the only size rule in the tree was
+   scoped [data-template="his"], so under Classic and MidAtlantic — and on the
+   pre-auth login gate, which is the first thing a phone user sees — it rendered
+   as a 21x19px native-chrome button beside two 30px circles, below the 24px
+   floor and far under this sheet's own --tap. its own comment in his.css says
+   the theme button "is spine, not skin — it renders under every template",
+   which is exactly why its geometry belongs in the base sheet. Grouping the
+   selectors means a fourth header button cannot arrive unstyled either.
+   (Cross-vendor adversarial review, 2026-08-06.) */
+#themeBtn,#voiceBtn,#helpBtn{flex:0 0 auto;width:30px;height:30px;border-radius:50%;border:1px solid var(--line);
+  background:transparent;color:var(--dim);font-size:14px;margin-left:6px;padding:0;cursor:pointer;
+  display:grid;place-items:center;line-height:1}
+#helpBtn{font-weight:800}
+#themeBtn:active,#voiceBtn:active,#helpBtn:active{color:var(--teal);border-color:var(--teal)}
 #voiceBtn[aria-pressed="true"]{color:var(--teal);border-color:var(--teal);box-shadow:0 0 0 2px rgba(56,208,196,.18)}
 #micBtn.listening{color:#fff;background:var(--danger,#e5484d);border-color:var(--danger,#e5484d);animation:micpulse 1s ease-in-out infinite}
 @keyframes micpulse{50%{box-shadow:0 0 0 6px rgba(229,72,77,.22)}}
@@ -349,7 +356,11 @@ body.night .bubbles{opacity:.5}
 .authtitle{font-size:16px;font-weight:800;color:var(--teal);letter-spacing:.02em}
 .autherr{font-size:12px;color:var(--err);min-height:14px}
 .authcard code{color:var(--teal);font-size:11.5px}
-.authcard input{width:100%}
+/* The password field on the setup/login gate is the single mandatory touch
+   target before anything else on the phone works, and it had no height rule
+   at all — 274x19px, so a miss landed on the card text. Same --tap floor the
+   sheet already gives every other text input. */
+.authcard input{width:100%;min-height:var(--tap);padding:0 10px}
 
 /* fleet sub-nav + builder */
 .subnav{display:flex;gap:6px;margin-bottom:2px}
@@ -412,7 +423,13 @@ details .doctor-list{margin-bottom:8px}
   border:1px solid var(--line);border-radius:8px;padding:7px 9px}
 .keyrow .kset{font-family:var(--mono);font-size:9.5px;color:var(--ok);flex-shrink:0}
 .keyrow .btn{padding:6px 10px;font-size:11px;flex-shrink:0}
-.keyrow .khelp{font-size:10px;color:var(--teal);text-decoration:none;flex-shrink:0;white-space:nowrap}
+/* 'how to get' is the only route to each provider's key page from Doctor —
+   a core first-run flow — and it rendered as a 65x11px link 8px from the
+   row's Save button, 21 of them down the screen. The type stays small (the
+   row is dense on purpose); the TARGET gets the sheet's own --tap floor via
+   padding, so a miss can't land on Save. */
+.keyrow .khelp{font-size:10px;color:var(--teal);text-decoration:none;flex-shrink:0;white-space:nowrap;
+  display:inline-flex;align-items:center;min-height:var(--tap);padding:0 6px}
 .keyrow .khelp:hover{text-decoration:underline}
 /* keyrow wraps on narrow screens so the help link never overflows */
 @media (max-width:560px){.keyrow{flex-wrap:wrap}.keyrow input{flex:1 1 100%;order:5}}

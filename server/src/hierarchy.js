@@ -1,7 +1,7 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync } from 'node:fs';
-import { atomicWrite } from './fsutil.js';
+import { atomicWrite, readJsonState } from './fsutil.js';
 import { join } from 'node:path';
 import { FLEET_DIR, PROJECTS_DIR, LOCAL_LLM_BASE } from './config.js';
 import { listCommands, listPersonas, compilePersona, compileCommand, templateSchema, runCheckers } from './personas.js';
@@ -16,7 +16,10 @@ import { agentExec } from './agentExec.js';
 // (authored links), execution is deterministic — no runtime planner in the loop.
 mkdirSync(FLEET_DIR, { recursive: true });
 const JOBS_FILE = join(FLEET_DIR, 'hierarchy-jobs.json');
-const loadJson = (p, f) => { try { return JSON.parse(readFileSync(p, 'utf8')); } catch { return f; } };
+// Same corrupt-vs-missing distinction as routines/burn: an unreadable jobs
+// file used to drop every authored job silently, and saveJobs() then wrote the
+// empty list over it. readJsonState quarantines instead of overwriting.
+const loadJson = (p, f) => readJsonState(p, f).value;
 
 let broadcast = () => {};
 export function initHierarchy(fn) { if (fn) broadcast = fn; }

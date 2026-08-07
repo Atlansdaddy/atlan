@@ -1,7 +1,17 @@
 # UI/UX audit — every surface, driven at 412×900
 
-**Status:** ACTIVE ledger. **19 open findings**, 5 spec files, 121 assertions.
-Opened at 39 failures; 16 fixed, 5 were bad tests. All four P0s closed.
+**Status:** ACTIVE ledger. **22 open findings**, 5 spec files, 121 assertions.
+Opened at 39 failures; 18 fixed, 5 were bad tests. All four P0s closed.
+
+*Re-derived from a live run on 2026-08-06, because the table had drifted in BOTH
+directions.* It showed **#19 as open** while the doc's own extraction table three
+sections down already credited `lib/joblink.js` with fixing it, `ui-fleet` scores
+29/0, and there is a dedicated regression test at `test/ui-fleet.spec.mjs:606` —
+so a reader deciding what to work on would have re-investigated a closed bug. And
+it carried **no row at all** for four currently-failing assertions, now #33–#36,
+in a document that promises to be the complete live-verified list. A ledger like
+this has to be re-derived from a run rather than maintained by hand; the count
+and the rows below both come from the output of `bash test/ui-specs.sh`.
 
 **Read the score with its run location.** The suite scores **103/18 from /tmp**
 and **102/19 from /root/atlan**, on the same tree. `guardPath(…, blockAppRoot)`
@@ -68,6 +78,10 @@ where it does not.
 | 8 | Doctor | Preview URL bar misreports what the server stored (`…/dashboard?tab=1` shown, `…:5173` served). |
 | 9 | Doctor | Preview target does not survive a reload — bar and stored target disagree. |
 | 10 | Chat | An engine error leaves the composer and working line in a lying state. |
+| 33 | Chat | The model switcher can emit **ambiguous `engine\|model` wire values** — two options that mean different things serialize to the same identity, so the turn is sent to whichever the server resolves first. *(Live-failing in `ui-chat`; had no ledger row until 2026-08-06.)* |
+| 34 | Chat | On first paint the **header and the project picker disagree**: the header says "no project" while the picker sits on `""` — and a `cwd` goes out with every turn regardless. *(Live-failing in `ui-chat`; had no ledger row until 2026-08-06.)* |
+| 35 | Editor | Opening a README raises an uncaught `CodeMirror.overlayMode is not a function` — the highlighter throws instead of highlighting. *(Live-failing in `ui-editor`; had no ledger row until 2026-08-06.)* |
+| 36 | Doctor/Scan | Tapping a scan finding **silently discards unsaved editor work** — no confirmation, and `#edDirty` is reset so nothing on screen shows the work was lost. Same class as the P0s #2/#3, which `lib/editorguard.js` closed for the Editor's own open path; the Scan entry point never went through it. *(Live-failing in `ui-doctor`; had no ledger row until 2026-08-06.)* |
 | ~~11~~ | Editor | ~~A REJECTED save is reported only in the chat log.~~ **FIXED** |
 | ~~12~~ | Editor | ~~After saving as `.py`, `#edLang` still read JavaScript.~~ **FIXED** |
 | ~~13~~ | Doctor/Scan | ~~A finding that cannot be opened explains itself on a screen the user is not on.~~ **FIXED** |
@@ -81,7 +95,7 @@ where it does not.
 | ~~16~~ | Doctor/Scan | ~~`#scanProjSel` renders blank (`selectedIndex -1`).~~ **FIXED** by the user-agnostic merge — `index.html` now ships a real placeholder option instead of a hardcoded `/root`. |
 | ~~17~~ | Doctor/Scan | ~~Run scan from a cold load issues zero `/api/scan` requests.~~ **FIXED** — same cause as #16; the picker had no selectable value to send. |
 | 18 | Doctor | Local-brain card is all-or-nothing: `supported:false` still renders an unlabeled empty select plus a Swap button that no-ops. |
-| 19 | Fleet | A new job's first link row shows a blank command picker even with commands loaded, so saving is rejected for having no link. |
+| ~~19~~ | Fleet | ~~A new job's first link row shows a blank command picker even with commands loaded, so saving is rejected for having no link.~~ **FIXED** by `lib/joblink.js` (see the extraction table below) — `ui-fleet` is 29/0 and `test/ui-fleet.spec.mjs:606` pins it. This row stayed un-struck for weeks while the fix table beside it said otherwise. |
 | 20 | Doctor | Snapshot button sticks at "📸 …" forever with nothing loaded. |
 | 21 | Chat | Enter/Go in `#attachRefPath` does nothing — a dead key on the phone keyboard. |
 
@@ -91,10 +105,12 @@ This cockpit is phone-first, so these are defects, not polish.
 
 | # | Surface | Finding |
 |---|---------|---------|
-| 22 | Chat | `#themeBtn` renders 21×19 — under the WCAG 2.5.8 AA 24px target floor. |
+| ~~22~~ | Chat | ~~`#themeBtn` renders 21×19 — under the WCAG 2.5.8 AA 24px target floor.~~ **FIXED** 2026-08-06 — the only `#themeBtn` size rule in the tree was scoped `[data-template="his"]`, so under Classic and MidAtlantic (and on the pre-auth login gate) it rendered as a native-chrome button beside two 30px circles. `style.css` now styles `#themeBtn`, `#voiceBtn` and `#helpBtn` with **one grouped rule**, so a fourth header button cannot arrive unstyled either. |
 | 23 | Chat | `#micBtn` / `#attachBtn` render 44×38 against the 44px `--tap` **the stylesheet itself declares for them**. |
 | 24 | Editor | `#edOpen` renders 44×38 against the same declared 44px. |
 | ~~25~~ | Fleet | ~~Builder row fields are 59–69px wide at 412px.~~ **FIXED** |
+| ~~37~~ | Doctor | ~~Every "how to get" key-help link is a 65×11px tap target 8px from the row's Save button — and it is the only route to each provider's key page, on a core first-run flow.~~ **FIXED** 2026-08-06 — `.keyrow .khelp` now takes the sheet's own `--tap` floor as padding; the type stays 10px because the row is deliberately dense. |
+| ~~38~~ | Auth | ~~`#authInput` renders 274×19px — the password field on the setup/login gate is the single mandatory touch target before anything else works on a phone, and it had no height rule at all.~~ **FIXED** 2026-08-06 — same `--tap` floor the sheet already gave every other text input. |
 
 ### P2 — the tour and handbook contradict themselves
 
@@ -104,7 +120,7 @@ This cockpit is phone-first, so these are defects, not polish.
 | 27 | `guide.js` claims it walks "EVERY control in the cockpit"; **Scan gets zero steps** (1 of 8 tabs). |
 | 28 | Fleet's **Hierarchy** sub-pane gets zero tour steps. |
 | 29 | Handbook has no section for **Editor** or **Scan**, though it is meant to be the tour's knowledge in reference shape. |
-| 30 | `guide.js` step 5 says permission cards appear "every time" — false for the four CLI engines, which `agents.js:117,122,127,132` spawns with approvals stripped. |
+| 30 | `guide.js` step 5 says permission cards appear "every time" — false for the four CLI engines, which `agents.js` spawns with approvals stripped. The flags now come from one table (`enginePolicy.interactiveGate`), which `preflight.js` reads too, so the Doctor's own permission-gate row stopped claiming the same thing on 2026-08-06; this tour copy is the last place that still says it. |
 | 31 | Attachments and voice have no tour steps at all. |
 | 32 | 15 of 21 chat controls have zero test coverage. |
 

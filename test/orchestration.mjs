@@ -56,11 +56,18 @@ await t('scrubbedEnv drops known and pattern-matched credentials, keeps PATH/HOM
     PATH: '/usr/bin', HOME: '/root',
     ATLAN_TOKEN: 'secret1', OPENAI_API_KEY: 'secret2',
     SOME_NEW_PROVIDER_API_KEY: 'secret3', MY_SECRET: 'secret4',
+    // Keys the fallback heuristic CANNOT catch, so the explicit DROP list is
+    // the only thing holding them: AWS_ACCESS_KEY_ID ends _ID, AWS_SECRET_ACCESS_KEY
+    // ends _KEY (the pattern needs API_KEY), ATLAN_ORIGIN matches nothing at all.
+    // Without these the test was held up entirely by the heuristic and passed
+    // with the DROP list disabled. (Mutation pass, 2026-08-06.)
+    AWS_ACCESS_KEY_ID: 'AKIA0', AWS_SECRET_ACCESS_KEY: 'secret5', ATLAN_ORIGIN: 'http://x',
     HARMLESS: 'keep',
   });
   assert(env.PATH && env.HOME, 'PATH/HOME must survive');
   assert(env.HARMLESS === 'keep', 'non-secret dropped');
-  for (const k of ['ATLAN_TOKEN', 'OPENAI_API_KEY', 'SOME_NEW_PROVIDER_API_KEY', 'MY_SECRET']) {
+  for (const k of ['ATLAN_TOKEN', 'OPENAI_API_KEY', 'SOME_NEW_PROVIDER_API_KEY', 'MY_SECRET',
+    'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'ATLAN_ORIGIN']) {
     assert(!(k in env), `${k} survived scrubbing`);
   }
 });
@@ -74,15 +81,15 @@ writeFileSync(join(proj, 'real.txt'), 'PRISTINE\n');
 execFileSync('git', ['add', '-A'], { cwd: proj });
 execFileSync('git', ['commit', '-qm', 'init'], { cwd: proj });
 
-await t('openContained gives a git worktree, not a copy, for a repo', () => {
-  const w = openContained(proj, 'test');
+await t('openContained gives a git worktree, not a copy, for a repo', async () => {
+  const w = await openContained(proj, 'test');
   try {
     assert(w.kind === 'git-worktree', `kind was ${w.kind}`);
     assert(existsSync(join(w.dir, 'real.txt')), 'project contents missing from workspace');
-  } finally { w.cleanup(); }
+  } finally { await w.cleanup(); }
 });
-await t('edits in the contained workspace do NOT touch the real project', () => {
-  const w = openContained(proj, 'test');
+await t('edits in the contained workspace do NOT touch the real project', async () => {
+  const w = await openContained(proj, 'test');
   try {
     writeFileSync(join(w.dir, 'real.txt'), 'MODIFIED BY AGENT\n');
     writeFileSync(join(w.dir, 'new.txt'), 'added\n');
@@ -90,13 +97,13 @@ await t('edits in the contained workspace do NOT touch the real project', () => 
     const d = w.diff();
     assert(d.changed === 2, `expected 2 changed files, got ${d.changed}`);
     assert(/MODIFIED BY AGENT/.test(d.patch), 'patch does not carry the change');
-  } finally { w.cleanup(); }
+  } finally { await w.cleanup(); }
 });
-await t('cleanup removes the workspace and leaves the project clean', () => {
-  const w = openContained(proj, 'test');
+await t('cleanup removes the workspace and leaves the project clean', async () => {
+  const w = await openContained(proj, 'test');
   const dir = w.dir;
   writeFileSync(join(dir, 'junk.txt'), 'x');
-  w.cleanup();
+  await w.cleanup();
   assert(!existsSync(dir), 'workspace survived cleanup');
   const st = execFileSync('git', ['status', '--porcelain'], { cwd: proj }).toString();
   assert(st.trim() === '', `project left dirty: ${st}`);

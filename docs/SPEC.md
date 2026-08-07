@@ -84,7 +84,7 @@ Copilot, while the diagram above had it right. Ground truth is `agents.js:114–
 
 ### Backlog (post-handoff) — status refreshed 2026-08-02
 - Persona in Chat (not just fleet/routines); M5d worker hierarchy (frontier writes scope → local Qwen executes under grammar constraint → checkers verify → escalate)
-- ~~Builder/verifier Bash sandboxing~~ → **partially shipped.** `ATLAN_SANDBOX=1` wires the SDK's OS confinement into autonomous fleet Bash where the host has user namespaces (`config.js:47–55`, `fleet.js:189`); it degrades honestly on proot. **Still open: the exec-mode CLI path** (`agents.js`, `studio.js`) passes bypass flags unconditionally with no host probe.
+- ~~Builder/verifier Bash sandboxing~~ → **partially shipped.** `ATLAN_SANDBOX=1` wires the SDK's OS confinement into autonomous fleet Bash where the host has user namespaces (`config.js` `sandboxOption()`, `fleet.js` `exec()`); it degrades honestly on proot. **Still open: the exec-mode CLI path** (`agents.js`, `studio.js`) runs the four CLIs full-auto — an exec-mode CLI has no per-tool approval to hang a card on. Since 2026-08-06 the flags come from `enginePolicy.interactiveGate()`, which carries `gated:false`, and the Doctor's permission-gate row is built from that same table instead of a hardcoded green literal.
 - Atlan-as-APK dogfood wrapper; Cloudflare Tunnel + Access exposure (only when John chooses)
 - **Brains cannot receive images** — `brains.js` has no multimodal path at all; agents get a file pointer, chat-only brains get a path they cannot open. See `DOGFOOD-FINDINGS-2026-07-26.md`.
 - **Front-end split** — `web/public/app.js` is 2,012 lines in one scope.

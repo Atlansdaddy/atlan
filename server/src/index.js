@@ -2,7 +2,7 @@ import express from 'express';
 import { createServer } from 'node:http';
 import { WebSocketServer } from 'ws';
 import { fileURLToPath } from 'node:url';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join } from 'node:path';
 import { readdirSync, statSync } from 'node:fs';
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { ClaudeSession } from './claudeEngine.js';
@@ -14,14 +14,14 @@ import { runBuild, APK_DIR } from './build.js';
 import { keyStatus, setStoredKey } from './keys.js';
 import { runPreflight } from './preflight.js';
 import { scanProject } from './preflight/scanProject.mjs';
-import { isUnder } from './guards.js';
-import { agentStatus, agentTurn } from './agents.js';
+import { resolveInProjects } from './guards.js';
+import { agentStatus, agentTurn, killAgentTurns } from './agents.js';
 import { localModels, activateLocalModel } from './localmodels.js';
 import { handleInlineAiEdit } from './editorAi.js';
 import {
   getGitStatus, getGitDiff, gitStage, gitUnstage, gitCommit, gitPush, gitPull, gitAiCommitMsg,
 } from './git.js';
-import { initFleet, spawnRun, listRuns, killRun, killAll, todayBurn, profileList, historyTail, topUpRun, engineCapabilities } from './fleet.js';
+import { initFleet, spawnRun, listRuns, killRun, killAll, todayBurn, profileList, historyTail, topUpRun, engineCapabilities, recoverInflight } from './fleet.js';
 import { pushPublicKey, addSub, subCount, notifyAll } from './push.js';
 import {
   authMiddleware, wsAuthed, isConfigured, setPassword, checkPassword,
@@ -138,13 +138,23 @@ app.use('/apk', express.static(APK_DIR));
 app.get('/api/preflight', async (_req, res) => res.json(await runPreflight()));
 
 // SAST scan of a project with the vendored PreFlight engine (server/src/preflight).
-// Path is validated under PROJECTS_DIR; defaults to the whole projects dir.
+//
+// Containment goes through the SHARED guard, like every other path-accepting
+// endpoint. It used to do its own `isUnder()` and nothing else: resolve() does
+// not follow symlinks, so `ln -s / ~/escape` turned this route into a read
+// oracle for the entire filesystem — it walked straight through the link and
+// returned matched secret material from outside the projects root, while the
+// sibling /api/attach/ref refused the identical path. A second, weaker copy of
+// a guard is exactly the drift guards.js exists to prevent.
+//
+// resolveInProjects, NOT guardPath: this endpoint is the secret SCANNER. Its
+// whole job is to open `.env` and tell you a live key is sitting in it, so the
+// credential denylist must NOT apply here — refusing to look would disable the
+// probe the user came for. Containment and the denylist are separate questions
+// and this is the one caller that legitimately answers them differently.
 app.get('/api/scan', (req, res) => {
   try {
-    const target = req.query.path ? resolve(String(req.query.path)) : PROJECTS_DIR;
-    if (target !== PROJECTS_DIR && !isUnder(target, PROJECTS_DIR)) {
-      return res.status(400).json({ error: 'scan path must be under the projects directory' });
-    }
+    const target = resolveInProjects(req.query.path ? String(req.query.path) : PROJECTS_DIR, { credentials: 'allow' });
     res.json(scanProject(target));
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -184,7 +194,11 @@ app.post('/api/fleet/run', (req, res) => {
 });
 app.post('/api/fleet/kill', (req, res) => {
   const id = req.body?.id;
-  if (id === 'all') return res.json({ killed: killAll() });
+  // KILL ALL means ALL. It used to walk only the fleet's own map, so a chat-path
+  // agent CLI — launched full-auto with its approval system off — reported
+  // `killed: 0` and kept editing the repo. A kill guarantee with a second class
+  // of child it cannot reach is not a guarantee.
+  if (id === 'all') return res.json({ killed: killAll() + killAgentTurns() });
   res.json({ killed: killRun(String(id)) ? 1 : 0 });
 });
 
@@ -455,6 +469,13 @@ const wsBroadcast = (obj) => {
   for (const c of wss.clients) if (c.readyState === 1) c.send(s);
 };
 initFleet(wsBroadcast, notifyAll);
+// Reconcile anything that was mid-run when the last process died — an OOM kill,
+// the phantom-process killer, or any supervisor respawn. finish() is the only
+// place that commits burn and writes the report card, and a hard death skips it
+// entirely, so those runs used to vanish: no card, no history line, and their
+// tokens invisible to the daily cap. Runs first, so the ledger is whole before
+// anything new is admitted.
+recoverInflight();
 initHierarchy(wsBroadcast);
 // Routines wake with the server; missed slots get flagged + pushed, never
 // auto-fired (a rebooted server must not spend tokens by surprise).
@@ -466,6 +487,7 @@ wss.on('connection', (ws, req) => {
   if (!originOk(req)) { ws.close(4003, 'bad origin'); return; }
   if (!wsAuthed(req)) { ws.close(4001, 'auth required'); return; }
   const send = (obj) => { if (ws.readyState === 1) ws.send(JSON.stringify(obj)); };
+  const connId = Symbol('ws');
   let claude = null;
   let currentTab = 's-chat'; // last tab the client reported → feeds Atlan's self-awareness
   const brainHistory = new Map();
@@ -473,6 +495,25 @@ wss.on('connection', (ws, req) => {
   // Preview context that auto-attaches to the next turn: errors since last
   // turn + any snapshots taken. Logs/warns stay in the UI only.
   const pending = { errors: [], snaps: [] };
+
+  // ── teardown ───────────────────────────────────────────────────────────
+  // Everything this connection started dies with it. There was no close handler
+  // at all: `claude` held a WARM ClaudeSession whose _input() generator loops
+  // until dispose() flips _closed, and dispose() was called from exactly one
+  // place — a cwd change. So every dropped socket left a live `claude` CLI
+  // (~258 MB) running forever, unreachable, holding pendingPerms whose promises
+  // could never resolve. app.js reconnects 1.5s after every close, so a flaky
+  // phone link minted a fresh one per turn and never reaped the old one; two or
+  // three flaps exhaust RAM on the reference platform. The chat-path agent CLIs
+  // go the same way, via the registry in agents.js.
+  // (Cross-vendor adversarial review, 2026-08-06.)
+  ws.on('close', () => {
+    claude?.dispose().catch(() => {});
+    claude = null;
+    killAgentTurns((t) => t.owner === connId);
+    pending.errors = []; pending.snaps = [];
+    brainHistory.clear(); agentState.clear();
+  });
 
   ws.on('message', (raw) => {
     let m;
@@ -502,7 +543,8 @@ wss.on('connection', (ws, req) => {
         if (isAgentCli) {
           const state = agentState.get(m.engine) ?? {};
           agentState.set(m.engine, state);
-          agentTurn({ engine: m.engine, cwd: m.cwd || PROJECTS_DIR, text, send, state, model: m.model });
+          // `owner` ties the child to THIS socket so closing it reaps the child.
+          agentTurn({ engine: m.engine, cwd: m.cwd || PROJECTS_DIR, text, send, state, model: m.model, owner: connId });
         } else if (isClaude) {
           if (!claude || (m.cwd && claude.cwd !== m.cwd)) {
             claude?.dispose(); // end the old warm session before replacing it (cwd changed)

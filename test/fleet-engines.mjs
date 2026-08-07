@@ -38,8 +38,10 @@ const codeOnly = (rel) => readSource(rel)
   .join('\n');
 
 let pass = 0, fail = 0;
-function test(name, fn) {
-  try { fn(); pass++; console.log(`  ✓ ${name}`); }
+// Awaits the body so a test can exercise a real process tree. Sync tests are
+// unaffected: awaiting a non-promise is a no-op.
+async function test(name, fn) {
+  try { await fn(); pass++; console.log(`  ✓ ${name}`); }
   catch (err) { fail++; console.log(`  ✗ ${name} — ${err.message}`); }
 }
 
@@ -316,12 +318,34 @@ test('ADV-7 · scrubbedEnv actually removes an injected credential', () => {
   assert.equal(out.PATH, '/usr/bin', 'PATH must survive — the child has to run');
 });
 
-test('ADV-3 · killTree signals the process GROUP, then escalates', () => {
-  const src = readSource('../server/src/agentExec.js');
-  assert.ok(/export function killTree/.test(src), 'killTree must exist');
-  assert.ok(/process\.kill\(-child\.pid/.test(src), 'must signal the negative pid — the whole group');
-  assert.ok(/SIGKILL/.test(src), 'must escalate past an ignored SIGTERM');
-  assert.ok(/detached: true/.test(src), 'the child must lead its own group for that to work');
+await test('ADV-3 · killTree reaps the whole process GROUP, not just the child', async () => {
+  // This used to grep agentExec.js for `process.kill(-child.pid`, `SIGKILL` and
+  // `detached: true`. A text search proves nothing about whether the grandchild
+  // actually dies, and it broke the moment killTree moved into its own module —
+  // a refactor, not a regression, which is exactly the wrong thing for a test to
+  // notice. So: spawn a real tree and count survivors.
+  // (Mutation pass, 2026-08-06.)
+  const { spawn } = await import('node:child_process');
+  const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+  // sh spawns a grandchild `sleep` and waits on it — the exact shape a plain
+  // SIGTERM to the immediate pid leaves running.
+  const child = spawn('sh', ['-c', 'sleep 60 & echo $! ; wait'], { detached: true, stdio: ['ignore', 'pipe', 'ignore'] });
+  const grandPid = await new Promise((res) => child.stdout.once('data', (d) => res(Number(String(d).trim()))));
+  assert.ok(alive(child.pid) && alive(grandPid), 'the fixture process tree never started');
+  assert.equal(killTree(child), true, 'killTree reported it could not signal at all');
+  await new Promise((r) => setTimeout(r, 1500));
+  assert.equal(alive(grandPid), false, 'the GRANDCHILD survived killTree — the group signal is not landing');
+  assert.equal(alive(child.pid), false, 'the child survived killTree');
+});
+
+await test('ADV-3 · a child that IGNORES SIGTERM is still killed', async () => {
+  const { spawn } = await import('node:child_process');
+  const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+  const child = spawn('sh', ['-c', 'trap "" TERM; sleep 60'], { detached: true, stdio: 'ignore' });
+  await new Promise((r) => setTimeout(r, 300));
+  killTree(child, { graceMs: 400 });
+  await new Promise((r) => setTimeout(r, 1500));
+  assert.equal(alive(child.pid), false, 'SIGTERM was ignored and no SIGKILL followed');
 });
 
 test('ADV-3 · killTree is safe on a dead or pidless child', () => {
@@ -426,14 +450,43 @@ test('AUDIT-1 · orchestration.mjs loads THIS repo, not another worktree', () =>
   assert.ok(/new URL\('\.\.\/server\/src\//.test(src), 'imports must be relative to this repo');
 });
 
-test('AUDIT-3 · the containment diff has a real timestamp floor', () => {
-  // `find <dir> -newer <dir>` compared files against the directory they live in,
-  // whose mtime moves as they are written — so `changed` came back 0 for runs
-  // that changed files. Isolation held; the PROPOSAL RECORD lied.
-  const src = codeOnly('../server/src/containment.js');
-  assert.ok(!/-newer', dir/.test(src), 'must not compare against the workspace dir itself');
-  assert.ok(/atlan-contain-epoch/.test(src), 'must stamp a marker file after the copy');
-  assert.ok(/'!', '-name'/.test(src), 'and must exclude the marker from its own count');
+await test('AUDIT-3 · the containment diff reports every change, including deletions', async () => {
+  // History: `find <dir> -newer <dir>` compared files against the directory they
+  // live in, whose mtime moves as they are written, so `changed` came back 0 for
+  // runs that had changed files. Isolation held; the PROPOSAL RECORD lied. The
+  // fix was a timestamp marker — and this test asserted the MARKER EXISTED,
+  // which is a different claim from "the record is complete". It wasn't: a
+  // timestamp floor can only enumerate files that still exist, so a proposal
+  // that DELETED files still reported them as no change, and the patch was
+  // always null while the workspace was removed before anyone could look.
+  //
+  // The comparison is now against the original project, so this asserts the
+  // property directly — including the mtime case the marker existed for, using
+  // a file whose timestamp is deliberately restored to the original's.
+  // (Cross-vendor adversarial review, 2026-08-06.)
+  const { openContained } = await import('../server/src/containment.js');
+  const { mkdtempSync, writeFileSync, rmSync, statSync, utimesSync, existsSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const proj = mkdtempSync(join(tmpdir(), 'atlan-audit3-'));
+  writeFileSync(join(proj, 'keep.txt'), 'ORIGINAL');
+  writeFileSync(join(proj, 'delete-me.txt'), 'DOOMED');
+  const w = await openContained(proj, 'audit3');
+  const st = statSync(join(w.dir, 'keep.txt'));
+  writeFileSync(join(w.dir, 'keep.txt'), 'EDITED');
+  utimesSync(join(w.dir, 'keep.txt'), st.atime, st.mtime); // an edit a timestamp floor cannot see
+  writeFileSync(join(w.dir, 'added.txt'), 'NEW');
+  rmSync(join(w.dir, 'delete-me.txt'));
+  const d = w.diff();
+  assert.equal(d.changed, 3, `expected 3 changes, got ${d.changed}: ${d.status}`);
+  assert.match(d.status, /M {2}keep\.txt/, 'an edit with an unchanged mtime was missed');
+  assert.match(d.status, /A {2}added\.txt/, 'an added file was missed');
+  assert.match(d.status, /D {2}delete-me\.txt/, 'a DELETION was missed — the destructive case');
+  assert.ok(d.patch && d.patch.includes('NEW'), 'the proposal carries no reviewable content');
+  await w.cleanup();
+  assert.equal(existsSync(w.dir), false, 'the workspace was not cleaned up');
+  assert.ok(d.patch.includes('DELETED delete-me.txt'), 'the proposal did not survive teardown');
+  rmSync(proj, { recursive: true, force: true });
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);

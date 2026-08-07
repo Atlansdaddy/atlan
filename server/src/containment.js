@@ -1,7 +1,12 @@
-import { mkdtempSync, rmSync, existsSync, cpSync, writeFileSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
+import { mkdtempSync, existsSync, readdirSync, readFileSync } from 'node:fs';
+import { cp, rm } from 'node:fs/promises';
+import { execFileSync, execFile as execFileCb } from 'node:child_process';
+import { promisify } from 'node:util';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+const execFile = promisify(execFileCb);
 
 // Containment for hosts where the KERNEL cannot help — i.e. the phone.
 //
@@ -58,21 +63,20 @@ export function scrubbedEnv(base = process.env) {
 // Prefers a git worktree when the project is a repo: it is near-instant, costs
 // no disk for unchanged files, and — the real reason — `git diff` in it gives
 // the write-back gate for free, already in review form.
-export function openContained(projectDir, label = 'agent') {
+// ASYNC on purpose. Every step here — copying a project, adding a git worktree —
+// used to run synchronously on the event loop inside the HTTP handler that
+// started the run, freezing the whole single-threaded cockpit for the duration.
+// See the note in agentExec.
+export async function openContained(projectDir, label = 'agent') {
   if (!existsSync(projectDir)) throw new Error(`no such project: ${projectDir}`);
-  const isRepo = (() => {
-    try {
-      execFileSync('git', ['rev-parse', '--is-inside-work-tree'], { cwd: projectDir, stdio: 'pipe' });
-      return true;
-    } catch { return false; }
-  })();
+  const isRepo = await git(['rev-parse', '--is-inside-work-tree'], projectDir).then(() => true, () => false);
 
   const dir = mkdtempSync(join(tmpdir(), `atlan-contained-${label}-`));
 
   if (isRepo) {
     const branch = `atlan/contained/${label}-${Date.now().toString(36)}`;
-    rmSync(dir, { recursive: true, force: true }); // git insists on creating it
-    execFileSync('git', ['worktree', 'add', '-b', branch, dir, 'HEAD'], { cwd: projectDir, stdio: 'pipe' });
+    await rm(dir, { recursive: true, force: true }); // git insists on creating it
+    await git(['worktree', 'add', '-b', branch, dir, 'HEAD'], projectDir);
     return {
       dir,
       kind: 'git-worktree',
@@ -83,49 +87,101 @@ export function openContained(projectDir, label = 'agent') {
         const patch = execFileSync('git', ['diff', '--cached'], { cwd: dir, maxBuffer: 32 * 1024 * 1024 }).toString();
         return { changed: stat.split('\n').filter(Boolean).length, patch, status: stat };
       },
-      cleanup() {
-        try { execFileSync('git', ['worktree', 'remove', '--force', dir], { cwd: projectDir, stdio: 'pipe' }); } catch { /* */ }
-        try { execFileSync('git', ['branch', '-D', branch], { cwd: projectDir, stdio: 'pipe' }); } catch { /* */ }
+      async cleanup() {
+        try { await git(['worktree', 'remove', '--force', dir], projectDir); } catch { /* */ }
+        try { await git(['branch', '-D', branch], projectDir); } catch { /* */ }
       },
     };
   }
 
   // Not a repo: a plain copy. Costs disk, and on the phone that matters, so
   // node_modules and .git-less heavy dirs are skipped.
-  cpSync(projectDir, dir, {
-    recursive: true,
-    filter: (src) => !/(^|[\\/])(node_modules|\.fleet|\.snapshots|\.apk)([\\/]|$)/.test(src),
-  });
-
-  // A timestamp floor written AFTER the copy finishes. Everything the agent
-  // touches is newer than this file; nothing the copy produced is.
-  //
-  // The previous version compared against the workspace directory itself —
-  // `find <dir> -newer <dir>` — and a directory's mtime updates as files are
-  // written into it, so the copied tree was rarely newer than its own parent
-  // and `changed` came back 0 even when the agent had edited files. The project
-  // stayed isolated (that part held), but the PROPOSAL RECORD said "0 files
-  // changed" for a run that changed several — a reviewer would have approved an
-  // empty diff for real work.
-  //
-  // A containment record that under-reports is the same failure class as a
-  // ledger that cannot tell a gated run from an ungated one: isolation you
-  // cannot audit is not isolation you can trust.
-  // Found by a contextless cross-vendor audit, 2026-08-04.
-  const marker = join(dir, '.atlan-contain-epoch');
-  writeFileSync(marker, String(Date.now()));
+  await cp(projectDir, dir, { recursive: true, filter: (src) => !SKIP.test(src) });
 
   return {
     dir,
     kind: 'copy',
+    // COMPARE AGAINST THE ORIGINAL PROJECT, not against a timestamp.
+    //
+    // This used to be `find <dir> -newer <marker> -type f`, which by
+    // construction can only enumerate files that still EXIST — so a proposal
+    // that deleted half the project reported `changed: 0`, under-reporting
+    // exactly the destructive changes a reviewer most needs to see. Worse, the
+    // patch was always null and the workspace was rm -rf'd before the caller
+    // ever saw the result, so every contained run on a non-git project (the
+    // default on the phone) produced a record that said "N file(s) changed —
+    // review, nothing applied" while pointing at paths inside a directory that
+    // no longer existed. The run burned real tokens and the work product was
+    // irretrievably gone.
+    //
+    // Walking BOTH trees fixes both halves at once: deletions are visible
+    // because they are absences from the workspace, and the patch carries the
+    // actual content, so the proposal survives teardown the same way the
+    // git-worktree kind always did.
+    // (Cross-vendor adversarial review, 2026-08-06.)
     diff() {
-      // No git to diff against, so report the changed-file LIST and let the
-      // caller review it. `-newer <marker>` is a real floor; the marker itself
-      // is excluded so it never counts as a change.
-      const out = execFileSync('find', [dir, '-newer', marker, '-type', 'f', '!', '-name', '.atlan-contain-epoch'], { cwd: dir }).toString();
-      const files = out.split('\n').filter(Boolean);
-      return { changed: files.length, patch: null, status: files.join('\n') };
+      const before = walk(projectDir), after = walk(dir);
+      const added = [], removed = [], modified = [];
+      for (const rel of after.keys()) if (!before.has(rel)) added.push(rel);
+      for (const rel of before.keys()) {
+        if (!after.has(rel)) { removed.push(rel); continue; }
+        if (before.get(rel) !== after.get(rel)) modified.push(rel);
+      }
+      added.sort(); removed.sort(); modified.sort();
+      const status = [
+        ...added.map((f) => `A  ${f}`),
+        ...modified.map((f) => `M  ${f}`),
+        ...removed.map((f) => `D  ${f}`),
+      ].join('\n');
+      return { changed: added.length + removed.length + modified.length, patch: buildPatch(projectDir, dir, { added, removed, modified }), status };
     },
-    cleanup() { rmSync(dir, { recursive: true, force: true }); },
+    async cleanup() { await rm(dir, { recursive: true, force: true }); },
   };
+}
+
+const SKIP = /(^|[\\/])(node_modules|\.fleet|\.snapshots|\.apk|\.git)([\\/]|$)/;
+const git = (args, cwd) => execFile('git', args, { cwd });
+
+// path → sha256(content), for every file the copy would have taken. Hashing
+// rather than holding contents keeps a large project's comparison bounded.
+function walk(root) {
+  const out = new Map();
+  const rec = (dir, prefix) => {
+    let entries;
+    try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      const abs = join(dir, e.name);
+      const rel = prefix ? `${prefix}/${e.name}` : e.name;
+      if (SKIP.test(abs)) continue;
+      // Symlinks are neither followed nor hashed: isDirectory()/isFile() are
+      // false for them, so a link inside the workspace cannot walk us out of it.
+      if (e.isDirectory()) rec(abs, rel);
+      else if (e.isFile()) {
+        try { out.set(rel, createHash('sha256').update(readFileSync(abs)).digest('hex')); }
+        catch { /* unreadable file: treated as absent on both sides, so it never shows as a change */ }
+      }
+    }
+  };
+  rec(root, '');
+  return out;
+}
+
+// A reviewable patch that OUTLIVES the workspace. Text files get their content;
+// binary and oversized files are recorded by name and size, because a reviewer
+// needs to know they changed even when the bytes are not worth showing.
+const MAX_PATCH_FILE = 256 * 1024;
+function buildPatch(src, dst, { added, removed, modified }) {
+  const body = (base, rel) => {
+    try {
+      const buf = readFileSync(join(base, rel));
+      if (buf.length > MAX_PATCH_FILE) return `[${buf.length} bytes — too large to inline]`;
+      if (buf.includes(0)) return `[binary, ${buf.length} bytes]`;
+      return buf.toString('utf8');
+    } catch { return '[unreadable]'; }
+  };
+  const parts = [];
+  for (const rel of added) parts.push(`+++ ADDED ${rel}\n${body(dst, rel)}`);
+  for (const rel of modified) parts.push(`--- WAS ${rel}\n${body(src, rel)}\n+++ NOW ${rel}\n${body(dst, rel)}`);
+  for (const rel of removed) parts.push(`--- DELETED ${rel}\n${body(src, rel)}`);
+  return parts.length ? parts.join('\n\n') : null;
 }

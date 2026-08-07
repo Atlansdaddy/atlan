@@ -19,6 +19,7 @@ _Free suites only. The E2E suite (real Claude runs) is opt-in — `RUN_PAID=1 no
 | Function | Every HTTP endpoint contract + shape, plus data-store durability (corrupt/truncated JSON fails soft). (Spawns 1 tiny killed run.) | ✅ 25/25 |
 | Connection | Live WebSocket + PTY: authed connect, 4001 on bad token, malformed-frame survival, multi-client broadcast, tmux round-trip, reconnection. (Spawns 2 tiny killed runs.) | ✅ 6/6 |
 | Security/Penetration | Auth bypass, SSRF (preview + harness), secret exfiltration, path traversal, stored-XSS, oversized-body DoS, profile privilege-escalation. | ✅ 46/46 |
+| Walls | Every wall SECURITY.md claims, exercised by BEHAVIOUR rather than by grepping the source. A mutation pass found that the daily token cap, the concurrency cap, the budget clamp, the in-flight reservation, scout's canUseTool, the preview proxy's WS-upgrade gate, atomicWrite's 0600 and temp+rename, the failed-login throttle, session revocation, the session store's freedom from replayable tokens and scrubbedEnv's explicit DROP list could all be neutered with the whole gate still green — because the assertions read the source text instead of making the thing happen. Boots its OWN cockpit (it changes the password and SIGKILLs the process), and covers the orphaned-child, corrupt-store, silent-exit and scheduler classes the same way. | ✅ 50/50 |
 | Adversarial | Malformed/oversized/hostile input across all surfaces; profile tool-blocking; preflight honesty. | ✅ 32/32 |
 | Worker Hierarchy | Job = chain of checker-gated links; cheapest-tier-first, escalate-on-fail up the model ladder, blackboard wiring, human gate pause/resume, ladder-exhaustion error. Mock tier engines — no real spend. | ✅ 7/7 |
 | Attachments | Upload (image/file) + reference (file/folder) + path-traversal guard + oversize/empty reject + audio/video graceful degradation without a key. | ✅ 7/7 |
@@ -26,14 +27,14 @@ _Free suites only. The E2E suite (real Claude runs) is opt-in — `RUN_PAID=1 no
 | Voice & Providers | TTS roster honesty (readiness tracks keys, roadmap items never claim ready), TTS input validation + clean degradation, SSML XML-escaping (no injection), Polly SigV4 signer, and the 12-provider AI-model spread. | ✅ 15/15 |
 | Escalation ladder | The chat escalation ladder: cheapest-rung-first with DETERMINISTIC escalation triggers (error, empty, truncated, stated incapacity) and no model grading itself. Includes the honest-limit test — a confidently wrong answer must NOT escalate, asserted so nobody later replaces the trigger with a self-critique wall — plus the rule that the hands-having agentic rung is never reachable silently from chat. | ✅ 30/30 |
 | Doc drift | Two ratchets in one file. (1) The docs' factual claims asserted against the CODE: tab count and names from index.html, engine roster from agents.js and fleet.js, template list from the UI, plus the status-convention requirements — a full sweep on 2026-08-02 found drift in BOTH directions across three docs, so the commit that changes a count now fails instead of the next reader. (2) The STRUCTURAL ratchet: web/public/app.js must not grow — new surfaces go to lib/ modules, and the ceiling only ever moves down. Both exist because prose and debt cannot be made to stop rotting by asking people to be careful. | ✅ 13/13 |
-| Fleet engines | The fleet is configurable across engines, and the run record cannot lie about it: per-engine capability roster (which profiles each can actually enforce HERE, mid-run vs pre-flight budget, resumable or not), refusal BEFORE a run exists when an engine cannot honestly enforce a profile, ungated runs reachable only by explicit acknowledgement, budget/concurrency/daily caps ahead of the engine branch, and KILL ALL working on both handle shapes. | ✅ 46/46 |
-| Vision / multimodal | Chat-only brains can receive image BYTES (OpenAI-compat image_url parts) instead of a filesystem path they cannot open, and a text-only provider REFUSES the turn rather than silently sending it text-only — the failure mode that let this bug hide for a week. Data-URL construction, size/format/empty guards, last-user-turn targeting, no-mutation-of-caller-history, and per-file error reporting. | ✅ 26/26 |
+| Fleet engines | The fleet is configurable across engines, and the run record cannot lie about it: per-engine capability roster (which profiles each can actually enforce HERE, mid-run vs pre-flight budget, resumable or not), refusal BEFORE a run exists when an engine cannot honestly enforce a profile, ungated runs reachable only by explicit acknowledgement, budget/concurrency/daily caps ahead of the engine branch, and KILL ALL working on both handle shapes. | ✅ 47/47 |
+| Vision / multimodal | Chat-only brains can receive image BYTES (OpenAI-compat image_url parts) instead of a filesystem path they cannot open, and a text-only provider REFUSES the turn rather than silently sending it text-only — the failure mode that let this bug hide for a week. Data-URL construction, size/format/empty guards, last-user-turn targeting, no-mutation-of-caller-history, and per-file error reporting. | ✅ 27/27 |
 | Cross-engine orchestration | Profile→native-flag projection per CLI, refusal when an engine cannot enforce a profile, credential scrubbing from the child env, and Atlan-side containment (disposable git worktree + diff gate) proving the real project stays untouchable — including a simulated proot host where no kernel sandbox exists. Live engine calls are opt-in via RUN_LIVE=1. | ✅ 8/8 |
 | UI/UX | Headless Chromium drives the real cockpit: tabs, engine roster, doctor/preflight render, key entry no-leak, XSS-safe render. | ✅ 13/13 |
 | Tour/Onboarding | Drives all tour steps live — every step spotlights a real visible element; handbook opens/searches/relaunches. | ✅ 10/10 |
 | UI · Fleet | Every Fleet control driven at 412x900: top-up cannot be double-tapped into a double-spend, a kill that fails is reported, the header burn gauge moves while a run burns, Hierarchy job links come with a command selected, and Builder rows stay wide enough to type into. First of the five per-surface specs to reach zero — the rest join as their surfaces are fixed (docs/UI-AUDIT.md). | ✅ 29/29 |
 
-**Total: 474 passed, 0 failed across 21 suites.**
+**Total: 526 passed, 0 failed across 22 suites.**
 
 ## Unit
 
@@ -270,7 +271,7 @@ FUNCTION SUITE
   ✓ POST /api/fleet/run rejects empty prompt
   ✓ POST /api/fleet/kill of unknown id → killed:0
   ✓ POST /api/fleet/topup of non-halted → 400
-  ✓ a corrupt burn.json fails soft (endpoint still 200)
+  ✓ a corrupt burn.json fails soft AND is preserved, never overwritten
   ✓ a truncated history.jsonl line is skipped, not fatal
   ✓ personas.json survives a garbage write (soft-empty)
   ✓ DELETE paths remove what we created
@@ -350,6 +351,98 @@ SECURITY / PENETRATION SUITE
   ✓ ordinary project paths are not swept up by the normalization
 
 46 passed, 0 failed
+```
+
+## Walls
+
+Every wall SECURITY.md claims, exercised by BEHAVIOUR rather than by grepping the source. A mutation pass found that the daily token cap, the concurrency cap, the budget clamp, the in-flight reservation, scout's canUseTool, the preview proxy's WS-upgrade gate, atomicWrite's 0600 and temp+rename, the failed-login throttle, session revocation, the session store's freedom from replayable tokens and scrubbedEnv's explicit DROP list could all be neutered with the whole gate still green — because the assertions read the source text instead of making the thing happen. Boots its OWN cockpit (it changes the password and SIGKILLs the process), and covers the orphaned-child, corrupt-store, silent-exit and scheduler classes the same way.
+
+```
+$ node test/walls.mjs
+WALLS — behavioural, never source-text
+
+
+── credential-path guard: FAMILIES, not a fixed list ──
+  ✓ every .env variant is refused, not just the bare literal
+  ✓ the .env suffixes that exist to be shared stay editable
+  ✓ ssh private keys are matched by KEY TYPE, so none can be forgotten
+  ✓ credential-shaped filenames and private-key extensions are refused
+  ✓ ordinary project files are not swept up by the widened families
+  ✓ the editor refuses to READ or WRITE a .env variant over HTTP
+
+── /api/scan containment ──
+  ✓ scan will NOT follow a symlink out of the projects root
+  ✓ scan still refuses a plain path outside the root
+  ✓ scan STILL reads .env inside the project — it is the secret scanner
+
+── fleet write scope ──
+  ✓ builder REFUSES a write to Atlan's own source even when cwd is the app root
+  ✓ builder still allows an ordinary write inside its project
+  ✓ scout canUseTool refuses every non-read tool (not just disallowedTools)
+  ✓ verifier canUseTool refuses writes but allows checks
+  ✓ spawnRun REFUSES a cwd outside the projects root
+  ✓ spawnRun REFUSES a cwd that reaches outside via a symlink
+
+── spend walls, by behaviour ──
+  ✓ the DAILY TOKEN CAP actually refuses a run past it
+  ✓ the CONCURRENCY CAP actually refuses the run that exceeds it
+  ✓ the BUDGET CLAMP actually clamps what the run record reports
+  ✓ the daily cap RESERVES the remaining budget of runs still in flight
+  ✓ a CORRUPT burn ledger fails CLOSED and is never overwritten
+
+── state stores: corrupt ≠ empty ──
+  ✓ a corrupt routines.json is quarantined, not silently wiped
+  ✓ a healthy routines.json still loads (the quarantine is not trigger-happy)
+  ✓ a corrupt hierarchy jobs file is quarantined too
+
+── atomicWrite ──
+  ✓ atomicWrite PRESERVES the 0600 mode it is given
+  ✓ atomicWrite goes through a temp sibling and leaves none behind
+  ✓ a failed atomicWrite leaves the ORIGINAL intact and cleans its temp
+
+── credential scrubbing: the DROP list, not just the heuristic ──
+  ✓ scrubbedEnv drops the keys ONLY the explicit list can catch
+  ✓ scrubbedEnv still catches a provider it has never heard of
+
+── containment: the proposal must survive, and show deletions ──
+  ✓ a copy-mode proposal reports DELETIONS and outlives teardown
+  ✓ containment never touches the real project
+  ✓ openContained does not block the event loop
+
+── engine policy tells the truth about the run it allowed ──
+  ✓ a run allowed on a host with NO kernel sandbox is labelled unenforced
+  ✓ an engine that cannot express a profile is REFUSED, not silently bypassed
+
+── silent failure ──
+  ✓ a CLI that exits non-zero AFTER printing is recorded as an error, not done
+  ✓ a Claude result carrying an error subtype is NOT recorded as done
+
+── the scheduler never spends by surprise ──
+  ✓ a daily routine created AFTER its time waits until tomorrow
+  ✓ an already-fired daily routine still gets tomorrow's slot
+  ✓ a routine created BEFORE its time today still fires today
+  ✓ tick() FLAGS a slot missed past its grace instead of firing it late
+
+── nothing outlives the socket that started it ──
+  ✓ a dropped WebSocket tears down the warm Claude session
+  ✓ a chat-path agent CLI dies with its socket, and KILL ALL reaches it
+  ✓ a run in flight when the cockpit is SIGKILLed still gets a report card and its burn
+
+── auth walls ──
+  ✓ changing the password revokes an existing session cookie
+  ✓ the session store holds nothing replayable
+  ✓ the failed-login throttle actually starts refusing
+
+── preview proxy: the WS upgrade is gated too ──
+  ✓ a cross-site WebSocket upgrade into the preview proxy is dropped
+  ✓ a rebinding Host on the preview WS upgrade is dropped
+  ✓ the HTTP path of the same gate is still closed
+
+── preflight tells the truth about permission gates ──
+  ✓ the permission-gate row REFLECTS which engines actually run ungated
+  ✓ every interactive-gate flag the check reports is the flag agents.js actually passes
+
+50 passed, 0 failed
 ```
 
 ## Adversarial
@@ -589,7 +682,8 @@ FLEET ENGINES SUITE
   ✓ agentExec accepts an onSpawn hook — without it CLI runs are unkillable
   ✓ ADV-7 · extraEnv cannot re-introduce a scrubbed credential
   ✓ ADV-7 · scrubbedEnv actually removes an injected credential
-  ✓ ADV-3 · killTree signals the process GROUP, then escalates
+  ✓ ADV-3 · killTree reaps the whole process GROUP, not just the child
+  ✓ ADV-3 · a child that IGNORES SIGTERM is still killed
   ✓ ADV-3 · killTree is safe on a dead or pidless child
   ✓ ADV-3 · the fleet kill handle uses killTree, not a bare SIGTERM
   ✓ ADV-4A · an engine that reports no usage is refused under a budget
@@ -602,9 +696,9 @@ FLEET ENGINES SUITE
   ✓ ADV-1 · the kernel+atlan boundary is now actually reachable
   ✓ ADV-5 · the vision provider/model granularity limit is stated, not hidden
   ✓ AUDIT-1 · orchestration.mjs loads THIS repo, not another worktree
-  ✓ AUDIT-3 · the containment diff has a real timestamp floor
+  ✓ AUDIT-3 · the containment diff reports every change, including deletions
 
-46 passed, 0 failed
+47 passed, 0 failed
 ```
 
 ## Vision / multimodal
@@ -639,9 +733,10 @@ VISION SUITE
   ✓ buildImageParts reports per-file failures instead of losing the turn
   ✓ buildImageParts returns the basename, not the full path
   ✓ buildImageParts on an empty list is empty, not an error
-  ✓ brainChat refuses rather than silently sending images text-only
+  ✓ brainChat REFUSES a text-only provider an image turn
+  ✓ the multimodal parts really reach the message a vision provider gets
 
-26 passed, 0 failed
+27 passed, 0 failed
 ```
 
 ## Cross-engine orchestration
