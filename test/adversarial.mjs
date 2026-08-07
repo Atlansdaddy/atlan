@@ -4,6 +4,8 @@
 import assert from 'node:assert';
 import { readFileSync, existsSync } from 'node:fs';
 import WebSocket from '../node_modules/ws/index.js';
+import { REPO, repo, scratch } from './lib/paths.mjs';
+import { homedir } from 'node:os';
 
 const BASE = process.env.ATLAN_BASE ?? 'http://127.0.0.1:4589';
 
@@ -12,7 +14,7 @@ const TOKEN = (process.env.ATLAN_TOKEN ?? readFileSync(new URL('../.auth-token',
 const _fetch = globalThis.fetch;
 globalThis.fetch = (url, opts = {}) => _fetch(url, { ...opts, headers: { ...(opts.headers ?? {}), 'x-atlan-token': TOKEN } });
 
-const ROOT = '/root/atlan';
+const ROOT = REPO;
 let pass = 0, fail = 0;
 const results = [];
 
@@ -87,10 +89,19 @@ for (const ok of ['http://127.0.0.1:5173', 'http://localhost:3000', 'http://[::1
   });
 }
 
-// ── projects endpoint: no traversal, only dirs under /root ──
-await test('projects only lists dirs under /root', async () => {
+// ── projects endpoint: no traversal, only dirs under the projects root ──
+// The root is DERIVED, not the literal '/root' this used to assert: the server
+// resolves it per-platform (homedir elsewhere, cwd on win32), so a hardcoded
+// prefix made this pass here and fail everywhere else — including CI, where the
+// checkout lives under /home/runner.
+const PROJ_ROOT = (process.env.ATLAN_PROJECTS ?? homedir()).replace(/\/$/, '');
+await test(`projects only lists dirs under ${PROJ_ROOT}`, async () => {
   const list = await j(await fetch(BASE + '/api/projects'));
-  for (const p of list) assert.ok(p.path.startsWith('/root/'), 'path escaped /root: ' + p.path);
+  assert.ok(Array.isArray(list), 'projects must be a list');
+  for (const p of list) {
+    assert.ok(p.path.startsWith(PROJ_ROOT + '/') || p.path === PROJ_ROOT,
+      `path escaped ${PROJ_ROOT}: ${p.path}`);
+  }
 });
 
 // ── static /apk cannot be traversed out ──

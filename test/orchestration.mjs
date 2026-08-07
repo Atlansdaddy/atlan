@@ -2,6 +2,8 @@
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { REPO, repo, scratch } from './lib/paths.mjs';
+import { homedir } from 'node:os';
 process.env.PATH += ':/root/.local/bin';
 
 // RELATIVE, not absolute. This file was cherry-picked from another worktree and
@@ -53,7 +55,7 @@ await t('bypass is reachable only by explicit acknowledgement', () => {
 // ── env scrubbing ──
 await t('scrubbedEnv drops known and pattern-matched credentials, keeps PATH/HOME', () => {
   const env = scrubbedEnv({
-    PATH: '/usr/bin', HOME: '/root',
+    PATH: '/usr/bin', HOME: homedir(),
     ATLAN_TOKEN: 'secret1', OPENAI_API_KEY: 'secret2',
     SOME_NEW_PROVIDER_API_KEY: 'secret3', MY_SECRET: 'secret4',
     // Keys the fallback heuristic CANNOT catch, so the explicit DROP list is
@@ -73,7 +75,7 @@ await t('scrubbedEnv drops known and pattern-matched credentials, keeps PATH/HOM
 });
 
 // ── containment (the phone path) ──
-const proj = mkdtempSync('/root/atlan-contain-test-');
+const proj = scratch('atlan-contain-test-');
 execFileSync('git', ['init', '-q'], { cwd: proj });
 execFileSync('git', ['config', 'user.email', 't@t'], { cwd: proj });
 execFileSync('git', ['config', 'user.name', 't'], { cwd: proj });

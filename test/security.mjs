@@ -14,6 +14,7 @@ const j = async (r) => ({ status: r.status, body: await r.json().catch(() => ({}
 // Raw request so we can forge Host/Origin (fetch forbids those headers). Used to
 // prove the preview-proxy anti-rebinding gate.
 import http from 'node:http';
+import { REPO, repo, projectScratch as mkScratch } from './lib/paths.mjs';
 const PREVIEW_PORT = Number(process.env.ATLAN_PREVIEW_PORT ?? 4590);
 const rawStatus = (port, headers) => new Promise((resolve) => {
   const req = http.request({ host: '127.0.0.1', port, path: '/', method: 'GET', headers }, (res) => { res.resume(); resolve(res.statusCode); });
@@ -208,7 +209,7 @@ await test('static server does not serve files outside web root', async () => {
 // tokens and sit under PROJECTS_DIR on the home node; the editor must never
 // read them out over the tunnel).
 await test('editor /api/file refuses agent-CLI credential stores', async () => {
-  const home = process.env.HOME ?? '/root';
+  const home = process.env.HOME ?? homedir();
   for (const p of ['.copilot/config.json', '.codex/auth.json', '.grok/auth.json',
     '.gemini/antigravity-cli/oauth_creds.json', '.claude/.credentials.json', '.config/gh/hosts.yml']) {
     const r = await authed('/api/file?path=' + encodeURIComponent(`${home}/${p}`));
@@ -248,7 +249,7 @@ const { execFileSync } = await import('node:child_process');
 const { mkdtempSync, writeFileSync: wf, symlinkSync, rmSync } = await import('node:fs');
 const { join: pjoin } = await import('node:path');
 const REPO_ROOT = new URL('../', import.meta.url).pathname.replace(/\/$/, '');
-const scratch = mkdtempSync('/root/atlan-git-test-');
+const scratch = mkScratch('atlan-git-test-');
 const git = (...args) => execFileSync('git', args, { cwd: scratch, stdio: 'pipe' });
 try {
   git('init', '-q');

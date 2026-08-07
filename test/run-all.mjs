@@ -14,7 +14,7 @@ import { writeFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { randomBytes } from 'node:crypto';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
 
 const REPO = new URL('..', import.meta.url).pathname;
 const freePort = () => new Promise((res, rej) => {
@@ -39,6 +39,13 @@ if (!process.env.ATLAN_BASE) {
   process.env.ATLAN_FLEET_DIR = fleetDir;
   process.env.ATLAN_TOKEN = 'test-' + randomBytes(16).toString('hex');
   process.env.ATLAN_BASE = `http://127.0.0.1:${port}`;
+  // The projects root is the checkout's PARENT, so this repo is always a direct
+  // child of it — wherever the checkout happens to live. Left to its default
+  // (homedir()) it only worked on a box where the repo sat at ~/atlan: in CI the
+  // checkout is /home/runner/work/atlan/atlan, three levels down, so the project
+  // listing did not contain it and anything referencing a file inside the repo
+  // was "outside the projects root". Same value as before on the dev box.
+  process.env.ATLAN_PROJECTS ||= dirname(REPO);
   process.env.ATLAN_TIER_LOCAL_BASE ||= 'http://127.0.0.1:8091';
   process.env.ATLAN_TIER_CLOUDSM_BASE ||= 'http://127.0.0.1:8092';
   process.stderr.write(`▸ booting throwaway test server on :${port} (state ${fleetDir})\n`);

@@ -11,10 +11,11 @@ import assert from 'node:assert';
 import { mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, symlinkSync, mkdtempSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
+import { homedir } from 'node:os';
 
 const BASE = process.env.ATLAN_BASE ?? 'http://127.0.0.1:4589';
 const TOKEN = (process.env.ATLAN_TOKEN ?? readFileSync(new URL('../.auth-token', import.meta.url), 'utf8')).trim();
-const PROJ = (process.env.ATLAN_PROJECTS ?? '/root').replace(/\/$/, '');
+const PROJ = (process.env.ATLAN_PROJECTS ?? homedir()).replace(/\/$/, '');
 const APP = fileURLToPath(new URL('..', import.meta.url)).replace(/\/$/, ''); // Atlan's own repo (== server APP_ROOT)
 const api = (p, o = {}) => fetch(BASE + p, { ...o, headers: { 'content-type': 'application/json', 'x-atlan-token': TOKEN, ...(o.headers ?? {}) } });
 const j = (r) => r.json();

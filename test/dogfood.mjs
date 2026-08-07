@@ -6,6 +6,7 @@
 // Opt-in (spends real quota/tokens):  RUN_DOGFOOD=1 node test/dogfood.mjs
 import { readFileSync, writeFileSync } from 'node:fs';
 import { WebSocket } from 'ws';
+import { REPO } from './lib/paths.mjs';
 
 if (!process.env.RUN_DOGFOOD) {
   console.log('dogfood: opt-in only — RUN_DOGFOOD=1 node test/dogfood.mjs');
@@ -15,7 +16,7 @@ if (!process.env.RUN_DOGFOOD) {
 const BASE = process.env.ATLAN_BASE ?? 'http://127.0.0.1:4589';
 const TOKEN = (process.env.ATLAN_TOKEN ?? readFileSync(new URL('../.auth-token', import.meta.url), 'utf8')).trim();
 const WSURL = BASE.replace(/^http/, 'ws') + '/ws';
-const CWD = process.env.DOGFOOD_CWD ?? '/root/atlan';
+const CWD = process.env.DOGFOOD_CWD ?? REPO;
 const H = { 'x-atlan-token': TOKEN, 'content-type': 'application/json' };
 const FIX = new URL('./fixtures/', import.meta.url);
 

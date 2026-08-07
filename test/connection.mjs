@@ -4,6 +4,7 @@
 import assert from 'node:assert';
 import { readFileSync } from 'node:fs';
 import { WebSocket } from 'ws'; // the ws client sets real headers; no token in the URL
+import { REPO, repo, scratch } from './lib/paths.mjs';
 
 const BASE = process.env.ATLAN_BASE ?? 'http://127.0.0.1:4589';
 const WS = BASE.replace('http', 'ws') + '/ws';
@@ -56,7 +57,7 @@ await test('fleet events broadcast to ALL connected clients', async () => {
   const a = await openWs(), b = await openWs();
   const gotA = nextMsg(a, (m) => m.t === 'fleet.run');
   const gotB = nextMsg(b, (m) => m.t === 'fleet.run');
-  const run = await (await authed('/api/fleet/run', { method: 'POST', body: JSON.stringify({ prompt: 'connection test — reply ok', profile: 'scout', budget: 2000, cwd: '/root/atlan' }) })).json();
+  const run = await (await authed('/api/fleet/run', { method: 'POST', body: JSON.stringify({ prompt: 'connection test — reply ok', profile: 'scout', budget: 2000, cwd: REPO }) })).json();
   const [ma, mb] = await Promise.all([gotA, gotB]);
   assert.equal(ma.run.id, run.id);
   assert.equal(mb.run.id, run.id);
@@ -65,7 +66,7 @@ await test('fleet events broadcast to ALL connected clients', async () => {
 });
 await test('PTY round-trip: open a tmux pty, echo, receive output', async () => {
   const ws = await openWs();
-  ws.send(JSON.stringify({ t: 'pty.open', name: 'conntest', cols: 80, rows: 24, cwd: '/root/atlan' }));
+  ws.send(JSON.stringify({ t: 'pty.open', name: 'conntest', cols: 80, rows: 24, cwd: REPO }));
   const marker = 'ATLAN_PTY_OK';
   // wait for the shell to be ready-ish, then echo a unique marker
   await new Promise((r) => setTimeout(r, 800));
@@ -81,7 +82,7 @@ await test('reconnection after a drop re-subscribes to broadcasts', async () => 
   await new Promise((r) => setTimeout(r, 300));
   ws = await openWs(); // fresh connection = the app's reconnect path
   const got = nextMsg(ws, (m) => m.t === 'fleet.run');
-  const run = await (await authed('/api/fleet/run', { method: 'POST', body: JSON.stringify({ prompt: 'reconnect test', profile: 'scout', budget: 2000, cwd: '/root/atlan' }) })).json();
+  const run = await (await authed('/api/fleet/run', { method: 'POST', body: JSON.stringify({ prompt: 'reconnect test', profile: 'scout', budget: 2000, cwd: REPO }) })).json();
   const m = await got;
   assert.equal(m.run.id, run.id);
   await authed('/api/fleet/kill', { method: 'POST', body: JSON.stringify({ id: run.id }) });

@@ -2,6 +2,7 @@
 // data-store durability ("db"): the JSON stores survive corruption and tamper.
 import assert from 'node:assert';
 import { readFileSync, writeFileSync, existsSync, copyFileSync, unlinkSync, readdirSync } from 'node:fs';
+import { REPO, repo, scratch } from './lib/paths.mjs';
 
 const BASE = process.env.ATLAN_BASE ?? 'http://127.0.0.1:4589';
 const TOKEN = (process.env.ATLAN_TOKEN ?? readFileSync(new URL('../.auth-token', import.meta.url), 'utf8')).trim();
@@ -110,7 +111,7 @@ await test('POST /api/routines/fire of unknown id → 400', async () => {
 // must NOT spawn parallel runs — one routine, one live run.
 await test('concurrent fires of a routine spawn only ONE run', async () => {
   const rt = await j(await api('/api/routines', { method: 'POST', body: JSON.stringify({
-    name: 'race-guard', prompt: 'reply ok', cadence: { kind: 'daily', at: '03:30' }, profile: 'scout', budget: 2000, cwd: '/root/atlan',
+    name: 'race-guard', prompt: 'reply ok', cadence: { kind: 'daily', at: '03:30' }, profile: 'scout', budget: 2000, cwd: REPO,
   }) }));
   const results = await Promise.all(Array.from({ length: 6 }, () =>
     api('/api/routines/fire', { method: 'POST', body: JSON.stringify({ id: rt.body.id }) }).then(j)));

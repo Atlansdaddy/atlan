@@ -4,6 +4,9 @@
 // degradation only (no key → honest note, no crash).
 import assert from 'node:assert';
 import { readFileSync } from 'node:fs';
+import { REPO, repo, scratch } from './lib/paths.mjs';
+import { join } from 'node:path';
+import { homedir } from 'node:os';
 const BASE = process.env.ATLAN_BASE ?? 'http://127.0.0.1:4589';
 const TOKEN = (process.env.ATLAN_TOKEN ?? readFileSync(new URL('../.auth-token', import.meta.url), 'utf8')).trim();
 const api = (p, o = {}) => fetch(BASE + p, { ...o, headers: { 'content-type': 'application/json', 'x-atlan-token': TOKEN, ...(o.headers ?? {}) } });
@@ -28,15 +31,15 @@ await test('empty upload is rejected', async () => {
   assert.equal((await api('/api/attach', { method: 'POST', body: JSON.stringify({ name: 'x', data: '' }) })).status, 400);
 });
 await test('reference an existing folder in the project → kind folder', async () => {
-  const a = await j(await api('/api/attach/ref', { method: 'POST', body: JSON.stringify({ path: process.env.ATLAN_PROJECTS_TEST || '/root/atlan/server' }) }));
+  const a = await j(await api('/api/attach/ref', { method: 'POST', body: JSON.stringify({ path: process.env.ATLAN_PROJECTS_TEST || repo('server') }) }));
   assert.equal(a.kind, 'folder');
 });
 await test('reference a file → kind file', async () => {
-  const a = await j(await api('/api/attach/ref', { method: 'POST', body: JSON.stringify({ path: '/root/atlan/package.json' }) }));
+  const a = await j(await api('/api/attach/ref', { method: 'POST', body: JSON.stringify({ path: repo('package.json') }) }));
   assert.equal(a.kind, 'file');
 });
 await test('path traversal outside project is rejected', async () => {
-  for (const p of ['/etc/passwd', '/root/.ssh', '/root/atlan/../../etc/hosts']) {
+  for (const p of ['/etc/passwd', join(homedir(), '.ssh'), repo('..', '..', 'etc', 'hosts')]) {
     assert.equal((await api('/api/attach/ref', { method: 'POST', body: JSON.stringify({ path: p }) })).status, 400, 'accepted ' + p);
   }
 });
