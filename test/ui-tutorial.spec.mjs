@@ -11,7 +11,7 @@
 //
 // SAFETY: this suite never spawns a fleet run, never sends a chat turn, never
 // presses Build/Scan/Commit/Push. Nothing here spends a token or writes a file.
-import pw from '/usr/lib/node_modules/playwright/index.js';
+import pw from './lib/pw.mjs';
 import assert from 'node:assert';
 import { readFileSync } from 'node:fs';
 const { chromium } = pw;

@@ -20,7 +20,7 @@
 // NOTE (test-suite footgun, carried over from ui.spec.mjs:9): BASE defaults to
 // the LIVE cockpit on :4589, and the harness below sets/uses a known password.
 // Run this with an explicit ATLAN_BASE pointing at a throwaway instance.
-import pw from '/usr/lib/node_modules/playwright/index.js';
+import pw from './lib/pw.mjs';
 import assert from 'node:assert';
 import { readFileSync } from 'node:fs';
 const { chromium } = pw;

@@ -14,5 +14,8 @@
     "acorn": "^8.17.0",
     "acorn-jsx": "^5.3.2",
     "acorn-loose": "^8.5.2"
+  },
+  "devDependencies": {
+    "playwright": "1.61.1"
   }
 }

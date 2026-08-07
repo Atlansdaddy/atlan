@@ -2,7 +2,7 @@
 // step's target element must exist, be spotlit, and the card must show its
 // text. Then the handbook: opens, searches, filters. If a UI change orphans a
 // tour step, this suite goes red.
-import pw from '/usr/lib/node_modules/playwright/index.js';
+import pw from './lib/pw.mjs';
 import assert from 'node:assert';
 import { readFileSync } from 'node:fs';
 

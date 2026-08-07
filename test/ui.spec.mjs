@@ -2,7 +2,7 @@
 // Asserts the UI a user actually touches: tabs, engine roster grouping,
 // doctor/preflight rendering, key entry, chat plumbing (mocked engine off),
 // XSS-safety of rendered messages.
-import pw from '/usr/lib/node_modules/playwright/index.js';
+import pw from './lib/pw.mjs';
 import assert from 'node:assert';
 const { chromium } = pw;
 

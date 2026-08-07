@@ -28,7 +28,7 @@
 // dispatches a real MessageEvent at the real onmessage handler, so run cards,
 // burn frames and build logs go through production code paths without a server
 // that spends.
-import pw from '/usr/lib/node_modules/playwright/index.js';
+import pw from './lib/pw.mjs';
 import assert from 'node:assert';
 import { readFileSync } from 'node:fs';
 const { chromium } = pw;

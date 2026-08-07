@@ -19,7 +19,7 @@
 //   • the Escalate ladder actually climbing its rungs
 // Those are asserted for PRESENCE and ENABLED-STATE only, and the wiring gap
 // behind the ladder option is reported in the audit rather than tested here.
-import pw from '/usr/lib/node_modules/playwright/index.js';
+import pw from './lib/pw.mjs';
 import assert from 'node:assert';
 import { readFileSync } from 'node:fs';
 const { chromium } = pw;
