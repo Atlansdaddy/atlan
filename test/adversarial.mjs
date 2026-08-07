@@ -95,7 +95,12 @@ for (const ok of ['http://127.0.0.1:5173', 'http://localhost:3000', 'http://[::1
 // prefix made this pass here and fail everywhere else — including CI, where the
 // checkout lives under /home/runner.
 const PROJ_ROOT = (process.env.ATLAN_PROJECTS ?? homedir()).replace(/\/$/, '');
-await test(`projects only lists dirs under ${PROJ_ROOT}`, async () => {
+// The name stays STATIC even though the root is derived: test names go into
+// docs/RECEIPTS.md, and CI fails if the receipts differ from what was committed.
+// Interpolating the path made the receipts say /root here and
+// /home/runner/work/atlan there — a file that cannot agree with itself across
+// machines. The derived value belongs in the failure message, not the title.
+await test('projects only lists dirs under the projects root', async () => {
   const list = await j(await fetch(BASE + '/api/projects'));
   assert.ok(Array.isArray(list), 'projects must be a list');
   for (const p of list) {

@@ -470,7 +470,7 @@ ADVERSARIAL SUITE
   ✓ preview target accepts local http://127.0.0.1:5173
   ✓ preview target accepts local http://localhost:3000
   ✓ preview target accepts local http://[::1]:5177
-  ✓ projects only lists dirs under /root
+  ✓ projects only lists dirs under the projects root
   ✓ /apk blocks path traversal
   ✓ fleet: unknown profile is a 400
   ✓ fleet: empty prompt is a 400
