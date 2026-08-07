@@ -1,9 +1,12 @@
-import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { getStoredKey } from './keys.js';
 import { killTree } from './procTree.js';
 import { interactiveGate } from './enginePolicy.js';
+import { confineMode, APP_ROOT } from './config.js';
+import { confinedSpawn, unconfinedSpawn } from './lib/sandbox.js';
+import { childEnv, credentialTargets, credentialPreflight, homeReadable, VENDOR_STORES } from './lib/credblind.js';
 
 // ── live chat-path agent CLIs ─────────────────────────────────────────────
 // Every child spawned here is REGISTERED, because every child spawned here runs
@@ -134,6 +137,102 @@ function agyAuthed() {
   return existsSync(`${homedir()}/.gemini/antigravity-cli`);
 }
 
+// ── how an exec-mode CLI is actually launched ─────────────────────────────
+// All four of these run with their own approval gates OFF (there is no other
+// headless mode), so everything that constrains them has to be ours. Two things
+// happen here that did not before:
+//
+// 1. THE CHILD'S ENVIRONMENT IS AN ALLOWLIST. It used to be `{...process.env}`,
+//    verbatim — which handed codex the xAI key, handed grok the Anthropic key,
+//    and handed all four ATLAN_TOKEN, the credential the 2026-08-04 incident
+//    used to drive the cockpit's own API. Now each engine receives the
+//    allowlist plus exactly its own key and nothing else.
+//
+// 2. EVERY OTHER VENDOR'S AUTH STORE IS MASKED OUT of its filesystem view, along
+//    with the cockpit's own state and the usual ~/.ssh, ~/.aws, ~/.git-credentials.
+//    HOME stays — the subscription login is the whole reason these engines run
+//    without an API key — so the one store this engine needs stays readable and
+//    writable. That is the honest shape of the guarantee: not "the agent sees no
+//    credential", but "the agent sees exactly the one credential it authenticates
+//    with, and no other."
+//
+// The vendor store is also the only writable path besides the project: codex
+// records threads under ~/.codex, and Studio collects generated images from
+// there after the run.
+export function spawnAgentCli(engine, cmd, args, { cwd, grant = {} } = {}) {
+  const home = homedir();
+  const env = childEnv(process.env, { grant });
+  const mask = credentialTargets({ appRoot: APP_ROOT, home, keepFor: engine });
+  const writable = [
+    cwd,
+    ...(VENDOR_STORES[engine] ?? []).map((d) => join(home, d)),
+    // /run is replaced by an empty tmpfs so no agent can reach docker.sock,
+    // tailscaled's control socket or the system bus. $XDG_RUNTIME_DIR is the one
+    // thing that has to come back: the antigravity CLI keeps its token in the
+    // system keyring and reaches it over D-Bus at /run/user/<uid>/bus. Declared,
+    // so it is one named path rather than the whole of /run.
+    ...(process.env.XDG_RUNTIME_DIR ? [process.env.XDG_RUNTIME_DIR] : []),
+  ].filter((p) => existsSync(p));
+  // net:'shared' is the honest setting, not a convenience: these CLIs have to
+  // reach their provider, and Atlan has no egress allowlist yet. The descriptor
+  // records network as unenforced so nothing downstream can claim otherwise.
+  // HOME is replaced by an empty tmpfs and only these come back: the engine's own
+  // auth store (writable — it rewrites its token on refresh) and ~/.gitconfig
+  // (read-only — without it every commit an agent makes is authorless). Every
+  // other credential under HOME is gone by construction rather than by name.
+  const readable = homeReadable(home);
+  // detached: its own process GROUP, so killTree's negative-PID signal reaches
+  // the shells and tool children these CLIs spawn — without it a kill hits only
+  // the immediate pid and the real workers carry on. NEITHER branch had this
+  // line: confinement never needed it, and the tracking work that did need it
+  // spawned directly rather than through here. It exists only because the merge
+  // put it back, and test/walls.mjs's orphaned-child assertion is what would
+  // have caught its absence.
+  const opts = { cwd, env, writable, readable, mask, net: 'shared', home, detached: true };
+  const mode = confineMode();
+
+  // The one bypass a path mask cannot cover: a hardlink planted earlier is a
+  // second directory entry for the same inode, and the mask follows the path,
+  // not the inode. MEASURED — the alias reads the secret straight through a
+  // working mask. It is detectable though, because st_nlink on a credential file
+  // is 1 unless somebody made another name for it. A fact about the inode, not a
+  // pattern match on a filename.
+  //
+  // Under `strict` that is a refusal: someone has already staged the bypass, and
+  // starting the run anyway would be enforcing a boundary we know is open. Under
+  // `1` it rides along on the descriptor so the Doctor and the caller can see it
+  // — a legitimate backup can produce the same signal, and bricking a working
+  // phone-node setup over an ambiguous signal is the wrong trade.
+  const credIssues = credentialPreflight(mask);
+  if (mode === 'strict' && credIssues.some((p) => p.kind === 'hardlinked')) {
+    throw new Error(
+      `refusing to run: ${credIssues.filter((p) => p.kind === 'hardlinked').map((p) => p.path).join(', ')} — ` +
+      'a second name for this inode already exists, so the credential mask would not actually hide it. Nothing was spawned.',
+    );
+  }
+
+  if (mode === 'off') {
+    const c = unconfinedSpawn(cmd, args, { ...opts, acknowledgeUnconfined: true });
+    c.confinement.credentialIssues = credIssues;
+    return c;
+  }
+  try {
+    const c = confinedSpawn(cmd, args, opts);
+    c.confinement.credentialIssues = credIssues;
+    return c;
+  } catch (err) {
+    // strict = the run does not happen. This is the fail-closed branch, and it
+    // throws rather than returning a child, so a caller cannot use the result
+    // by accident.
+    if (mode === 'strict') throw err;
+    // ATLAN_CONFINE=1 on a host that cannot confine (the phone). Runs, but the
+    // descriptor carries the kernel's own reason it could not be gated.
+    const c = unconfinedSpawn(cmd, args, { ...opts, acknowledgeUnconfined: true });
+    c.confinement.credentialIssues = credIssues;
+    return c;
+  }
+}
+
 export function agentTurn({ engine, cwd, text, send, state, model = null, owner = null }) {
   if (state.running) {
     send({ t: 'chat.err', msg: 'agent is mid-turn — wait for it to finish' });
@@ -154,7 +253,11 @@ export function agentTurn({ engine, cwd, text, send, state, model = null, owner 
     state.running = false;
     return send({ t: 'chat.err', msg: `unknown agent: ${engine}` });
   }
-  let cmd, args, env = { ...process.env };
+  // `grant` is the ONLY provider credential this engine will be able to see.
+  // It replaces `env = { ...process.env }`, which handed codex the xAI key,
+  // grok the Anthropic key, and all four ATLAN_TOKEN — the credential the
+  // 2026-08-04 incident used to drive the cockpit's own API.
+  let cmd, args, grant = {};
   if (engine === 'codex') {
     cmd = 'codex';
     args = state.codexThread
@@ -165,24 +268,40 @@ export function agentTurn({ engine, cwd, text, send, state, model = null, owner 
     cmd = agyBin() ?? 'agy';
     args = [...(state.agyStarted ? ['-c'] : []), ...(pickedModel ? ['--model', pickedModel] : []), ...gate.args, '-p', text];
     const akey = process.env.ANTIGRAVITY_API_KEY || getStoredKey('ANTIGRAVITY_API_KEY');
-    if (akey) env.ANTIGRAVITY_API_KEY = akey;
+    if (akey) grant.ANTIGRAVITY_API_KEY = akey;
   } else if (engine === 'grok') {
     cmd = grokBin() ?? 'grok';
     args = ['--no-auto-update', ...(state.grokStarted ? ['-c'] : []), ...(pickedModel ? ['-m', pickedModel] : []), ...gate.args, '-p', text];
     const xkey = process.env.XAI_API_KEY || getStoredKey('XAI_API_KEY');
-    if (xkey) env.XAI_API_KEY = xkey;
+    if (xkey) grant.XAI_API_KEY = xkey;
   } else if (engine === 'copilot') {
     cmd = copilotBin() ?? 'copilot';
+    // gate.args comes from enginePolicy's table — it is what replaced the
+    // literal '--allow-all' that used to sit here.
     args = [...(state.copilotStarted ? ['--continue'] : []), ...(pickedModel ? ['--model', pickedModel] : []), ...gate.args, '-p', text];
+    // Copilot authenticates from ~/.copilot, or from one of these when a user
+    // is key-authed instead. Granted only to copilot — codex and grok used to
+    // receive GITHUB_TOKEN too, purely because the whole environment was copied.
+    for (const k of ['GH_COPILOT_TOKEN', 'GITHUB_TOKEN']) if (process.env[k]) grant[k] = process.env[k];
   } else {
     state.running = false;
     return send({ t: 'chat.err', msg: `unknown agent: ${engine}` });
   }
 
-  // detached: own process GROUP, so killTree's negative-PID signal reaches the
-  // shells and tool children these CLIs spawn. Without it a kill hit only the
-  // immediate pid and the real workers carried on.
-  const child = spawn(cmd, args, { cwd, env, detached: true });
+  let child;
+  try {
+    child = spawnAgentCli(engine, cmd, args, { cwd, grant });
+  } catch (err) {
+    // ATLAN_CONFINE=strict on a host that cannot confine. Nothing was spawned;
+    // say why in the same words the kernel used.
+    state.running = false;
+    return send({ t: 'chat.err', msg: `refused to launch ${engine}: ${err.message}` });
+  }
+  // Registered because it runs with its own approval system switched off. Both
+  // halves of this line arrived from different branches and neither works alone:
+  // confinement decides what the child may touch, registration decides whether
+  // we can still reach it. Before registration existed the child outlived the
+  // WebSocket that started it, Fleet showed no run, and KILL ALL answered 0.
   const seq = ++turnSeq;
   liveTurns.set(seq, { child, engine, cwd, owner, startedAt: Date.now() });
   const unregister = () => liveTurns.delete(seq);

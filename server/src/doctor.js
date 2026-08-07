@@ -105,6 +105,36 @@ export async function runDoctor() {
         ? 'bubblewrap not installed (optional) — on a Linux/WSL2 host: `apt install bubblewrap` + ATLAN_SANDBOX=1 to confine autonomous Bash'
         : 'unavailable in proot (no namespaces) — profiles gate tools; a native Linux/WSL2 host + ATLAN_SANDBOX=1 gives real OS confinement' };
     }),
+    check('cli-confinement', 'Agent-CLI OS confinement', async () => {
+      // The bubblewrap check above covers the Agent SDK's Bash sandbox. This one
+      // covers the FOUR exec-mode CLIs the SDK never touches, and it reports what
+      // the KERNEL did rather than what a config file claims: the probe performs
+      // the real confinement on a throwaway workspace and reads back the syscall
+      // results. /sys/kernel/security/lsm does not exist on this WSL2 kernel at
+      // all, and reads `n/a` on hosts where Landlock IS actively enforcing — a
+      // flag file is not evidence, so none is consulted.
+      const { confinementReport } = await import('./lib/sandbox.js');
+      const { confineMode, APP_ROOT } = await import('./config.js');
+      const { credentialTargets, credentialPreflight } = await import('./lib/credblind.js');
+      const mode = confineMode();
+      const rep = confinementReport();
+      const gated = Object.entries(rep.modes['net:shared']).filter(([, v]) => v.ok).map(([k]) => k);
+      // A hardlinked credential defeats the mask no matter how well the
+      // namespaces work, so it outranks everything else this check reports.
+      const linked = credentialPreflight(credentialTargets({ appRoot: APP_ROOT })).filter((p) => p.kind === 'hardlinked');
+      if (linked.length) {
+        return { ok: false, warn: true, detail: `${linked.map((p) => p.path).join(', ')} has a second hardlink — a credential mask cannot hide an inode that has another name. Remove the extra link; ATLAN_CONFINE=strict refuses to run until you do` };
+      }
+      if (!rep.available) {
+        return { ok: false, warn: true, detail: mode === 'strict'
+          ? 'ATLAN_CONFINE=strict but this host cannot create user namespaces (proot/Termux) — agent-CLI runs are REFUSED here'
+          : 'no user namespaces here (proot/Termux) — agent CLIs run UNCONFINED and every spawn is labelled enforced:false. A Linux/WSL2 home node can confine them; the phone cannot' };
+      }
+      if (mode === 'off') {
+        return { ok: false, warn: true, detail: `confinement AVAILABLE but OFF — this host can enforce ${gated.join(', ')}; set ATLAN_CONFINE=1 (or =strict) to use it` };
+      }
+      return { ok: true, detail: `ENFORCED (${mode}) — ${gated.join(', ')}, each verified by a live probe. Egress is NOT gated (net:shared): the CLIs must reach their provider, so the cockpit token is masked instead of the network being closed` };
+    }),
     check('piper', 'Piper voice (local TTS)', async () => {
       // Optional "sounds good" local voice. Browser voice always works without
       // it; ElevenLabs/OpenAI cover BYO-key. Green only when the binary AND a
