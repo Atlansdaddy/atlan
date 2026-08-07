@@ -12,7 +12,7 @@
 
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { tmpdir } from 'node:os';
+import { tmpdir, homedir } from 'node:os';
 import { mkdtempSync } from 'node:fs';
 
 /** The repository root, derived from this file's own location (test/lib → up 2). */
@@ -31,6 +31,26 @@ export const scratch = (prefix) => mkdtempSync(join(tmpdir(), prefix));
  */
 export const projectScratch = (prefix) =>
   mkdtempSync(join(process.env.ATLAN_PROJECTS || tmpdir(), prefix));
+
+/** The projects root the server is actually using. */
+export const projectsRoot = () => (process.env.ATLAN_PROJECTS || homedir()).replace(/\/$/, '');
+
+/**
+ * A credential-store path INSIDE the projects root.
+ *
+ * guards.js refuses these by NAME (the SENSITIVE families), but that check only
+ * gets a turn on a path the boundary check already let through. `~/.claude/...`
+ * is inside the projects root only on the home node, where HOME *is* the
+ * projects root — everywhere else it is refused one layer earlier, for being
+ * outside the project. Both refusals are correct; only one of them is the thing
+ * these tests exist to prove. Building the path under the projects root aims
+ * the assertion at the layer it names.
+ *
+ * The file need not exist: the name check runs before the existence check, which
+ * is the point — a write to a path that merely LOOKS like a credential store is
+ * refused before anything is created.
+ */
+export const credPath = (rel) => join(projectsRoot(), rel);
 
 /** A path inside the checkout — `repo('server')`, `repo('package.json')`. */
 export const repo = (...parts) => join(REPO, ...parts);

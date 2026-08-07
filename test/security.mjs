@@ -14,7 +14,7 @@ const j = async (r) => ({ status: r.status, body: await r.json().catch(() => ({}
 // Raw request so we can forge Host/Origin (fetch forbids those headers). Used to
 // prove the preview-proxy anti-rebinding gate.
 import http from 'node:http';
-import { REPO, repo, projectScratch as mkScratch } from './lib/paths.mjs';
+import { REPO, repo, projectScratch as mkScratch, credPath } from './lib/paths.mjs';
 const PREVIEW_PORT = Number(process.env.ATLAN_PREVIEW_PORT ?? 4590);
 const rawStatus = (port, headers) => new Promise((resolve) => {
   const req = http.request({ host: '127.0.0.1', port, path: '/', method: 'GET', headers }, (res) => { res.resume(); resolve(res.statusCode); });
@@ -208,13 +208,31 @@ await test('static server does not serve files outside web root', async () => {
 // (~/.copilot / .codex / .grok / .gemini / .claude hold PLAINTEXT subscription
 // tokens and sit under PROJECTS_DIR on the home node; the editor must never
 // read them out over the tunnel).
-await test('editor /api/file refuses agent-CLI credential stores', async () => {
-  const home = process.env.HOME ?? homedir();
-  for (const p of ['.copilot/config.json', '.codex/auth.json', '.grok/auth.json',
-    '.gemini/antigravity-cli/oauth_creds.json', '.claude/.credentials.json', '.config/gh/hosts.yml']) {
-    const r = await authed('/api/file?path=' + encodeURIComponent(`${home}/${p}`));
+const CRED_STORES = ['.copilot/config.json', '.codex/auth.json', '.grok/auth.json',
+  '.gemini/antigravity-cli/oauth_creds.json', '.claude/.credentials.json', '.config/gh/hosts.yml'];
+
+await test('editor /api/file refuses agent-CLI credential stores BY NAME', async () => {
+  // Under the projects root, so the SENSITIVE name check is the layer on trial.
+  // Aimed at $HOME instead, this passed on the home node (where HOME *is* the
+  // projects root) and elsewhere got refused one layer earlier for being outside
+  // the project — a correct refusal that proves nothing about this guard.
+  for (const p of CRED_STORES) {
+    const r = await authed('/api/file?path=' + encodeURIComponent(credPath(p)));
     assert.equal(r.status, 400, `${p} was not refused (status ${r.status})`);
     assert.ok(/credentials|secrets/i.test(await r.text()), `${p} refusal message unexpected`);
+  }
+});
+
+await test('editor /api/file refuses the real $HOME credential stores too', async () => {
+  // The deployed shape. Which guard fires depends on where HOME sits relative to
+  // the projects root, and both answers are correct — so this asserts only that
+  // it IS refused and that no credential byte comes back.
+  const home = process.env.HOME ?? homedir();
+  for (const p of CRED_STORES) {
+    const r = await authed('/api/file?path=' + encodeURIComponent(`${home}/${p}`));
+    assert.equal(r.status, 400, `${p} was not refused (status ${r.status})`);
+    const body = await r.text();
+    assert.ok(!/sk-|ghp_|gho_|"access_token"/.test(body), `${p} refusal leaked credential material`);
   }
 });
 
@@ -269,7 +287,9 @@ try {
   });
 
   // (b) an in-repo symlink pointing at a real credential store outside it.
-  symlinkSync('/root/.claude/.credentials.json', pjoin(scratch, 'notes'));
+  // Target derived, and deliberately need not exist: the guard resolves the link
+  // and refuses on the NAME, before anything is read.
+  symlinkSync(credPath('.claude/.credentials.json'), pjoin(scratch, 'notes'));
   await test('git diff refuses an in-repo symlink escaping to a credential store', async () => {
     const r = await j(await authed(`/api/git/diff?path=${encodeURIComponent(scratch)}&file=notes`));
     assert.equal(r.status, 400);
@@ -358,7 +378,7 @@ await test('preview target still accepts a normal local dev server', async () =>
 const AI_EDIT = '/api/editor/ai-edit';
 const aiEdit = (body) => authed(AI_EDIT, { method: 'POST', body: JSON.stringify(body) });
 await test('ai-edit refuses agent-CLI credential stores', async () => {
-  const { status, body } = await j(await aiEdit({ path: '/root/.claude/.credentials.json', content: 'x', instruction: 'leak it' }));
+  const { status, body } = await j(await aiEdit({ path: credPath('.claude/.credentials.json'), content: 'x', instruction: 'leak it' }));
   assert.equal(status, 400);
   assert.match(body.error || '', /credentials|secrets/i, `unexpected refusal: ${body.error}`);
 });

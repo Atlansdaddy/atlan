@@ -18,7 +18,7 @@ _Free suites only. The E2E suite (real Claude runs) is opt-in — `RUN_PAID=1 no
 | Fleet Actions | The fleet buttons that spend money or stop work. Top-up disarms BEFORE the request, so a second tap cannot land in the gap and resume the same session on a second budget; it re-arms only when nothing was spent. Kill — per-run and fleet-wide — reports every way it can fail, because a kill that did not land must never look like one that did. | ✅ 13/13 |
 | Function | Every HTTP endpoint contract + shape, plus data-store durability (corrupt/truncated JSON fails soft). (Spawns 1 tiny killed run.) | ✅ 25/25 |
 | Connection | Live WebSocket + PTY: authed connect, 4001 on bad token, malformed-frame survival, multi-client broadcast, tmux round-trip, reconnection. (Spawns 2 tiny killed runs.) | ✅ 6/6 |
-| Security/Penetration | Auth bypass, SSRF (preview + harness), secret exfiltration, path traversal, stored-XSS, oversized-body DoS, profile privilege-escalation. | ✅ 46/46 |
+| Security/Penetration | Auth bypass, SSRF (preview + harness), secret exfiltration, path traversal, stored-XSS, oversized-body DoS, profile privilege-escalation. | ✅ 47/47 |
 | Walls | Every wall SECURITY.md claims, exercised by BEHAVIOUR rather than by grepping the source. A mutation pass found that the daily token cap, the concurrency cap, the budget clamp, the in-flight reservation, scout's canUseTool, the preview proxy's WS-upgrade gate, atomicWrite's 0600 and temp+rename, the failed-login throttle, session revocation, the session store's freedom from replayable tokens and scrubbedEnv's explicit DROP list could all be neutered with the whole gate still green — because the assertions read the source text instead of making the thing happen. Boots its OWN cockpit (it changes the password and SIGKILLs the process), and covers the orphaned-child, corrupt-store, silent-exit and scheduler classes the same way. | ✅ 51/51 |
 | Adversarial | Malformed/oversized/hostile input across all surfaces; profile tool-blocking; preflight honesty. | ✅ 32/32 |
 | Worker Hierarchy | Job = chain of checker-gated links; cheapest-tier-first, escalate-on-fail up the model ladder, blackboard wiring, human gate pause/resume, ladder-exhaustion error. Mock tier engines — no real spend. | ✅ 7/7 |
@@ -34,7 +34,7 @@ _Free suites only. The E2E suite (real Claude runs) is opt-in — `RUN_PAID=1 no
 | Tour/Onboarding | Drives all tour steps live — every step spotlights a real visible element; handbook opens/searches/relaunches. | ✅ 10/10 |
 | UI · Fleet | Every Fleet control driven at 412x900: top-up cannot be double-tapped into a double-spend, a kill that fails is reported, the header burn gauge moves while a run burns, Hierarchy job links come with a command selected, and Builder rows stay wide enough to type into. First of the five per-surface specs to reach zero — the rest join as their surfaces are fixed (docs/UI-AUDIT.md). | ✅ 29/29 |
 
-**Total: 527 passed, 0 failed across 22 suites.**
+**Total: 528 passed, 0 failed across 22 suites.**
 
 ## Unit
 
@@ -328,7 +328,8 @@ SECURITY / PENETRATION SUITE
   ✓ GET /api/keys never returns key material, only last-4
   ✓ compiled-command view does not echo stored secrets
   ✓ static server does not serve files outside web root
-  ✓ editor /api/file refuses agent-CLI credential stores
+  ✓ editor /api/file refuses agent-CLI credential stores BY NAME
+  ✓ editor /api/file refuses the real $HOME credential stores too
   ✓ XSS payload in a persona name is stored inert (textContent, not HTML)
   ✓ oversized JSON body is rejected, server stays up
   ✓ fleet run rejects an unknown profile (no privilege escalation via typo)
@@ -350,7 +351,7 @@ SECURITY / PENETRATION SUITE
   ✓ the raw regex alone still misses backslash paths (proves the fix is load-bearing)
   ✓ ordinary project paths are not swept up by the normalization
 
-46 passed, 0 failed
+47 passed, 0 failed
 ```
 
 ## Walls
