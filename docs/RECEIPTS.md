@@ -19,7 +19,7 @@ _Free suites only. The E2E suite (real Claude runs) is opt-in — `RUN_PAID=1 no
 | Function | Every HTTP endpoint contract + shape, plus data-store durability (corrupt/truncated JSON fails soft). (Spawns 1 tiny killed run.) | ✅ 25/25 |
 | Connection | Live WebSocket + PTY: authed connect, 4001 on bad token, malformed-frame survival, multi-client broadcast, tmux round-trip, reconnection. (Spawns 2 tiny killed runs.) | ✅ 6/6 |
 | Security/Penetration | Auth bypass, SSRF (preview + harness), secret exfiltration, path traversal, stored-XSS, oversized-body DoS, profile privilege-escalation. | ✅ 46/46 |
-| Walls | Every wall SECURITY.md claims, exercised by BEHAVIOUR rather than by grepping the source. A mutation pass found that the daily token cap, the concurrency cap, the budget clamp, the in-flight reservation, scout's canUseTool, the preview proxy's WS-upgrade gate, atomicWrite's 0600 and temp+rename, the failed-login throttle, session revocation, the session store's freedom from replayable tokens and scrubbedEnv's explicit DROP list could all be neutered with the whole gate still green — because the assertions read the source text instead of making the thing happen. Boots its OWN cockpit (it changes the password and SIGKILLs the process), and covers the orphaned-child, corrupt-store, silent-exit and scheduler classes the same way. | ✅ 50/50 |
+| Walls | Every wall SECURITY.md claims, exercised by BEHAVIOUR rather than by grepping the source. A mutation pass found that the daily token cap, the concurrency cap, the budget clamp, the in-flight reservation, scout's canUseTool, the preview proxy's WS-upgrade gate, atomicWrite's 0600 and temp+rename, the failed-login throttle, session revocation, the session store's freedom from replayable tokens and scrubbedEnv's explicit DROP list could all be neutered with the whole gate still green — because the assertions read the source text instead of making the thing happen. Boots its OWN cockpit (it changes the password and SIGKILLs the process), and covers the orphaned-child, corrupt-store, silent-exit and scheduler classes the same way. | ✅ 51/51 |
 | Adversarial | Malformed/oversized/hostile input across all surfaces; profile tool-blocking; preflight honesty. | ✅ 32/32 |
 | Worker Hierarchy | Job = chain of checker-gated links; cheapest-tier-first, escalate-on-fail up the model ladder, blackboard wiring, human gate pause/resume, ladder-exhaustion error. Mock tier engines — no real spend. | ✅ 7/7 |
 | Attachments | Upload (image/file) + reference (file/folder) + path-traversal guard + oversize/empty reject + audio/video graceful degradation without a key. | ✅ 7/7 |
@@ -34,7 +34,7 @@ _Free suites only. The E2E suite (real Claude runs) is opt-in — `RUN_PAID=1 no
 | Tour/Onboarding | Drives all tour steps live — every step spotlights a real visible element; handbook opens/searches/relaunches. | ✅ 10/10 |
 | UI · Fleet | Every Fleet control driven at 412x900: top-up cannot be double-tapped into a double-spend, a kill that fails is reported, the header burn gauge moves while a run burns, Hierarchy job links come with a command selected, and Builder rows stay wide enough to type into. First of the five per-surface specs to reach zero — the rest join as their surfaces are fixed (docs/UI-AUDIT.md). | ✅ 29/29 |
 
-**Total: 526 passed, 0 failed across 22 suites.**
+**Total: 527 passed, 0 failed across 22 suites.**
 
 ## Unit
 
@@ -397,7 +397,7 @@ WALLS — behavioural, never source-text
 
 ── atomicWrite ──
   ✓ atomicWrite PRESERVES the 0600 mode it is given
-  ✓ atomicWrite goes through a temp sibling and leaves none behind
+  ✓ atomicWrite REPLACES the file rather than truncating it in place
   ✓ a failed atomicWrite leaves the ORIGINAL intact and cleans its temp
 
 ── credential scrubbing: the DROP list, not just the heuristic ──
@@ -434,6 +434,7 @@ WALLS — behavioural, never source-text
   ✓ the failed-login throttle actually starts refusing
 
 ── preview proxy: the WS upgrade is gated too ──
+  ✓ a SAME-origin WebSocket upgrade through the preview proxy still works
   ✓ a cross-site WebSocket upgrade into the preview proxy is dropped
   ✓ a rebinding Host on the preview WS upgrade is dropped
   ✓ the HTTP path of the same gate is still closed
@@ -442,7 +443,7 @@ WALLS — behavioural, never source-text
   ✓ the permission-gate row REFLECTS which engines actually run ungated
   ✓ every interactive-gate flag the check reports is the flag agents.js actually passes
 
-50 passed, 0 failed
+51 passed, 0 failed
 ```
 
 ## Adversarial
