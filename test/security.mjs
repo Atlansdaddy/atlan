@@ -264,10 +264,11 @@ await test('fleet run rejects an unknown profile (no privilege escalation via ty
 // A throwaway repo under PROJECTS_DIR; every case asserts a refusal, so no
 // credential file is ever actually opened by the suite.
 const { execFileSync } = await import('node:child_process');
-const { mkdtempSync, writeFileSync: wf, symlinkSync, rmSync } = await import('node:fs');
+const { mkdtempSync, writeFileSync: wf, symlinkSync, rmSync, mkdirSync } = await import('node:fs');
 const { join: pjoin } = await import('node:path');
 const REPO_ROOT = new URL('../', import.meta.url).pathname.replace(/\/$/, '');
 const scratch = mkScratch('atlan-git-test-');
+let vault = null; // fabricated credential store, created below and removed in finally
 const git = (...args) => execFileSync('git', args, { cwd: scratch, stdio: 'pipe' });
 try {
   git('init', '-q');
@@ -286,14 +287,29 @@ try {
     assert.ok(!JSON.stringify(r.body).includes('SHOULD-NEVER-APPEAR'), 'key bytes came back in the response');
   });
 
-  // (b) an in-repo symlink pointing at a real credential store outside it.
-  // Target derived, and deliberately need not exist: the guard resolves the link
-  // and refuses on the NAME, before anything is read.
-  symlinkSync(credPath('.claude/.credentials.json'), pjoin(scratch, 'notes'));
+  // (b) an in-repo symlink pointing at a credential store OUTSIDE the repo.
+  //
+  // The target has to exist, which is the thing this test got wrong: it used to
+  // point at the operator's real ~/.claude/.credentials.json, so it passed here
+  // (that file exists) and returned 200 in CI (it does not — realpath fails, the
+  // guard has nothing to resolve, and a dangling link diffs as an ordinary file).
+  // A test that depends on the reviewer's own credentials being present is not
+  // testing the guard.
+  //
+  // So the store is FABRICATED, in a directory this test creates and owns —
+  // outside the git repo, inside the projects root so the boundary guard passes
+  // the path to the name guard, and never anywhere near the real one.
+  vault = mkScratch('atlan-fakevault-');
+  mkdirSync(pjoin(vault, '.claude'), { recursive: true });
+  wf(pjoin(vault, '.claude/.credentials.json'), '{"token":"sk-ant-FAKE-SHOULD-NEVER-APPEAR"}\n');
+  symlinkSync(pjoin(vault, '.claude/.credentials.json'), pjoin(scratch, 'notes'));
   await test('git diff refuses an in-repo symlink escaping to a credential store', async () => {
     const r = await j(await authed(`/api/git/diff?path=${encodeURIComponent(scratch)}&file=notes`));
     assert.equal(r.status, 400);
-    assert.ok(!JSON.stringify(r.body).includes('sk-ant'), 'credential bytes came back in the response');
+    // Non-vacuous: the fabricated store really does contain this string, so the
+    // assertion fails if the guard ever starts serving the resolved target.
+    assert.ok(!JSON.stringify(r.body).includes('sk-ant-FAKE-SHOULD-NEVER-APPEAR'),
+      'credential bytes came back in the response');
   });
 
   // (c) a tracked, modified .env — sensitive by name, not by content.
@@ -346,6 +362,10 @@ try {
   });
 } finally {
   rmSync(scratch, { recursive: true, force: true });
+  // The fabricated credential store lives under the projects root — remove it,
+  // or every run leaves a directory named like a secret sitting in the operator's
+  // project list.
+  if (vault) rmSync(vault, { recursive: true, force: true });
 }
 
 // ── preview proxy cannot be pointed at itself (self-DoS) ──
