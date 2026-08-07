@@ -4,6 +4,7 @@ import { atomicWrite } from './fsutil.js';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getStoredKey } from './keys.js';
+import { LOCAL_LLM_BASE } from './config.js';
 
 // Persona+ engine — John's 2023 framework, compiled to the agentic stack:
 //   persona block  → system prompt (stable identity, scoped, short NO_NOS)
@@ -321,7 +322,7 @@ export function toolSchema(cmd) {
 
 // ── harness: run a command against an OpenAI-compat engine, checker-gated ──
 const HARNESS_PROVIDERS = {
-  local: { base: 'http://127.0.0.1:8080/v1', keyEnv: null, model: 'local' },
+  local: { base: `${LOCAL_LLM_BASE}/v1`, keyEnv: null, model: 'local' },
   gemini: { base: 'https://generativelanguage.googleapis.com/v1beta/openai', keyEnv: 'GEMINI_API_KEY', model: 'gemini-3.6-flash' },
   openai: { base: 'https://api.openai.com/v1', keyEnv: 'OPENAI_API_KEY', model: 'gpt-5.6-luna' },
   deepseek: { base: 'https://api.deepseek.com/v1', keyEnv: 'DEEPSEEK_API_KEY', model: 'deepseek-v4-flash' }, // deepseek-chat retired 2026-07-24

@@ -1,6 +1,19 @@
 # L3 — The Knowledge Vault (design sketch, for review)
 
-*Two of your ideas fused into one thing: the **token-optimization vault** (query a small page instead of re-deriving — the proven L3 lever) and the **gated self-repair vault** (Atlan learns from what breaks and can propose fixes — behind hard gates so it never becomes an evolving slop-bot). This is a design for sign-off; nothing is built yet. The gating is the whole ballgame, so it's front-and-center.*
+*Two of your ideas fused into one thing: the **token-optimization vault** (query a small page instead of re-deriving — the proven L3 lever) and the **gated self-repair vault** (Atlan learns from what breaks and can propose fixes — behind hard gates so it never becomes an evolving slop-bot). The gating is the whole ballgame, so it's front-and-center.*
+
+> **Status, verified against the tree 2026-08-02.** This document said *"nothing
+> is built yet"*, which stopped being true on 2026-07-22. The **file-backed
+> pre-L3 store exists**: `vault/README.md` plus three real micro-pages
+> (`vault/atlan/dont-grep-command-output-for-presence.md`,
+> `voice-provider-registry-honesty.md`,
+> `adversarial-tester-pass-2026-07-22.md`), written to this document's schema so
+> L3 can ingest them directly.
+>
+> **Still unbuilt:** the query layer, the SQLite-canonical store, entity IDs,
+> `valid_from`/`valid_until` and supersedes edges (`REVIEW-FINDINGS.md`: *"Vault
+> dedup ≠ knowledge lifecycle"*), and every self-repair stage. Stage 2 remains
+> **AI-assisted patch proposal**, off by default — see `SECURITY.md`.
 
 ---
 

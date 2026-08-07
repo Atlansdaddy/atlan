@@ -1,5 +1,9 @@
 # Contribution Review — helis-d: Inline AI + Git + Debugger + UI
 
+> **POINT-IN-TIME RECORD — contribution review, 2026-07-26. Its Debugger RCE finding is still OPEN and still correct.** Kept as evidence and annotated, never
+> rewritten (see `DOC-STATUS-CONVENTION.md`). For current state read
+> `ARCHITECTURE.md` and `SECURITY.md`.
+
 **Status:** UNMERGED · advisory record · action items flagged for John
 **Remote:** `helis` → `https://github.com/helis-d/atlan.git`
 **Branch:** `feature/inline-ai-git-ui-debugger`

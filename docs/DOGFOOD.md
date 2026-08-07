@@ -4,7 +4,7 @@
 
 ## Round 1 — Chat (warm-up: streaming, thinking, models, attachments)
 - [ ] Pick one of your repos in the project dropdown; ask "explain what `<some file>` does and how it fits the app." → watch the **thinking panel** stream.
-- [ ] Screenshot an error or a UI glitch on your phone, **paste it** into chat, ask "what's wrong here?" → tests **image attachment → vision**.
+- [ ] Screenshot an error or a UI glitch on your phone, **paste it** into chat, ask "what's wrong here?" → tests **image attachment → vision**. *(This step is exactly what surfaced the bug in `DOGFOOD-FINDINGS-2026-07-26.md`: a brain got a filesystem path it could not open and answered by guessing, while the turn reported success. **Fixed 2026-08-02** — images now travel as bytes, and a text-only brain refuses the turn instead of silently dropping the picture. Re-run it and confirm the reply describes what is actually on screen.)*
 - [ ] Ask the same question on **fable-5**, then **haiku-4.5**, then a **local model** (if llama-server's up). Compare speed/quality → tests the **switcher** + honest engine labels.
 - [ ] Ask a question, then a follow-up → confirm the session **resumes** (cheap warm turn) and the session-id copy line works.
 

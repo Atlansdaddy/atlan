@@ -2,7 +2,7 @@ import express from 'express';
 import { createServer } from 'node:http';
 import { WebSocketServer } from 'ws';
 import { fileURLToPath } from 'node:url';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join } from 'node:path';
 import { readdirSync, statSync } from 'node:fs';
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { ClaudeSession } from './claudeEngine.js';
@@ -14,14 +14,14 @@ import { runBuild, APK_DIR } from './build.js';
 import { keyStatus, setStoredKey } from './keys.js';
 import { runPreflight } from './preflight.js';
 import { scanProject } from './preflight/scanProject.mjs';
-import { isUnder } from './guards.js';
-import { agentStatus, agentTurn } from './agents.js';
+import { resolveInProjects } from './guards.js';
+import { agentStatus, agentTurn, killAgentTurns } from './agents.js';
 import { localModels, activateLocalModel } from './localmodels.js';
 import { handleInlineAiEdit } from './editorAi.js';
 import {
   getGitStatus, getGitDiff, gitStage, gitUnstage, gitCommit, gitPush, gitPull, gitAiCommitMsg,
 } from './git.js';
-import { initFleet, spawnRun, listRuns, killRun, killAll, todayBurn, profileList, historyTail, topUpRun } from './fleet.js';
+import { initFleet, spawnRun, listRuns, killRun, killAll, todayBurn, profileList, historyTail, topUpRun, engineCapabilities, recoverInflight } from './fleet.js';
 import { pushPublicKey, addSub, subCount, notifyAll } from './push.js';
 import {
   authMiddleware, wsAuthed, isConfigured, setPassword, checkPassword,
@@ -31,6 +31,7 @@ import {
 import { tailnetHost, tailnetOrigin } from './tailnet.js';
 import { listRoutines, upsertRoutine, deleteRoutine, setPaused, fireRoutine, startScheduler } from './routines.js';
 import { initHierarchy, listJobs, upsertJob, deleteJob, startJob, listRuns as listHierarchyRuns, getRun as getHierarchyRun, resolveGate, tierList } from './hierarchy.js';
+import { ladderRungs, CHAT_LADDER, MIN_USEFUL_CHARS } from './ladder.js';
 import { saveUpload, saveRef, turnContext } from './attachments.js';
 import { studioRoster, generateImage } from './studio.js';
 import { readFile, writeFile, listDir } from './files.js';
@@ -41,7 +42,7 @@ import {
   compilePersona, compileCommand, templateSchema, toolSchema, harnessRun,
 } from './personas.js';
 
-import { PORT, PREVIEW_PORT, PROJECTS_DIR, DEFAULT_BUILD_PROJECT } from './config.js';
+import { PORT, PREVIEW_PORT, PREVIEW_TLS_PORT, PROJECTS_DIR, DEFAULT_BUILD_PROJECT } from './config.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const WEB = join(__dirname, '../../web/public');
@@ -137,20 +138,38 @@ app.use('/apk', express.static(APK_DIR));
 app.get('/api/preflight', async (_req, res) => res.json(await runPreflight()));
 
 // SAST scan of a project with the vendored PreFlight engine (server/src/preflight).
-// Path is validated under PROJECTS_DIR; defaults to the whole projects dir.
+//
+// Containment goes through the SHARED guard, like every other path-accepting
+// endpoint. It used to do its own `isUnder()` and nothing else: resolve() does
+// not follow symlinks, so `ln -s / ~/escape` turned this route into a read
+// oracle for the entire filesystem — it walked straight through the link and
+// returned matched secret material from outside the projects root, while the
+// sibling /api/attach/ref refused the identical path. A second, weaker copy of
+// a guard is exactly the drift guards.js exists to prevent.
+//
+// resolveInProjects, NOT guardPath: this endpoint is the secret SCANNER. Its
+// whole job is to open `.env` and tell you a live key is sitting in it, so the
+// credential denylist must NOT apply here — refusing to look would disable the
+// probe the user came for. Containment and the denylist are separate questions
+// and this is the one caller that legitimately answers them differently.
 app.get('/api/scan', (req, res) => {
   try {
-    const target = req.query.path ? resolve(String(req.query.path)) : PROJECTS_DIR;
-    if (target !== PROJECTS_DIR && !isUnder(target, PROJECTS_DIR)) {
-      return res.status(400).json({ error: 'scan path must be under the projects directory' });
-    }
+    const target = resolveInProjects(req.query.path ? String(req.query.path) : PROJECTS_DIR, { credentials: 'allow' });
     res.json(scanProject(target));
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
 });
 
-app.get('/api/fleet', (_req, res) => res.json({ runs: listRuns(), history: historyTail(30), today: todayBurn(), profiles: profileList, pushSubs: subCount() }));
+// `engines` is the honest capability roster: which engines can run a fleet
+// job HERE, which profiles each can actually enforce on THIS host, and whether
+// its budget can halt mid-run. The UI must not offer a combination the runtime
+// would have to fake — spawnRun refuses those, and this is how the client
+// knows before asking.
+app.get('/api/fleet', (_req, res) => res.json({
+  runs: listRuns(), history: historyTail(30), today: todayBurn(),
+  profiles: profileList, engines: engineCapabilities(), pushSubs: subCount(),
+}));
 app.post('/api/fleet/topup', (req, res) => {
   try {
     res.json(topUpRun(String(req.body?.id), Number(req.body?.extra) || 100000));
@@ -175,7 +194,11 @@ app.post('/api/fleet/run', (req, res) => {
 });
 app.post('/api/fleet/kill', (req, res) => {
   const id = req.body?.id;
-  if (id === 'all') return res.json({ killed: killAll() });
+  // KILL ALL means ALL. It used to walk only the fleet's own map, so a chat-path
+  // agent CLI — launched full-auto with its approval system off — reported
+  // `killed: 0` and kept editing the repo. A kill guarantee with a second class
+  // of child it cannot reach is not a guarantee.
+  if (id === 'all') return res.json({ killed: killAll() + killAgentTurns() });
   res.json({ killed: killRun(String(id)) ? 1 : 0 });
 });
 
@@ -228,6 +251,18 @@ app.post('/api/harness/escalate', (req, res) => {
 
 // ── worker hierarchy: jobs = chains of scoped links, tiered + checker-gated ──
 app.get('/api/hierarchy', (_req, res) => res.json({ jobs: listJobs(), runs: listHierarchyRuns(), tiers: tierList }));
+// The escalation ladder, described for the CHAT picker. Separate from
+// /api/hierarchy (which is the job builder's view) because chat needs the rungs
+// in climb order with the free/paid split called out — on a phone that is the
+// deciding fact. Reads from TIERS, so it cannot drift from what actually runs.
+app.get('/api/ladder', (req, res) => {
+  try {
+    const custom = req.query.rungs ? String(req.query.rungs).split(',').filter(Boolean) : null;
+    res.json({ rungs: ladderRungs(custom), default: CHAT_LADDER, minUsefulChars: MIN_USEFUL_CHARS });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
 app.post('/api/hierarchy/job', (req, res) => {
   try { res.json(upsertJob(req.body ?? {})); } catch (err) { res.status(400).json({ error: err.message }); }
 });
@@ -316,6 +351,23 @@ app.post('/api/prefs', (req, res) => {
   p ? res.json(p) : res.status(400).json({ error: 'unknown pref' });
 });
 
+// Instance facts the CLIENT needs but must never hardcode. Three separate bugs
+// came from baking these into app.js:
+//   · the preview port — any ATLAN_PREVIEW_PORT override (or the test harness)
+//     pointed the iframe at a dead port AND made the origin check silently drop
+//     every console message and snapshot;
+//   · the scheme/TLS front door — an http frame inside an https page is blocked
+//     as mixed content, which is why preview could never load on a phone, and
+//     the first workaround hardcoded one operator's tailscale port;
+//   · the projects root — placeholders and copy named the author's own /root.
+// Two of those were fixed independently on two branches, each adding its own
+// /api/config. Express serves the FIRST match, so the second route was dead and
+// its field silently absent. One route, all three facts.
+app.get('/api/config', (_req, res) => res.json({
+  previewPort: PREVIEW_PORT,
+  previewTlsPort: PREVIEW_TLS_PORT,
+  projectsDir: PROJECTS_DIR,
+}));
 app.get('/api/preview/target', (_req, res) => res.json({ url: getPreviewTarget() }));
 const LOCAL_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]', '::1']);
 app.post('/api/preview/target', (req, res) => {
@@ -334,30 +386,36 @@ app.post('/api/preview/target', (req, res) => {
   // all, and the only recovery was restarting the server. Cheap to prevent,
   // and a self-DoS a user can trigger by pasting a plausible URL is a defect,
   // not a mistake on their part.
-  if (Number(u.port) === PREVIEW_PORT) {
+  // Any TLS front door (`tailscale serve`) forwards straight back here, so
+  // targeting it is the same loop one hop longer — observed live 2026-08-04:
+  // each round trip prepended another inject tag until the request died as a
+  // megabyte 502 and the phone showed a blank frame. PREVIEW_TLS_PORT is that
+  // front door; 0 disables the check rather than guessing a number.
+  if (Number(u.port) === PREVIEW_PORT || (PREVIEW_TLS_PORT && Number(u.port) === PREVIEW_TLS_PORT)) {
     return res.status(400).json({
-      error: `that IS the preview proxy (:${PREVIEW_PORT}) — pointing it at itself would loop. Give it the address your app actually listens on, e.g. http://127.0.0.1:5173`,
+      error: `that IS the preview proxy (:${PREVIEW_PORT}${PREVIEW_TLS_PORT ? ` / its TLS front door :${PREVIEW_TLS_PORT}` : ''}) — pointing it at itself would loop. Give it the address your app actually listens on, e.g. http://127.0.0.1:5173`,
     });
   }
   setPreviewTarget(u.origin);
   res.json({ url: u.origin });
 });
 
-// Candidate project dirs: anything in /root with a .git or package.json.
+// Candidate project dirs: anything in PROJECTS_DIR with a .git or package.json.
 app.get('/api/projects', (_req, res) => {
   const out = [];
   for (const name of readdirSync(PROJECTS_DIR)) {
     if (name.startsWith('.')) continue;
-    const p = `${PROJECTS_DIR}/${name}`;
+    const p = join(PROJECTS_DIR, name);
     try {
       if (!statSync(p).isDirectory()) continue;
-      const hasGit = existsQuiet(`${p}/.git`);
-      const hasPkg = existsQuiet(`${p}/package.json`);
+      const hasGit = existsQuiet(join(p, '.git'));
+      const hasPkg = existsQuiet(join(p, 'package.json'));
       if (hasGit || hasPkg) out.push({ name, path: p });
     } catch { /* unreadable dir */ }
   }
   res.json(out);
 });
+
 function existsQuiet(p) { try { statSync(p); return true; } catch { return false; } }
 
 const server = createServer(app);
@@ -393,7 +451,7 @@ function cockpitContext(tab, cwd) {
   const lines = [`time ${date} ${clock}` + (lastActivityAt ? ` (last exchange ${fmtGap(now - lastActivityAt)} ago)` : '')];
   lastActivityAt = now;
   lines.push(`tab: ${TAB_NAMES[tab] || 'Chat'}`);
-  lines.push(`project: ${cwd || '/root'}`);
+  lines.push(`project: ${cwd || PROJECTS_DIR}`);
   const running = listRuns().filter((r) => r.status === 'running');
   const burn = todayBurn();
   lines.push(running.length
@@ -411,6 +469,13 @@ const wsBroadcast = (obj) => {
   for (const c of wss.clients) if (c.readyState === 1) c.send(s);
 };
 initFleet(wsBroadcast, notifyAll);
+// Reconcile anything that was mid-run when the last process died — an OOM kill,
+// the phantom-process killer, or any supervisor respawn. finish() is the only
+// place that commits burn and writes the report card, and a hard death skips it
+// entirely, so those runs used to vanish: no card, no history line, and their
+// tokens invisible to the daily cap. Runs first, so the ledger is whole before
+// anything new is admitted.
+recoverInflight();
 initHierarchy(wsBroadcast);
 // Routines wake with the server; missed slots get flagged + pushed, never
 // auto-fired (a rebooted server must not spend tokens by surprise).
@@ -422,6 +487,7 @@ wss.on('connection', (ws, req) => {
   if (!originOk(req)) { ws.close(4003, 'bad origin'); return; }
   if (!wsAuthed(req)) { ws.close(4001, 'auth required'); return; }
   const send = (obj) => { if (ws.readyState === 1) ws.send(JSON.stringify(obj)); };
+  const connId = Symbol('ws');
   let claude = null;
   let currentTab = 's-chat'; // last tab the client reported → feeds Atlan's self-awareness
   const brainHistory = new Map();
@@ -429,6 +495,25 @@ wss.on('connection', (ws, req) => {
   // Preview context that auto-attaches to the next turn: errors since last
   // turn + any snapshots taken. Logs/warns stay in the UI only.
   const pending = { errors: [], snaps: [] };
+
+  // ── teardown ───────────────────────────────────────────────────────────
+  // Everything this connection started dies with it. There was no close handler
+  // at all: `claude` held a WARM ClaudeSession whose _input() generator loops
+  // until dispose() flips _closed, and dispose() was called from exactly one
+  // place — a cwd change. So every dropped socket left a live `claude` CLI
+  // (~258 MB) running forever, unreachable, holding pendingPerms whose promises
+  // could never resolve. app.js reconnects 1.5s after every close, so a flaky
+  // phone link minted a fresh one per turn and never reaped the old one; two or
+  // three flaps exhaust RAM on the reference platform. The chat-path agent CLIs
+  // go the same way, via the registry in agents.js.
+  // (Cross-vendor adversarial review, 2026-08-06.)
+  ws.on('close', () => {
+    claude?.dispose().catch(() => {});
+    claude = null;
+    killAgentTurns((t) => t.owner === connId);
+    pending.errors = []; pending.snaps = [];
+    brainHistory.clear(); agentState.clear();
+  });
 
   ws.on('message', (raw) => {
     let m;
@@ -453,16 +538,17 @@ wss.on('connection', (ws, req) => {
         pending.errors = []; pending.snaps = (isClaude || isAgentCli) ? [] : pending.snaps;
 
         // live self-awareness (incl. clock) rides the uncached tail — always fresh, ~0 token cost
-        text += cockpitContext(currentTab, (claude && claude.cwd) || m.cwd || '/root');
+        text += cockpitContext(currentTab, (claude && claude.cwd) || m.cwd || PROJECTS_DIR);
 
         if (isAgentCli) {
           const state = agentState.get(m.engine) ?? {};
           agentState.set(m.engine, state);
-          agentTurn({ engine: m.engine, cwd: m.cwd || '/root', text, send, state, model: m.model });
+          // `owner` ties the child to THIS socket so closing it reaps the child.
+          agentTurn({ engine: m.engine, cwd: m.cwd || PROJECTS_DIR, text, send, state, model: m.model, owner: connId });
         } else if (isClaude) {
           if (!claude || (m.cwd && claude.cwd !== m.cwd)) {
             claude?.dispose(); // end the old warm session before replacing it (cwd changed)
-            claude = new ClaudeSession({ cwd: m.cwd || '/root', model: m.model || 'claude-fable-5', send });
+            claude = new ClaudeSession({ cwd: m.cwd || PROJECTS_DIR, model: m.model || 'claude-fable-5', send });
           } else if (m.model) {
             claude.setModel(m.model); // warm-session model switch — no respawn, keeps context
           }
@@ -512,7 +598,7 @@ wss.on('connection', (ws, req) => {
         runBuild(m.path || DEFAULT_BUILD_PROJECT, send);
         break;
       case 'pty.open':
-        openPty(m.name || 'main', ws, { cols: m.cols, rows: m.rows, cwd: m.cwd || '/root' });
+        openPty(m.name || 'main', ws, { cols: m.cols, rows: m.rows, cwd: m.cwd || PROJECTS_DIR });
         break;
       case 'pty.input':
         writePty(m.name || 'main', m.data);

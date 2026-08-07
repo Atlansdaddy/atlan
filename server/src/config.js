@@ -1,6 +1,7 @@
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 
 // One place for everything instance- or person-specific, so the code carries no
 // personal data and a fork = editing atlan.config.json (or env), never source.
@@ -16,18 +17,24 @@ export const FLEET_DIR = process.env.ATLAN_FLEET_DIR ?? join(REPO, '.fleet');
 export const APP_ROOT = REPO; // where .auth-token, .snapshots, .keys.enc live
 
 // Where the user's code projects are scanned from + the default build target.
-// `/root` is the phone/home-node home dir; win32 has no such path, so the
-// hardcoded default put PROJECTS_DIR somewhere that cannot exist and every
-// guardPath rejected. Ships in the SAME commit as the guards.js separator fix
-// on purpose: a win32 projects-root without a win32-aware SENSITIVE test is
-// exactly the fail-open combination.
-const DEFAULT_PROJECTS = process.platform === 'win32' ? process.cwd() : '/root';
+// homedir(), not a literal `/root`: on the phone/home-node the operator IS
+// root so nothing changes there, and every other user gets their own home
+// instead of a path that cannot exist. win32 keeps cwd — a Windows home dir
+// is a poor projects root (OneDrive redirection, Desktop clutter) and cwd is
+// where the operator launched the cockpit from.
+const DEFAULT_PROJECTS = process.platform === 'win32' ? process.cwd() : homedir();
 export const PROJECTS_DIR = pick('ATLAN_PROJECTS', 'projectsDir', DEFAULT_PROJECTS);
 export const DEFAULT_BUILD_PROJECT = pick('ATLAN_BUILD_PROJECT', 'defaultBuildProject', PROJECTS_DIR);
 
 // Ports
 export const PORT = Number(pick('ATLAN_PORT', 'port', 4589));
 export const PREVIEW_PORT = Number(pick('ATLAN_PREVIEW_PORT', 'previewPort', 4590));
+// The TLS front door a phone reaches the preview through, when one exists — e.g.
+// `tailscale serve --bg --https=4591 4590`. This process never terminates TLS
+// itself, so it cannot discover that port; 0 means "none configured" rather than
+// a guessed default, because guessing 4591 is exactly how one operator's setup
+// ended up hardcoded into shared code.
+export const PREVIEW_TLS_PORT = Number(pick('ATLAN_PREVIEW_TLS_PORT', 'previewTlsPort', 0));
 
 // Aggregate spend controls (peer review, 2026-07-22): per-run budgets don't
 // bound concurrent runs, so a global daily token ceiling + a concurrency cap
@@ -56,6 +63,15 @@ export function sandboxEnabled() { return process.env.ATLAN_SANDBOX === '1'; }
 export function sandboxOption() {
   return sandboxEnabled() ? { enabled: true, failIfUnavailable: false } : undefined;
 }
+
+// Local OpenAI-compat LLM (llama-server or anything speaking /v1). One key —
+// brains, harness, doctor and the model picker all read this instead of each
+// hardcoding the author's :8080.
+export const LOCAL_LLM_BASE = pick('ATLAN_LOCAL_LLM_BASE', 'localLlmBase', 'http://127.0.0.1:8080');
+
+// Android SDK root for the APK pipeline + doctor checks. Default is the
+// documented phone/home-node layout (~/android-sdk), not a literal /root.
+export const ANDROID_SDK = pick('ATLAN_ANDROID_SDK', 'androidSdk', join(homedir(), 'android-sdk'));
 
 // Branding / identity — neutral defaults; a fork sets its own (logo stays a file)
 export const BRAND = {

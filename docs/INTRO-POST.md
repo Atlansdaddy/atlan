@@ -1,5 +1,9 @@
 # Atlan — intro post for the vibe-coding group
 
+> **POINT-IN-TIME RECORD — launch-post draft.** Kept as evidence and annotated, never
+> rewritten (see `DOC-STATUS-CONVENTION.md`). For current state read
+> `ARCHITECTURE.md` and `SECURITY.md`.
+
 *(Draft — tweak to your voice. Casual, honest, no overselling. Repo link at the bottom.)*
 
 ---

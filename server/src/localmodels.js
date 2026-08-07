@@ -1,18 +1,20 @@
 import { existsSync, readdirSync, statSync, readlinkSync, readFileSync, writeFileSync, symlinkSync, renameSync, rmSync } from 'node:fs';
 import { execFile } from 'node:child_process';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { LOCAL_LLM_BASE } from './config.js';
 
 // Local model picker — swap which GGUF llama-server serves, from the cockpit.
 // Only real where this node manages llama-server the systemd way (a models
 // dir with an active.gguf symlink + systemctl on PATH — the home-node shape).
 // Anywhere else `supported` is false and the UI hides the whole card:
 // honest capability, never a broken button.
-const MODELS_DIR = process.env.ATLAN_MODELS_DIR ?? '/root/models';
+const MODELS_DIR = process.env.ATLAN_MODELS_DIR ?? join(homedir(), 'models');
 const ACTIVE = join(MODELS_DIR, 'active.gguf');
 const ARGS_FILE = join(MODELS_DIR, 'models.json'); // { "<name>.gguf": "--extra --args" }
-const DEFAULTS_FILE = '/etc/default/llama-server'; // unit reads LLAMA_EXTRA_ARGS from here
-const SERVICE = 'llama-server.service';
-const HEALTH = 'http://127.0.0.1:8080/health';
+const DEFAULTS_FILE = process.env.ATLAN_LLAMA_DEFAULTS ?? '/etc/default/llama-server'; // unit reads LLAMA_EXTRA_ARGS from here
+const SERVICE = process.env.ATLAN_LLAMA_SERVICE ?? 'llama-server.service';
+const HEALTH = `${LOCAL_LLM_BASE}/health`;
 
 function supported() {
   try { return !!readlinkSync(ACTIVE) && existsSync('/usr/bin/systemctl'); } catch { return false; }

@@ -7,27 +7,36 @@ import { readFileSync } from 'node:fs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 import { PREVIEW_PORT } from './config.js';
-import { allowedOrigins } from './auth.js';
+import { hostAllowed } from './auth.js';
 
 // Anti-rebinding / cross-site gate for the preview proxy (peer-review finding:
 // :PREVIEW_PORT was an open, unauthenticated loopback — a DNS-rebinding page or
 // a cross-site fetch/WS in the browser could reach it). Two checks, no token:
 //   • Host — a rebinding attack arrives with a FOREIGN host (e.g. evil.com) that
-//     resolves to 127.0.0.1; a real preview load carries a loopback host. Reject
-//     anything that isn't loopback.
+//     resolves here; a real load carries a name this machine actually answers to.
 //   • Origin — cross-site fetch/WS carries the attacker's origin. The preview's
 //     own subresources send the preview origin; the cockpit sends one of its
 //     allowed origins; a top-level iframe navigation sends none. Reject the rest.
 // Residual (documented, NOT closed): a NATIVE local app can forge these headers;
 // only a secret token stops that, which we deliberately avoid in the URL. This
 // shuts the browser-reachable vector, which is the realistic remote threat.
+const hostOfOrigin = (o) => { try { return new URL(o).hostname; } catch { return null; } };
 function previewOriginOk(req) {
-  const name = String(req.headers.host || '').split(':')[0].replace(/^\[|\]$/g, '');
-  if (name !== '127.0.0.1' && name !== 'localhost' && name !== '::1') return false;
+  // The allowed names come from auth.js — the loopback triple, ATLAN_ORIGIN, and
+  // the tailnet name the cockpit derives from `tailscale status` at boot. This
+  // used to hardcode loopback, which is what made preview structurally
+  // impossible on a phone: the phone's Host was correct, it just wasn't on the
+  // list. Rebinding is still shut out, because a forged DNS name is not one WE
+  // derived from this machine's own identity.
+  if (!hostAllowed(String(req.headers.host || '').split(':')[0])) return false;
   const o = req.headers.origin;
   if (!o) return true; // top-level navigation / most subresources
-  const self = [`http://127.0.0.1:${PREVIEW_PORT}`, `http://localhost:${PREVIEW_PORT}`];
-  return self.includes(o) || allowedOrigins().includes(o);
+  // Compared by HOSTNAME, not exact string. The port a browser sees is a
+  // `tailscale serve` detail this process cannot know — serve terminates TLS on
+  // its own port and forwards here — so pinning the port would reject our own
+  // frame. A cross-site attacker is on a different NAME, which is what this
+  // check is actually for.
+  return hostAllowed(String(hostOfOrigin(o)));
 }
 
 let target = 'http://127.0.0.1:5173';

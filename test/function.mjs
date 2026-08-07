@@ -1,7 +1,7 @@
 // Function suite — every HTTP endpoint's contract, happy path + shape. Plus
 // data-store durability ("db"): the JSON stores survive corruption and tamper.
 import assert from 'node:assert';
-import { readFileSync, writeFileSync, existsSync, copyFileSync, unlinkSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, copyFileSync, unlinkSync, readdirSync } from 'node:fs';
 
 const BASE = process.env.ATLAN_BASE ?? 'http://127.0.0.1:4589';
 const TOKEN = (process.env.ATLAN_TOKEN ?? readFileSync(new URL('../.auth-token', import.meta.url), 'utf8')).trim();
@@ -144,14 +144,24 @@ await test('POST /api/fleet/topup of non-halted → 400', async () => {
 // file the server never opened, so fail-soft was never actually exercised.
 const ROOT = new URL('../', import.meta.url).pathname;
 const FLEET = process.env.ATLAN_FLEET_DIR ?? ROOT + '.fleet';
-await test('a corrupt burn.json fails soft (endpoint still 200)', async () => {
+await test('a corrupt burn.json fails soft AND is preserved, never overwritten', async () => {
+  // Failing soft was only half the requirement, and the only half tested. The
+  // other half: a corrupt ledger used to read as a ZERO ledger, silently
+  // disabling the daily token cap, and the next commitBurn() then wrote over
+  // the file — destroying the record of what had already been spent. It is now
+  // moved aside under a timestamped name so the number stays recoverable.
+  // (Cross-vendor adversarial review, 2026-08-06.)
   const f = FLEET + '/burn.json';
   const bak = existsSync(f) ? readFileSync(f, 'utf8') : null;
-  writeFileSync(f, '{ this is not json');
+  writeFileSync(f, '{ "2026-08-06": { "tokens": 4242');
   const { status, body } = await j(await api('/api/fleet'));
   assert.equal(status, 200);
   assert.ok('tokens' in body.today, 'today burn not defaulted');
-  if (bak !== null) writeFileSync(f, bak); else unlinkSync(f);
+  const kept = readdirSync(FLEET).filter((n) => n.startsWith('burn.json.corrupt-'));
+  assert.equal(kept.length, 1, `the corrupt ledger was not preserved: ${readdirSync(FLEET).join(', ')}`);
+  assert.match(readFileSync(FLEET + '/' + kept[0], 'utf8'), /4242/, 'the spend evidence was destroyed');
+  for (const n of kept) unlinkSync(FLEET + '/' + n);
+  if (bak !== null) writeFileSync(f, bak); else if (existsSync(f)) unlinkSync(f);
 });
 await test('a truncated history.jsonl line is skipped, not fatal', async () => {
   const f = FLEET + '/history.jsonl';

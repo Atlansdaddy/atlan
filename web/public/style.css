@@ -26,12 +26,55 @@
   --orange:var(--hot2);
   --tap:44px; /* minimum accessible touch target */
 }
+/* ── light theme, Classic (the "surface waters" palette) ──────────────────
+   The global light/dark axis: #themeBtn (or the system preference) flips
+   data-theme on :root, and each template answers with its own light palette —
+   this block is Classic's. MidAtlantic's lives in midatlantic.css, Glass's in
+   his.css; template blocks load later and out-rank this one, so each skin
+   stays the sole author of its light look. Values are WCAG-checked against
+   white/near-white grounds: every text token ≥ 4.5:1 (AA) on --surface. */
+:root[data-theme="light"]{
+  --ground:#E9F2F8;
+  --surface:#FFFFFF;
+  --surface2:#F1F7FB;
+  --line:#BFD4E4;
+  --ink:#0B2233;        /* 15.4:1 on --surface */
+  --muted:#4E6E86;      /* 5.9:1 */
+  --accent:#087E8B;     /* deep teal — light-legible counterpart of Classic cyan */
+  --accent2:#06657A;
+  --accent-ink:#FFFFFF;
+  --hot:#C2410C;        /* 4.8:1 */
+  --hot2:#9A3412;
+  --ok:#157F5C;
+  --warn:#8A6100;
+  --err:#B91C1C;
+  --panel:#F5FAFD;
+  --dim:var(--muted);
+  --teal:var(--accent);
+  --fg:var(--ink);
+  --orange:var(--hot);
+  --phone-bg:linear-gradient(180deg,#F6FBFE 0%,#EDF5FA 40%,var(--ground) 100%);
+  --nav-bg:rgba(246,251,254,.94);
+  --overlay-bg:rgba(233,242,248,.96);
+  --desktop-ground:#D9E7F1;
+}
+/* the rising bubbles are drawn for a dark ground; dim them on a light one
+   (matches the Glass template's own treatment) */
+[data-theme="light"] .bubbles{opacity:.3}
+[data-theme="light"] .wordmark{text-shadow:none}
+[data-theme="light"] .atlan img{filter:drop-shadow(0 0 6px rgba(8,126,139,.35))}
+/* dark-veiled overlays keep their dark text-on-veil assumptions; the veil
+   itself is themed via --overlay-bg above */
+
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%}
 body{background:var(--ground);color:var(--ink);font-family:var(--sans);-webkit-font-smoothing:antialiased}
 .phone{
   width:100%;height:100dvh;display:flex;flex-direction:column;position:relative;overflow:hidden;
-  background:linear-gradient(180deg,#04254A 0%,#03203D 22%,#021627 55%,var(--ground) 100%);
+  /* --phone-bg is the THEME hook (light palettes replace it). Distinct from
+     --phone-grad, which his/midatlantic declare for the glass layer's own
+     .phone rules — consuming that here would repaint templates uninvited. */
+  background:var(--phone-bg,linear-gradient(180deg,#04254A 0%,#03203D 22%,#021627 55%,var(--ground) 100%));
 }
 .bubbles{position:absolute;inset:0;pointer-events:none;z-index:0;overflow:hidden}
 .bubbles i{position:absolute;bottom:-12px;border-radius:50%;
@@ -252,14 +295,21 @@ details.thinking summary{cursor:pointer;font-size:11.5px;color:var(--teal);lette
 details.thinking .tbody{font-size:11.5px;line-height:1.5;color:var(--dim);white-space:pre-wrap;word-break:break-word;margin-top:6px;
   max-height:240px;overflow-y:auto;font-family:ui-monospace,monospace}
 
-/* guide: tour + handbook */
-#helpBtn{flex:0 0 auto;width:30px;height:30px;border-radius:50%;border:1px solid var(--line);background:transparent;
-  color:var(--dim);font-weight:800;font-size:14px;margin-left:6px}
-#helpBtn:active{color:var(--teal);border-color:var(--teal)}
-/* voice: header toggle + mic listening state */
-#voiceBtn{flex:0 0 auto;width:30px;height:30px;border-radius:50%;border:1px solid var(--line);background:transparent;
-  color:var(--dim);font-size:14px;margin-left:6px}
-#voiceBtn:active{color:var(--teal);border-color:var(--teal)}
+/* Header icon buttons — ONE rule for all three (guide, voice, theme).
+   #themeBtn had no base-sheet styling at all: the only size rule in the tree was
+   scoped [data-template="his"], so under Classic and MidAtlantic — and on the
+   pre-auth login gate, which is the first thing a phone user sees — it rendered
+   as a 21x19px native-chrome button beside two 30px circles, below the 24px
+   floor and far under this sheet's own --tap. its own comment in his.css says
+   the theme button "is spine, not skin — it renders under every template",
+   which is exactly why its geometry belongs in the base sheet. Grouping the
+   selectors means a fourth header button cannot arrive unstyled either.
+   (Cross-vendor adversarial review, 2026-08-06.) */
+#themeBtn,#voiceBtn,#helpBtn{flex:0 0 auto;width:30px;height:30px;border-radius:50%;border:1px solid var(--line);
+  background:transparent;color:var(--dim);font-size:14px;margin-left:6px;padding:0;cursor:pointer;
+  display:grid;place-items:center;line-height:1}
+#helpBtn{font-weight:800}
+#themeBtn:active,#voiceBtn:active,#helpBtn:active{color:var(--teal);border-color:var(--teal)}
 #voiceBtn[aria-pressed="true"]{color:var(--teal);border-color:var(--teal);box-shadow:0 0 0 2px rgba(56,208,196,.18)}
 #micBtn.listening{color:#fff;background:var(--danger,#e5484d);border-color:var(--danger,#e5484d);animation:micpulse 1s ease-in-out infinite}
 @keyframes micpulse{50%{box-shadow:0 0 0 6px rgba(229,72,77,.22)}}
@@ -276,7 +326,7 @@ details.thinking .tbody{font-size:11.5px;line-height:1.5;color:var(--dim);white-
 .tour-head span{color:var(--dim);font-size:11px}
 .tour-card p{font-size:12.5px;line-height:1.55;color:var(--fg,#d2d2db)}
 .tour-btns{display:flex;gap:8px;justify-content:flex-end;margin-top:10px}
-.guide{position:fixed;inset:0;z-index:92;display:none;background:rgba(2,8,15,.97);overflow:auto}
+.guide{position:fixed;inset:0;z-index:92;display:none;background:var(--overlay-bg,rgba(2,8,15,.97));overflow:auto}
 .guide.show{display:block}
 .guide-inner{max-width:560px;margin:0 auto;padding:18px 14px 40px;display:flex;flex-direction:column;gap:10px}
 .guide-top{display:flex;justify-content:space-between;align-items:center}
@@ -285,7 +335,7 @@ details.thinking .tbody{font-size:11.5px;line-height:1.5;color:var(--dim);white-
 .guide details p b{color:var(--teal)}
 .guide details p code{color:var(--orange,#FF8A4F);font-size:11.5px}
 #firstRun{position:fixed;left:10px;right:10px;bottom:150px;z-index:80;display:flex;gap:8px;align-items:center;
-  background:#04121f;border:1px solid var(--teal);border-radius:14px;padding:10px 12px;font-size:12.5px;
+  background:var(--panel,#04121f);border:1px solid var(--teal);border-radius:14px;padding:10px 12px;font-size:12.5px;
   box-shadow:0 6px 30px rgba(0,0,0,.5)}
 #firstRun span{flex:1}
 
@@ -298,7 +348,7 @@ body.night .bubbles{opacity:.5}
 
 /* auth overlay */
 .authoverlay{position:fixed;inset:0;z-index:99;display:none;align-items:center;justify-content:center;
-  background:rgba(2,8,15,.96);backdrop-filter:blur(6px)}
+  background:var(--overlay-bg,rgba(2,8,15,.96));backdrop-filter:blur(6px)}
 .authoverlay.show{display:flex}
 .authcard{display:flex;flex-direction:column;gap:12px;align-items:center;text-align:center;
   border:1px solid var(--line);border-radius:16px;padding:26px 22px;max-width:320px;margin:16px}
@@ -306,7 +356,11 @@ body.night .bubbles{opacity:.5}
 .authtitle{font-size:16px;font-weight:800;color:var(--teal);letter-spacing:.02em}
 .autherr{font-size:12px;color:var(--err);min-height:14px}
 .authcard code{color:var(--teal);font-size:11.5px}
-.authcard input{width:100%}
+/* The password field on the setup/login gate is the single mandatory touch
+   target before anything else on the phone works, and it had no height rule
+   at all — 274x19px, so a miss landed on the card text. Same --tap floor the
+   sheet already gives every other text input. */
+.authcard input{width:100%;min-height:var(--tap);padding:0 10px}
 
 /* fleet sub-nav + builder */
 .subnav{display:flex;gap:6px;margin-bottom:2px}
@@ -317,10 +371,16 @@ body.night .bubbles{opacity:.5}
 .fpane.active{display:flex}
 .bform{display:flex;flex-direction:column;gap:8px;border:1px solid var(--line);border-radius:12px;padding:10px}
 .bform input,.bform textarea,.bform select{width:100%}
-.rowedit{display:flex;gap:6px;align-items:center}
-.rowedit input,.rowedit select{min-width:0;flex:1;font-size:12.5px;padding:7px 8px}
+/* Wraps, and every field keeps a 90px floor. Without the wrap this was one
+   unbreakable line: min-width:0 + flex:1 let each extra control steal width from
+   the rest, so the VARIABLES row — the most-typed form in the app — came out at
+   59-69px per field on a 412px phone, roughly six characters of an identifier.
+   90px is not arbitrary: it is what the CHECKERS row in this same form already
+   achieved. On a wide screen there is room and nothing wraps. */
+.rowedit{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.rowedit input,.rowedit select{min-width:90px;flex:1 1 90px;font-size:12.5px;padding:7px 8px}
 .rowedit .rowdel{flex:0 0 auto;padding:6px 9px}
-.rowedit .enumonly{flex:1.2}
+.rowedit .enumonly{flex:1.2 1 90px}
 .rowedit .ck{display:flex;align-items:center;gap:3px;font-size:11px;color:var(--dim);flex:0 0 auto}
 .rowedit .vlabel{flex:0 0 32%;font-size:12px;color:var(--teal);font-weight:700;overflow:hidden;text-overflow:ellipsis}
 details{border:1px solid var(--line);border-radius:12px;padding:8px 10px}
@@ -363,7 +423,13 @@ details .doctor-list{margin-bottom:8px}
   border:1px solid var(--line);border-radius:8px;padding:7px 9px}
 .keyrow .kset{font-family:var(--mono);font-size:9.5px;color:var(--ok);flex-shrink:0}
 .keyrow .btn{padding:6px 10px;font-size:11px;flex-shrink:0}
-.keyrow .khelp{font-size:10px;color:var(--teal);text-decoration:none;flex-shrink:0;white-space:nowrap}
+/* 'how to get' is the only route to each provider's key page from Doctor —
+   a core first-run flow — and it rendered as a 65x11px link 8px from the
+   row's Save button, 21 of them down the screen. The type stays small (the
+   row is dense on purpose); the TARGET gets the sheet's own --tap floor via
+   padding, so a miss can't land on Save. */
+.keyrow .khelp{font-size:10px;color:var(--teal);text-decoration:none;flex-shrink:0;white-space:nowrap;
+  display:inline-flex;align-items:center;min-height:var(--tap);padding:0 6px}
 .keyrow .khelp:hover{text-decoration:underline}
 /* keyrow wraps on narrow screens so the help link never overflows */
 @media (max-width:560px){.keyrow{flex-wrap:wrap}.keyrow input{flex:1 1 100%;order:5}}
@@ -372,7 +438,7 @@ details .doctor-list{margin-bottom:8px}
 .lore{margin-top:auto;padding-top:14px;text-align:center;font-family:var(--mono);font-size:9.5px;color:var(--muted);letter-spacing:.06em;line-height:1.7}
 .lore span{color:var(--accent);opacity:.8}
 
-nav{display:flex;border-top:1px solid var(--line);flex-shrink:0;background:rgba(2,12,24,.92);padding-bottom:env(safe-area-inset-bottom);position:relative;z-index:1}
+nav{display:flex;border-top:1px solid var(--line);flex-shrink:0;background:var(--nav-bg,rgba(2,12,24,.92));padding-bottom:env(safe-area-inset-bottom);position:relative;z-index:1}
 nav button{flex:1;font:inherit;background:none;border:none;color:var(--muted);cursor:pointer;
   padding:9px 0 11px;display:flex;flex-direction:column;align-items:center;gap:3px}
 nav button .ic{font-size:16px;line-height:1;font-family:var(--mono)}
@@ -408,7 +474,7 @@ a{color:var(--accent)}
 
 /* Desktop / large screens: frame the app instead of stretching edge-to-edge */
 @media (min-width:720px){
-  body{display:flex;justify-content:center;background:#01080f}
+  body{display:flex;justify-content:center;background:var(--desktop-ground,#01080f)}
   .phone{max-width:700px;box-shadow:0 0 0 1px var(--line),0 24px 70px rgba(0,0,0,.55)}
   .msg{max-width:76%}
   .runcard{cursor:pointer}

@@ -1,11 +1,12 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync } from 'node:fs';
-import { atomicWrite } from './fsutil.js';
+import { atomicWrite, readJsonState } from './fsutil.js';
 import { join } from 'node:path';
-import { FLEET_DIR } from './config.js';
+import { FLEET_DIR, PROJECTS_DIR, LOCAL_LLM_BASE } from './config.js';
 import { listCommands, listPersonas, compilePersona, compileCommand, templateSchema, runCheckers } from './personas.js';
 import { getStoredKey } from './keys.js';
+import { agentExec } from './agentExec.js';
 
 // Worker hierarchy — the approved schema, made runtime. A JOB is a chain of
 // scoped LINKS; each Link is a Persona+ structured command run by the CHEAPEST
@@ -15,7 +16,10 @@ import { getStoredKey } from './keys.js';
 // (authored links), execution is deterministic — no runtime planner in the loop.
 mkdirSync(FLEET_DIR, { recursive: true });
 const JOBS_FILE = join(FLEET_DIR, 'hierarchy-jobs.json');
-const loadJson = (p, f) => { try { return JSON.parse(readFileSync(p, 'utf8')); } catch { return f; } };
+// Same corrupt-vs-missing distinction as routines/burn: an unreadable jobs
+// file used to drop every authored job silently, and saveJobs() then wrote the
+// empty list over it. readJsonState quarantines instead of overwriting.
+const loadJson = (p, f) => readJsonState(p, f).value;
 
 let broadcast = () => {};
 export function initHierarchy(fn) { if (fn) broadcast = fn; }
@@ -25,7 +29,7 @@ export function initHierarchy(fn) { if (fn) broadcast = fn; }
 // Tier endpoints are env-overridable (tests point local/cloud-sm at mock
 // engines to exercise the escalation ladder without real spend). An overridden
 // base needs no key.
-const localBase = process.env.ATLAN_TIER_LOCAL_BASE || 'http://127.0.0.1:8080/v1';
+const localBase = process.env.ATLAN_TIER_LOCAL_BASE || `${LOCAL_LLM_BASE}/v1`;
 // Rungs spread across BOTH model strength and capability class, and every rung
 // is something this device can actually reach. The old middle rung was DeepSeek
 // behind DEEPSEEK_API_KEY — unconfigured, so every escalation threw
@@ -37,13 +41,29 @@ const localBase = process.env.ATLAN_TIER_LOCAL_BASE || 'http://127.0.0.1:8080/v1
 const cloudBase = process.env.ATLAN_TIER_CLOUDSM_BASE || 'https://generativelanguage.googleapis.com/v1beta/openai';
 export const TIERS = {
   //                                                                                                              constrained = grammar/schema-locked JSON out
-  local:    { engine: 'local',    base: localBase, keyEnv: null,                                                   model: 'qwen',            constrained: true,  label: 'on-phone Qwen (free)' },
+  local:    { engine: 'local',    base: localBase, keyEnv: null,                                                   model: 'qwen',            constrained: true,  label: 'local model (free)' },
   'cloud-sm': { engine: 'gemini', base: cloudBase, keyEnv: process.env.ATLAN_TIER_CLOUDSM_BASE ? null : 'GEMINI_API_KEY', model: 'gemini-3.6-flash', constrained: true, label: 'Gemini Flash (free tier)' },
   // Opus 5 rather than Fable 5: it leads SWE-bench Verified (~80.8%) for the
   // code-shaped work this rung catches, and Fable's thinking cannot be disabled.
   // Both run on the subscription via frontierExecute, so this is a capability
   // choice, not a cost one — set ATLAN_TIER_FRONTIER_MODEL to override.
   frontier: { engine: 'claude',   base: null,      keyEnv: null,                                                   model: process.env.ATLAN_TIER_FRONTIER_MODEL || 'claude-opus-5', constrained: false, label: 'Claude Opus 5 (frontier)' },
+  // The agentic rung. NOT a step up the intelligence ladder — a step sideways
+  // into a different capability. The benchmark split is real and consistent
+  // across aggregators: Claude leads code EDITING (SWE-bench Verified), GPT-5.6
+  // leads DRIVING A TERMINAL (Terminal-Bench). A link whose failure is "the
+  // build loop needs running and reading", not "this needs more reasoning",
+  // escalates here instead of to frontier.
+  //
+  // It is off the default ladder on purpose. `escalation` defaults to
+  // ['local','cloud-sm','frontier'], so a job opts in by naming this tier —
+  // nothing silently starts routing through a second vendor.
+  //
+  // Runs on the ChatGPT subscription, so it is free at the margin like
+  // frontier. Unlike frontier (a no-tools Agent SDK query) this rung HAS
+  // HANDS — which is the point, and which is why it only runs where the
+  // kernel can hold it: agentExec refuses unless the profile is enforceable.
+  agentic: { engine: 'codex', base: null, keyEnv: null, model: null, constrained: false, label: 'Codex GPT-5.6 (agentic, sandboxed)' },
 };
 export const tierList = Object.entries(TIERS).map(([id, t]) => ({ id, label: t.label, constrained: t.constrained }));
 
@@ -263,6 +283,30 @@ async function callTier(tierId, cmd, vars, run) {
     let parsed;
     try { parsed = JSON.parse(text.replace(/^```(json)?\s*|\s*```$/g, '').trim()); } catch { throw new Error('frontier output was not valid JSON'); }
     parsed._tokens = tokens;
+    return parsed;
+  }
+  if (tier.engine === 'codex' || tier.engine === 'grok' || tier.engine === 'copilot' || tier.engine === 'antigravity') {
+    // Agentic rung: a real CLI agent with hands, run to completion. It is the
+    // only tier that can touch the filesystem, so it is also the only one that
+    // needs a boundary — agentExec throws rather than run ungated, and the
+    // 'scout' profile keeps this rung read-only unless a caller deliberately
+    // asks for more. The ladder is for producing a checked ANSWER; a link that
+    // needs to write files belongs in a fleet run, not here.
+    const prompt = `${persona ? compilePersona(persona) + '\n\n' : ''}${compileCommand(cmd, vars)}\n\n[Reply with ONLY the JSON object the template demands — no prose, no fences. This is a hierarchy escalation: a smaller model failed the deterministic checkers.]`;
+    const { text, tokens, enforced, gate } = await agentExec({
+      engine: tier.engine,
+      prompt,
+      cwd: run?.cwd || PROJECTS_DIR,
+      profile: 'scout',
+      model: tier.model,
+      timeoutMs: 300000,
+    });
+    let parsed;
+    try { parsed = JSON.parse(text.replace(/^```(json)?\s*|\s*```$/g, '').trim()); }
+    catch { throw new Error(`${tierId} output was not valid JSON`); }
+    parsed._tokens = tokens;
+    // Carried so a receipt can never imply a gate that wasn't there.
+    parsed._gate = { enforced, why: gate };
     return parsed;
   }
   const key = tier.keyEnv ? (process.env[tier.keyEnv] || getStoredKey(tier.keyEnv)) : null;

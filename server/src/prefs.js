@@ -10,7 +10,7 @@ import { FLEET_DIR } from './config.js';
 
 mkdirSync(FLEET_DIR, { recursive: true });
 const FILE = join(FLEET_DIR, 'prefs.json');
-const ALLOWED = new Set(['tour']);
+const ALLOWED = new Set(['tour', 'theme', 'template']);
 
 function load() {
   try { return JSON.parse(readFileSync(FILE, 'utf8')); } catch { return {}; }

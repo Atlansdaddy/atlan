@@ -1,6 +1,23 @@
 # Engine: OpenAI / Codex
 
-Verified 2026-07-15 (agent research pass — sources in session transcript).
+Researched 2026-07-15. **Reconciled against shipped code 2026-08-02.** Three
+updates, one of them a correction to a recommendation:
+
+1. **We ship `codex exec`, not `codex app-server`.** §"the best driver surface"
+   below recommended app-server for M4; the implementation went with `exec --json`
+   (`agents.js:114–118`), with `state.codexThread` carrying `exec resume`. The
+   recommendation was not taken — treat it as an open option, not the design.
+2. **The proot escape hatch is what shipped, and it is now unconditional.**
+   `--dangerously-bypass-approvals-and-sandbox` is passed on every invocation with
+   **no host capability probe**. Correct on proot; on a host with user namespaces
+   it discards a real boundary. **MEASURED 2026-07-27: on the WSL2 node,
+   `codex exec -s workspace-write` is kernel-enforced** — a write outside the
+   workspace returned `/bin/bash: /root/codex-canary.txt: Read-only file system`
+   from Landlock. So the empirical test flagged below has been RUN and passed.
+   The fix is to probe and derive, not to hardcode either way.
+3. **`gpt-5.6-luna` is the configured OpenAI brains default** (`brains.js:29`),
+   not `sol`. Model rows below are a July-2026 research snapshot, not the running
+   config.
 
 ## Codex CLI — wires in cleanly, and there's a better door than exec
 - Install: `npm i -g @openai/codex` (wrapper over Rust binary) — releases ship **`codex-aarch64-unknown-linux-musl`** (static, no glibc dep → proot-safe). Latest rust-v0.144.4 (2026-07-14).

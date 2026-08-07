@@ -17,4 +17,6 @@
 
 termux-wake-lock 2>/dev/null
 
-proot-distro login ubuntu -- /root/atlan/bin/atlan-serve.sh boot &
+# Distro + repo location are the operator's — same env-with-defaults pattern
+# as atlan-watchdog.sh, so a fork cloned anywhere still boots.
+proot-distro login "${ATLAN_DISTRO:-ubuntu}" -- "${ATLAN_SERVE:-/root/atlan/bin/atlan-serve.sh}" boot &

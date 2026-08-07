@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync, statSync, readdirSync, mkdirSync } from 'node:fs';
 import { join, dirname, basename } from 'node:path';
 import { APP_ROOT, PROJECTS_DIR } from './config.js';
-import { SENSITIVE, isUnder, guardPath } from './guards.js';
+import { isSensitive, isUnder, guardPath } from './guards.js';
 
 // File read/write/list for the in-app code editor. Path safety is the SHARED
 // guard in guards.js (the editor and attachments must use the SAME rules — they
@@ -37,7 +37,7 @@ export function listDir(p) {
   for (const name of readdirSync(abs)) {
     if (name === 'node_modules' || name === '.git') continue;
     const full = join(abs, name);
-    if (SENSITIVE.test(full)) continue;
+    if (isSensitive(full)) continue;
     if (isUnder(full, APP_ROOT)) continue; // hide Atlan's own repo from the file tree
     let dir = false;
     try { dir = statSync(full).isDirectory(); } catch { continue; }

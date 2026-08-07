@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, copyFileSync, statSync, readFileSync, writeFileS
 import { fileURLToPath } from 'node:url';
 import { dirname, join, basename, resolve } from 'node:path';
 import { PROJECTS_DIR } from './config.js';
+import { isUnder } from './guards.js';
 
 // The build path comes from the client (build.start message). It must NEVER be
 // interpolated into a shell string, and must stay under PROJECTS_DIR — a dir
@@ -12,7 +13,7 @@ import { PROJECTS_DIR } from './config.js';
 function safeProjectPath(p) {
   const abs = realpathSync(resolve(String(p ?? '')));
   const root = realpathSync(PROJECTS_DIR);
-  if (abs !== root && !abs.startsWith(root + '/')) throw new Error(`build path must be under ${PROJECTS_DIR}`);
+  if (!isUnder(abs, root)) throw new Error(`build path must be under ${PROJECTS_DIR}`);
   return abs;
 }
 
@@ -59,9 +60,14 @@ export function runBuild(rawPath, send) {
 
   // No path interpolation — projPath is passed as the process cwd, never into
   // the shell text. The script uses only static commands + relative paths.
+  // The SDK env location is the OPERATOR's, not the author's: the shell
+  // expands its own $ATLAN_ANDROID_ENV (still no JS interpolation into shell
+  // text), defaulting to ~/android-sdk/env.sh — the documented phone/home-node
+  // layout. A missing file logs a clear note instead of an opaque bash error.
   const script = `
 set -e
-source /root/android-sdk/env.sh
+ANDROID_ENV="\${ATLAN_ANDROID_ENV:-$HOME/android-sdk/env.sh}"
+if [ -f "$ANDROID_ENV" ]; then source "$ANDROID_ENV"; else echo "── no Android SDK env at $ANDROID_ENV (set ATLAN_ANDROID_ENV if it lives elsewhere) ──"; fi
 ${hasBuildScript ? 'echo "── web build (CAP_BUILD=1) ──" && CAP_BUILD=1 npm run build' : 'echo "── no web build script, skipping ──"'}
 if grep -q '"@capacitor/cli"' package.json 2>/dev/null; then echo "── cap sync ──" && npx cap sync android; fi
 echo "── gradle assembleDebug ──"

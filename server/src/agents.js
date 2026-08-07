@@ -1,6 +1,38 @@
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { getStoredKey } from './keys.js';
+import { killTree } from './procTree.js';
+import { interactiveGate } from './enginePolicy.js';
+
+// ── live chat-path agent CLIs ─────────────────────────────────────────────
+// Every child spawned here is REGISTERED, because every child spawned here runs
+// with its own approval system switched off (see interactiveGate). Until this
+// existed the child was held in a local `const` and nothing else: it survived
+// the WebSocket that started it, Fleet showed no run, KILL ALL walked only the
+// fleet's own map and answered `killed: 0`, and SIGKILLing the whole cockpit
+// left it running — the supervisor then respawned a server that knew nothing
+// about it. An agent explicitly launched WITHOUT a permission gate is the one
+// that most has to stay reachable. docs/WORKER-DESIGN.md's "all children
+// tracked; KILL is real (no orphans surviving)" is now true of this path too.
+// (Cross-vendor adversarial review, 2026-08-06.)
+const liveTurns = new Map(); // seq → { child, engine, cwd, owner, startedAt }
+let turnSeq = 0;
+
+/** Kill the tracked chat-path CLIs matching `filter`. Returns how many were signalled. */
+export function killAgentTurns(filter = () => true) {
+  let n = 0;
+  for (const [seq, t] of [...liveTurns]) {
+    if (!filter(t)) continue;
+    liveTurns.delete(seq);
+    if (killTree(t.child)) n++;
+  }
+  return n;
+}
+/** What is running on the chat path right now — for the fleet surface and tests. */
+export function liveAgentTurns() {
+  return [...liveTurns.values()].map(({ engine, cwd, startedAt }) => ({ engine, cwd, startedAt }));
+}
 
 // Agent CLIs (Codex, Antigravity, Grok Build, Copilot) driven headlessly —
 // Antigravity (`agy`) replaced the Gemini CLI when Google retired its free
@@ -10,7 +42,9 @@ import { getStoredKey } from './keys.js';
 // gated primary; these are extra hands for repos you trust them in.
 
 export function agentStatus() {
-  const home = process.env.HOME ?? '/root';
+  // homedir() is right on every platform; `HOME ?? '/root'` broke auth
+  // detection for anyone not running as root (and always on Windows).
+  const home = homedir();
   return [
     {
       id: 'codex',
@@ -63,12 +97,12 @@ export function agentStatus() {
 // output; --output-format json exists, schema unversioned → plain + one-bubble
 // flush), `--continue` resumes the most recent session, `--allow-all` is the
 // full-auto belt (files + shell + urls), `--model` picks the model.
-function copilotBin() {
+export function copilotBin() {
   if (existsSync('/usr/bin/copilot')) return '/usr/bin/copilot';
   return existsSync('/usr/local/bin/copilot') ? '/usr/local/bin/copilot' : null;
 }
 function copilotAuthed() {
-  return existsSync(`${process.env.HOME ?? '/root'}/.copilot`);
+  return existsSync(`${homedir()}/.copilot`);
 }
 
 // Grok Build (xAI's official CLI, open to SuperGrok / X Premium+ since
@@ -77,12 +111,12 @@ function copilotAuthed() {
 // json/streaming-json exists but its event schema is unversioned — plain +
 // one-bubble flush until we pin it), `-c` continues the most recent session
 // in this cwd, `--always-approve` = full-auto, --no-auto-update for automation.
-function grokBin() {
+export function grokBin() {
   if (existsSync('/usr/bin/grok')) return '/usr/bin/grok';
   return existsSync('/usr/local/bin/grok') ? '/usr/local/bin/grok' : null;
 }
 function grokAuthed() {
-  return existsSync(`${process.env.HOME ?? '/root'}/.grok/auth.json`);
+  return existsSync(`${homedir()}/.grok/auth.json`);
 }
 
 // Antigravity CLI (agy) — Gemini CLI's successor (Google retired the gemini
@@ -91,16 +125,16 @@ function grokAuthed() {
 // keyring; the config dir appears then), or ANTIGRAVITY_API_KEY. Headless =
 // `agy -p` — plain text out, no stream-json in 1.x; `-c` continues the most
 // recent conversation, which is how a chat thread persists across turns.
-function agyBin() {
-  const home = process.env.HOME ?? '/root';
+export function agyBin() {
+  const home = homedir();
   if (existsSync(`${home}/.local/bin/agy`)) return `${home}/.local/bin/agy`;
   return existsSync('/usr/local/bin/agy') ? '/usr/local/bin/agy' : null;
 }
 function agyAuthed() {
-  return existsSync(`${process.env.HOME ?? '/root'}/.gemini/antigravity-cli`);
+  return existsSync(`${homedir()}/.gemini/antigravity-cli`);
 }
 
-export function agentTurn({ engine, cwd, text, send, state, model = null }) {
+export function agentTurn({ engine, cwd, text, send, state, model = null, owner = null }) {
   if (state.running) {
     send({ t: 'chat.err', msg: 'agent is mid-turn — wait for it to finish' });
     return;
@@ -110,39 +144,55 @@ export function agentTurn({ engine, cwd, text, send, state, model = null }) {
 
   // picker sends `default` (or the engine id itself) to mean "CLI's choice"
   const pickedModel = model && model !== 'default' && model !== engine ? model : null;
+  // The gate flags come from enginePolicy's table, NOT from a literal spelled
+  // out here. They were duplicated: preflight.js told the user "every dangerous
+  // tool asks you first" while these four lines passed --dangerously-* on every
+  // turn, and nothing connected the claim to the code. One table, read by both
+  // the launcher and the honesty check, is what stops that.
+  const gate = interactiveGate(engine);
+  if (!gate) {
+    state.running = false;
+    return send({ t: 'chat.err', msg: `unknown agent: ${engine}` });
+  }
   let cmd, args, env = { ...process.env };
   if (engine === 'codex') {
     cmd = 'codex';
     args = state.codexThread
-      ? ['exec', 'resume', state.codexThread, '--json', '--dangerously-bypass-approvals-and-sandbox', text]
-      : ['exec', '--json', '--dangerously-bypass-approvals-and-sandbox', '--skip-git-repo-check', text];
+      ? ['exec', 'resume', state.codexThread, '--json', ...gate.args, text]
+      : ['exec', '--json', ...gate.args, '--skip-git-repo-check', text];
     if (pickedModel) args.splice(1, 0, '-m', pickedModel);
   } else if (engine === 'antigravity') {
     cmd = agyBin() ?? 'agy';
-    args = [...(state.agyStarted ? ['-c'] : []), ...(pickedModel ? ['--model', pickedModel] : []), '--dangerously-skip-permissions', '-p', text];
+    args = [...(state.agyStarted ? ['-c'] : []), ...(pickedModel ? ['--model', pickedModel] : []), ...gate.args, '-p', text];
     const akey = process.env.ANTIGRAVITY_API_KEY || getStoredKey('ANTIGRAVITY_API_KEY');
     if (akey) env.ANTIGRAVITY_API_KEY = akey;
   } else if (engine === 'grok') {
     cmd = grokBin() ?? 'grok';
-    args = ['--no-auto-update', ...(state.grokStarted ? ['-c'] : []), ...(pickedModel ? ['-m', pickedModel] : []), '--always-approve', '-p', text];
+    args = ['--no-auto-update', ...(state.grokStarted ? ['-c'] : []), ...(pickedModel ? ['-m', pickedModel] : []), ...gate.args, '-p', text];
     const xkey = process.env.XAI_API_KEY || getStoredKey('XAI_API_KEY');
     if (xkey) env.XAI_API_KEY = xkey;
   } else if (engine === 'copilot') {
     cmd = copilotBin() ?? 'copilot';
-    args = [...(state.copilotStarted ? ['--continue'] : []), ...(pickedModel ? ['--model', pickedModel] : []), '--allow-all', '-p', text];
+    args = [...(state.copilotStarted ? ['--continue'] : []), ...(pickedModel ? ['--model', pickedModel] : []), ...gate.args, '-p', text];
   } else {
     state.running = false;
     return send({ t: 'chat.err', msg: `unknown agent: ${engine}` });
   }
 
-  const child = spawn(cmd, args, { cwd, env });
+  // detached: own process GROUP, so killTree's negative-PID signal reaches the
+  // shells and tool children these CLIs spawn. Without it a kill hit only the
+  // immediate pid and the real workers carried on.
+  const child = spawn(cmd, args, { cwd, env, detached: true });
+  const seq = ++turnSeq;
+  liveTurns.set(seq, { child, engine, cwd, owner, startedAt: Date.now() });
+  const unregister = () => liveTurns.delete(seq);
   child.stdin.end(); // codex waits on stdin otherwise
   let stderrTail = '';
   let sawText = false;
   let buf = '';
   let geminiText = '';
   let killedFor = null;
-  const turnTimeout = setTimeout(() => { killedFor = 'turn timeout (8min)'; child.kill(); }, 480000);
+  const turnTimeout = setTimeout(() => { killedFor = 'turn timeout (8min)'; killTree(child); }, 480000);
 
   const handleEvent = (e) => {
     // Codex events
@@ -197,12 +247,21 @@ export function agentTurn({ engine, cwd, text, send, state, model = null }) {
       killedFor = engine === 'codex'
         ? 'not logged in — run `codex login --device-auth` in the Term tab'
         : 'auth rejected — check the key in Doctor → Engine keys';
-      child.kill();
+      killTree(child);
     }
+  });
+
+  child.on('error', (err) => {
+    clearTimeout(turnTimeout);
+    unregister();
+    state.running = false;
+    send({ t: 'chat.err', msg: `${engineLabel(engine)} failed to start: ${err.message}` });
+    send({ t: 'atlan.mood', mood: 'alarmed' });
   });
 
   child.on('close', (code) => {
     clearTimeout(turnTimeout);
+    unregister();
     state.running = false;
     if (killedFor) {
       send({ t: 'chat.err', msg: `${engineLabel(engine)}: ${killedFor}` });

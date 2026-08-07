@@ -1,7 +1,9 @@
 import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
 import { existsSync, statSync } from 'node:fs';
-import { PORT, sandboxEnabled } from './config.js';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+import { PORT, sandboxEnabled, LOCAL_LLM_BASE, ANDROID_SDK } from './config.js';
 
 const sh = promisify(exec);
 
@@ -18,11 +20,11 @@ export async function runDoctor() {
       return { ok: m ? m[1] === '21' : false, detail: out.split('\n')[0] };
     }),
     check('sdk', 'Android SDK 35', async () => ({
-      ok: existsSync('/root/android-sdk/build-tools/35.0.0'),
-      detail: '/root/android-sdk',
+      ok: existsSync(join(ANDROID_SDK, 'build-tools/35.0.0')),
+      detail: ANDROID_SDK,
     })),
     check('aapt2', 'aapt2 qemu shim', async () => {
-      const shim = '/root/android-sdk/build-tools/35.0.0/aapt2';
+      const shim = join(ANDROID_SDK, 'build-tools/35.0.0/aapt2');
       if (!existsSync(shim)) return { ok: false, detail: 'shim missing' };
       // Require the real version banner or an "aapt2 <version>" line — NOT the
       // bare word "aapt2", which also appears in error output (the same trap the
@@ -47,7 +49,7 @@ export async function runDoctor() {
       } catch { return { ok: false, detail: 'not on PATH' }; }
     }),
     check('auth', 'Claude auth', async () => ({
-      ok: existsSync(`${process.env.HOME}/.claude/.credentials.json`) || !!process.env.ANTHROPIC_API_KEY,
+      ok: existsSync(join(homedir(), '.claude/.credentials.json')) || !!process.env.ANTHROPIC_API_KEY,
       detail: process.env.ANTHROPIC_API_KEY ? 'API key (env)' : 'subscription OAuth',
     })),
     check('tmux', 'tmux', async () => {
@@ -58,7 +60,7 @@ export async function runDoctor() {
       return { ok: /^tmux \d/.test(stdout.trim()), detail: stdout.trim() };
     }),
     check('disk', 'Free disk', async () => {
-      const { stdout } = await sh("df -h /root | tail -1 | awk '{print $4}'");
+      const { stdout } = await sh(`df -h "${homedir()}" | tail -1 | awk '{print $4}'`);
       const free = stdout.trim();
       const gb = parseFloat(free);
       return { ok: !(free.endsWith('G') && gb < 5), warn: free.endsWith('G') && gb < 10, detail: `${free} free` };
@@ -139,9 +141,9 @@ export async function runDoctor() {
           + `Expose with \`tailscale serve --bg ${PORT}\` — never \`funnel\` (that's public).`,
       };
     }),
-    check('llama', 'llama-server :8080', async () => {
+    check('llama', `llama-server ${LOCAL_LLM_BASE.replace(/^https?:\/\/127\.0\.0\.1/, '')}`, async () => {
       try {
-        const res = await fetch('http://127.0.0.1:8080/health', { signal: AbortSignal.timeout(1500) });
+        const res = await fetch(`${LOCAL_LLM_BASE}/health`, { signal: AbortSignal.timeout(1500) });
         return { ok: res.ok, detail: 'up' };
       } catch {
         return { ok: false, warn: true, detail: 'not running (optional)' };

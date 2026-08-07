@@ -1,5 +1,9 @@
 # Atlan research sweep — 2026-07-25
 
+> **POINT-IN-TIME RECORD — research notes, July 2026. Model rows are a snapshot; the code is ground truth.** Kept as evidence and annotated, never
+> rewritten (see `DOC-STATUS-CONVENTION.md`). For current state read
+> `ARCHITECTURE.md` and `SECURITY.md`.
+
 Three parallel research passes (Anthropic docs · other frontier labs · fringe-with-receipts) plus live testing of the new local model through every Atlan subsystem. Everything below is doctrine-filtered: probabilistic workers inside deterministic walls, budgets that halt, checkers that are code, ladder that escalates on checker failure only.
 
 ## A. The "advisor" — found it

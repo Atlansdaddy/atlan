@@ -1,5 +1,28 @@
 /* ATLAN cockpit — vanilla ES, no build step (deliberate: fewer moving parts in proot).
-   Built by John Viruet / Mid-Atlantic AI. Apache-2.0 — keep this credit (§4). */
+   Built by John Viruet / Mid-Atlantic AI. Apache-2.0 — keep this credit (§4).
+
+   MODULE, not a classic script (since 2026-08-02). Still no bundler — browsers
+   resolve these imports natively, which keeps the proot-friendly no-build rule
+   while letting pure logic live in lib/ where Node can unit-test it. The IIFE
+   is retained inside the module purely to avoid re-indenting 2,000 lines in the
+   same commit that changes how the file loads; module scope already isolates.
+
+   The extraction rule: a *decision* goes to lib/ and gets tests; DOM wiring
+   stays here. See test/weblib.mjs. */
+import {
+  escapeHtml, parseMessageParts, langToExt, colorDiffHtml, urlBase64ToUint8Array,
+} from './lib/text.js';
+import { isNight, greetingFor, hueFor, MOOD_HUE } from './lib/ambient.js';
+import {
+  engineOptionLabel, engineOptionValue, ladderOptionLabel, ladderOptionTitle, rungLineText,
+} from './lib/enginepicker.js';
+import { fmtTok, statusLabel, burnLine, runMetaLine } from './lib/burn.js';
+import { openInto, saveTo } from './lib/editorguard.js';
+import { topUp, sendKill } from './lib/fleetactions.js';
+import { linkRowHtml } from './lib/joblink.js';
+import { previewUrl } from './lib/previewurl.js';
+import { appendConsoleLine } from './lib/previewconsole.js';
+
 (() => {
   const $ = (id) => document.getElementById(id);
   const chatlog = $('chatlog');
@@ -111,26 +134,8 @@
     if (next && next !== visible[i]) next.click();
   }
 
-  // ── light/dark theme (spine — every template gets the toggle) ──
-  // Only the Glass template defines a light palette today, so under Classic and
-  // MidAtlantic this flips the attribute and nothing visibly changes. That's
-  // the graceful-degradation case, not a bug: the axis is global, the palettes
-  // are per-template.
-  const themeBtn = $('themeBtn');
-  if (themeBtn) {
-    const applyTheme = (t) => {
-      document.documentElement.setAttribute('data-theme', t);
-      themeBtn.textContent = t === 'light' ? '🌙' : '☀️';
-      themeBtn.title = t === 'light' ? 'switch to dark theme' : 'switch to light theme';
-      try { localStorage.setItem('theme', t); } catch (e) { /* private mode */ }
-    };
-    let saved = 'dark';
-    try { saved = localStorage.getItem('theme') || 'dark'; } catch (e) { /* private mode */ }
-    applyTheme(saved);
-    themeBtn.addEventListener('click', () => {
-      applyTheme(document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light');
-    });
-  }
+  // (light/dark axis moved to theme.js — its own spine script, decisions in
+  //  lib/theme.js. Every template now answers data-theme with a light palette.)
 
   // ── Atlan alive: mood engine + halo canvas ──
   // Mood is real state, never decoration: calm=idle, building=agents/build
@@ -157,25 +162,16 @@
   }
   function say(line) { $('atlanLine').textContent = line; }
   // time-aware greeting — Atlan speaks first
-  function greet() {
-    const h = new Date().getHours();
-    const g = h < 5 ? 'Deep-night dive? I’m with you, boss.'
-      : h < 12 ? 'Morning, boss. The water’s clear today.'
-      : h < 18 ? 'Afternoon current’s steady. What are we building?'
-      : h < 22 ? 'Evening, boss. Good depth for building.'
-      : 'Late water. I’ll keep the lights on.';
-    say(g);
-  }
+  function greet() { say(greetingFor(new Date().getHours())); }
   // Habitat-style day/night: the whole cockpit dims to night water 22:00–06:30
   function dayNight() {
-    const h = new Date().getHours() + new Date().getMinutes() / 60;
-    document.body.classList.toggle('night', h >= 22 || h < 6.5);
+    const now = new Date();
+    document.body.classList.toggle('night', isNight(now.getHours() + now.getMinutes() / 60));
   }
   dayNight(); setInterval(dayNight, 60_000);
 
   // halo canvas: breathing glow + orbiting agent lights + rising bubbles.
   // RAF pauses when the tab is hidden — presence must not cost battery.
-  const MOOD_HUE = { calm: '63,232,200', building: '107,212,216', alarmed: '255,103,35', proud: '137,235,239' };
   (() => {
     const cv = $('atlanHalo'), cx = cv.getContext('2d');
     const W = cv.width, C = W / 2;
@@ -184,7 +180,7 @@
     function frame() {
       t += 1;
       cx.clearRect(0, 0, W, W);
-      const hue = MOOD_HUE[mood] ?? MOOD_HUE.calm;
+      const hue = hueFor(mood);
       const night = document.body.classList.contains('night') ? 0.65 : 1;
       // breathing aura — faster + brighter when alarmed
       const rate = mood === 'alarmed' ? 0.11 : mood === 'building' ? 0.055 : 0.03;
@@ -248,8 +244,13 @@
   // ── message handling ──
   let sessionId = null;
   function handle(m) {
+    // Any frame carrying a day total repaints the header gauge. This sat inside
+    // `fleet.done` alone, so #burnMeta froze through every live run and jumped
+    // at the end. Hoisted so a frame added later cannot miss it again.
+    if (m.today) paintBurnToday(m.today);
     switch (m.t) {
       case 'chat.msg': addMsg(m.role, m.text, m.engine); break;
+      case 'chat.rung': addRungLine(m); break;
       case 'chat.err': addMsg('err', m.msg); break;
       case 'tool.use': addTool(m.name, m.input); break;
       case 'chat.turnstart': startWorking(); break;
@@ -334,7 +335,6 @@
       }
       case 'fleet.done':
         upsertRun(m.run);
-        if (m.today) paintBurnToday(m.today);
         fleetPing(m.run);
         break;
       case 'fleet.killall': loadFleet(); break;
@@ -427,17 +427,10 @@
   // Render an assistant message: prose as text, ```fenced``` blocks as reviewable
   // code cards. XSS-safe — every node is createElement/textContent, no innerHTML.
   function renderRichMessage(container, text) {
-    const parts = String(text).split('```');
-    parts.forEach((part, i) => {
-      if (i % 2 === 0) { if (part) container.appendChild(document.createTextNode(part)); return; }
-      let lang = '', code = part;
-      const nl = part.indexOf('\n');
-      if (nl >= 0) {
-        const first = part.slice(0, nl).trim();
-        if (/^[\w+.-]{1,24}$/.test(first)) { lang = first; code = part.slice(nl + 1); }
-      }
-      container.appendChild(buildCodeBlock(code.replace(/\n$/, ''), lang));
-    });
+    for (const part of parseMessageParts(text)) {
+      if (part.type === 'text') container.appendChild(document.createTextNode(part.content));
+      else container.appendChild(buildCodeBlock(part.content, part.lang));
+    }
   }
   function buildCodeBlock(code, lang) {
     const wrap = document.createElement('div'); wrap.className = 'codeblock';
@@ -457,6 +450,32 @@
     return wrap;
   }
 
+  // The escalation ladder as a pickable "engine". It is not a model — it is a
+  // policy: try the cheapest rung, climb only when the answer is observably
+  // unusable (empty, errored, truncated, or the model said it couldn't).
+  // Labels come from the server so they track the real tier config.
+  function loadLadder() {
+    fetch('/api/ladder').then((r) => r.json()).then((j) => {
+      const g = $('ogLadder');
+      if (!g || !Array.isArray(j.rungs)) return;
+      g.innerHTML = '';
+      const o = document.createElement('option');
+      o.value = 'ladder|';
+      o.textContent = ladderOptionLabel(j.rungs);
+      o.title = ladderOptionTitle(j.rungs);
+      g.append(o);
+    }).catch(() => {});
+  }
+  loadLadder();
+
+  function addRungLine(m) {
+    const div = document.createElement('div');
+    div.className = 'toolchip';
+    div.innerHTML = '<span class="tname"></span>';
+    div.querySelector('.tname').textContent = rungLineText(m);
+    chatlog.append(div); scroll();
+  }
+
   // engine roster → fill the switcher's local/cloud groups
   function loadEngines() {
     fetch('/api/engines').then((r) => r.json()).then((roster) => {
@@ -469,8 +488,8 @@
         const short = e.label.split(' — ')[0];
         for (const m of models) {
           const o = document.createElement('option');
-          o.value = `${e.id}|${m}`;
-          o.textContent = (models.length > 1 ? `${short} · ${m}` : e.label) + (e.ready ? '' : ` — needs: ${e.needs}`);
+          o.value = engineOptionValue(e.id, m);
+          o.textContent = engineOptionLabel(e, m, models.length);
           o.disabled = !e.ready;
           (groups[e.group] ?? groups.cloud).append(o);
           if (!e.ready) break; // one disabled hint row is enough
@@ -504,7 +523,6 @@
     chatlog.append(div); scroll();
   }
   function scroll() { chatlog.scrollTop = chatlog.scrollHeight; }
-  function escapeHtml(s) { return String(s).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`); }
 
   // ── attachments ──
   let attachments = []; // {id, kind, name, path, note}
@@ -694,7 +712,8 @@
     }
   }).catch(() => {});
   $('projSel').addEventListener('change', () => {
-    $('projName').textContent = $('projSel').value.split('/').pop() || '/root';
+    // separator-agnostic: project paths are host paths (win32 sends C:\…)
+    $('projName').textContent = $('projSel').value.split(/[\\/]/).pop() || 'no project';
     $('buildProj').textContent = $('projSel').value;
     sessionId = null; // new cwd = new session store
   });
@@ -728,7 +747,8 @@
     if (cmEditor) { cmEditor.refresh(); return; }
     CodeMirror.modeURL = 'vendor/cm/mode/%N/%N.js';
     cmEditor = CodeMirror($('editor'), {
-      lineNumbers: true, theme: 'material-darker', autoCloseBrackets: true, matchBrackets: true,
+      lineNumbers: true, autoCloseBrackets: true, matchBrackets: true,
+      theme: document.documentElement.getAttribute('data-theme') === 'light' ? 'default' : 'material-darker',
       styleActiveLine: true, indentUnit: 2, tabSize: 2, lineWrapping: false,
       value: '// Open a file above, browse with ☰, or type here and Save to a new path.\n',
     });
@@ -739,20 +759,30 @@
     if (info) { cmEditor.setOption('mode', info.mime); CodeMirror.autoLoadMode(cmEditor, info.mode); $('edLang').textContent = info.name; }
     else { cmEditor.setOption('mode', null); $('edLang').textContent = 'text'; }
   }
-  function openFile(path) {
-    if (!path) return;
-    fetch('/api/file?path=' + encodeURIComponent(path)).then((r) => r.json()).then((f) => {
-      if (f.error) return addMsg('err', f.error);
-      initEditor();
-      cmEditor.setValue(f.content); edClean = f.content; edCurrentPath = f.path;
+  // The editor's side of lib/editorguard.js. `fail` reports on the Editor tab
+  // as well as the chat log — a refusal that only lands in chat is invisible to
+  // someone standing on the Editor tab, which is where they just tapped.
+  const edUI = {
+    dirty: () => $('edDirty').textContent,
+    current: () => edCurrentPath,
+    load(f) {
+      initEditor(); cmEditor.setValue(f.content); edClean = f.content; edCurrentPath = f.path;
       $('edName').textContent = f.name; $('edPath').value = f.path; $('edDirty').textContent = '';
       edMode(f.name);
-    }).catch((e) => { console.warn('[atlan]', e); });
-  }
+    },
+    saved(f) {
+      edClean = cmEditor.getValue(); edCurrentPath = f.path;
+      $('edName').textContent = f.name; $('edPath').value = f.path;
+      edMode(f.name); // the label must describe the file we actually wrote
+      $('edDirty').textContent = 'saved ✓';
+      setTimeout(() => { if ($('edDirty').textContent === 'saved ✓') $('edDirty').textContent = ''; }, 1500);
+    },
+    fail(msg) { $('edDirty').textContent = `⚠ ${msg}`; addMsg('err', msg); },
+  };
+  const openFile = (path) => openInto(path, edUI);
   // Chat → review canvas: drop proposed code into the editor for review. Clears
   // the path so Save is a conscious choice of where it lands — the code is a
   // proposal until you Save it, and Preview can run it before you do.
-  const LANG_EXT = { javascript: 'js', js: 'js', typescript: 'ts', ts: 'ts', jsx: 'jsx', tsx: 'tsx', python: 'py', py: 'py', html: 'html', css: 'css', json: 'json', bash: 'sh', sh: 'sh', shell: 'sh', go: 'go', rust: 'rs', rs: 'rs', java: 'java', c: 'c', cpp: 'cpp', ruby: 'rb', php: 'php', sql: 'sql', yaml: 'yml', md: 'md', markdown: 'md' };
   function sendToEditor(code, langHint) {
     const btn = document.querySelector('nav button[data-s="s-editor"]');
     if (btn) btn.click(); // switch to the Editor tab (also runs initEditor)
@@ -761,9 +791,8 @@
     edClean = ''; edCurrentPath = null;            // it's a proposal until saved
     $('edName').textContent = 'from chat · review, then Save';
     $('edPath').value = '';
-    $('edPath').placeholder = langHint && LANG_EXT[langHint.toLowerCase()]
-      ? 'untitled.' + LANG_EXT[langHint.toLowerCase()] + ' — set a path to save'
-      : 'set a path to save';
+    const ext = langToExt(langHint);
+    $('edPath').placeholder = ext ? `untitled.${ext} — set a path to save` : 'set a path to save';
     $('edDirty').textContent = '● unsaved';
     if (langHint && window.CodeMirror && CodeMirror.findModeByName) {
       const info = CodeMirror.findModeByName(langHint.toLowerCase());
@@ -774,16 +803,8 @@
   $('edOpen').addEventListener('click', () => openFile($('edPath').value.trim()));
   $('edPath').addEventListener('keydown', (e) => { if (e.key === 'Enter') openFile($('edPath').value.trim()); });
   $('edSave').addEventListener('click', () => {
-    const path = $('edPath').value.trim() || edCurrentPath;
-    if (!path) return addMsg('err', 'set a path to save to');
     initEditor();
-    fetch('/api/file', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ path, content: cmEditor.getValue() }) })
-      .then((r) => r.json()).then((f) => {
-        if (f.error) return addMsg('err', f.error);
-        edClean = cmEditor.getValue(); edCurrentPath = f.path; $('edName').textContent = f.name;
-        $('edDirty').textContent = 'saved ✓';
-        setTimeout(() => { if ($('edDirty').textContent === 'saved ✓') $('edDirty').textContent = ''; }, 1500);
-      }).catch((e) => { console.warn('[atlan]', e); });
+    saveTo($('edPath').value.trim() || edCurrentPath, cmEditor.getValue(), edUI);
   });
   $('edTree').addEventListener('click', () => {
     const box = $('edTreeBox');
@@ -816,8 +837,21 @@
   });
 
   // ── preview ──
-  const PROXY = `http://${location.hostname}:4590/`;
-  const PREVIEW_ORIGIN = `http://${location.hostname}:4590`;
+  // Every port here is CONFIG, never a constant — see lib/previewurl.js.
+  //
+  // Two separate incidents landed on this same line. With :4590 baked in, any
+  // ATLAN_PREVIEW_PORT override (or the test harness) pointed the iframe at a
+  // dead port AND made the origin check below silently drop every console
+  // message and snapshot. And with the scheme baked in, an http frame inside an
+  // https page was blocked as mixed content, which is why preview could never
+  // load on a phone. previewUrl() answers both, and when it cannot answer
+  // honestly it returns null plus the setting that fixes it rather than
+  // guessing a port that was right for exactly one machine.
+  let PROXY = null, PREVIEW_ORIGIN = null, previewWhy = null;
+  function resolvePreviewUrl(cfg) {
+    const r = previewUrl({ protocol: location.protocol, hostname: location.hostname, port: cfg?.previewPort, tlsPort: cfg?.previewTlsPort });
+    PROXY = r.url; PREVIEW_ORIGIN = r.origin; previewWhy = r.why;
+  }
   let errCount = 0;
   function loadPreview() {
     fetch('/api/preview/target', {
@@ -826,25 +860,14 @@
       body: JSON.stringify({ url: $('previewUrl').value.trim() }),
     }).then((r) => r.json()).then((j) => {
       if (j.error) return addConsoleLine('error', j.error);
+      if (!PROXY) return addConsoleLine('error', previewWhy); // says what to configure, never a blank frame
       $('previewFrame').src = PROXY + '?t=' + Date.now();
     }).catch(() => addConsoleLine('error', 'cockpit server unreachable'));
   }
   $('previewGo').addEventListener('click', loadPreview);
   $('previewUrl').addEventListener('keydown', (e) => { if (e.key === 'Enter') loadPreview(); });
 
-  function addConsoleLine(level, text) {
-    const box = $('previewConsole');
-    if (box.firstChild?.classList?.contains('hint')) box.innerHTML = '';
-    const div = document.createElement('div');
-    div.className = 'cl ' + level;
-    const t = document.createElement('span');
-    t.className = 'ct';
-    t.textContent = new Date().toLocaleTimeString([], { hour12: false });
-    div.append(t, document.createTextNode(text));
-    box.append(div);
-    while (box.children.length > 80) box.firstChild.remove();
-    box.scrollTop = box.scrollHeight;
-  }
+  const addConsoleLine = (level, text) => appendConsoleLine($('previewConsole'), level, text);
   $('consoleClear').addEventListener('click', () => { $('previewConsole').innerHTML = ''; errCount = 0; updateSeen(); });
 
   window.addEventListener('message', (e) => {
@@ -883,12 +906,8 @@
 
   // ── fleet ──
   const fleetRuns = new Map(); // id → run (server state mirrored here)
+  const fleetIO = { onError: (m) => addMsg('err', m) }; // lib/fleetactions.js talks back through this
   let profilesLoaded = false;
-  const fmtTok = (n) => n >= 1000 ? (n / 1000).toFixed(n >= 100000 ? 0 : 1) + 'k' : String(n ?? 0);
-  const STATUS_LABEL = {
-    running: 'running', done: 'done', 'halted-budget': 'BUDGET HALT',
-    killed: 'killed', error: 'error',
-  };
 
   function loadFleet() {
     setFleetBadge(0);
@@ -930,17 +949,9 @@
     chatlog.append(line); scroll();
   }
 
-  function paintBurnToday(t) {
-    // Tokens are the real currency on a Claude subscription (they meter your
-    // plan's usage limits). The dollar figure is the SDK's ESTIMATE at public
-    // API rates — a gauge of work done, NOT a charge on a Pro/Max plan. Label
-    // it honestly so it never reads as money leaving the account. cacheRead =
-    // input tokens served from the prompt cache at ~0.1x — the caching win,
-    // shown so the savings are visible.
-    const cache = t.cacheRead ? ` · ${fmtTok(t.cacheRead)} cached` : '';
-    const s = `burn today: ${fmtTok(t.tokens)} fresh tok${cache} · ≈$${(t.cost ?? 0).toFixed(2)} API-equiv`;
-    $('burnMeta').textContent = t.tokens ? s : '';
-  }
+  // Why this line is worded the way it is — tokens as the real currency, the
+  // dollar figure as an ESTIMATE and not a charge — lives with burnLine().
+  function paintBurnToday(t) { $('burnMeta').textContent = t.tokens ? burnLine(t) : ''; }
 
   function upsertRun(run) {
     fleetRuns.set(run.id, run);
@@ -965,36 +976,24 @@
         <div class="rlast"></div>
         <button class="btn hot rtopup">▲ top up +100k tok & resume</button>
         <pre class="rresult"></pre>`;
-      card.querySelector('.rtopup').addEventListener('click', (e) => { e.stopPropagation(); topUp(r.id); });
+      card.querySelector('.rtopup').addEventListener('click', (e) => { e.stopPropagation(); topUp(r.id, e.currentTarget, fleetIO); });
       card.querySelector('.rwho').textContent = `${r.profile} · ${r.model.replace('claude-', '').replace(/-\d{8}$/, '')}`;
       card.querySelector('.rprompt').textContent = r.prompt;
-      card.querySelector('.rkill').addEventListener('click', (e) => {
-        e.stopPropagation();
-        fetch('/api/fleet/kill', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: r.id }) });
-      });
+      card.querySelector('.rkill').addEventListener('click', (e) => { e.stopPropagation(); sendKill(r.id, fleetIO); });
       card.addEventListener('click', () => card.classList.toggle('open'));
       box.append(card);
       paintRun(fleetRuns.get(r.id));
     }
   }
 
-  function topUp(id) {
-    fetch('/api/fleet/topup', {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ id, extra: 100000 }),
-    }).then((r) => r.json()).then((j) => { if (j.error) addMsg('err', j.error); })
-      .catch(() => addMsg('err', 'cockpit server unreachable'));
-  }
-
   function paintRun(r) {
     const card = document.querySelector(`.runcard[data-id="${r.id}"]`);
     if (!card) return;
     card.className = 'runcard st-' + r.status + (card.classList.contains('open') ? ' open' : '');
-    card.querySelector('.rstatus').textContent = STATUS_LABEL[r.status] ?? r.status;
+    card.querySelector('.rstatus').textContent = statusLabel(r.status);
     card.querySelector('.rkill').style.display = r.status === 'running' ? '' : 'none';
     card.querySelector('.burn i').style.width = Math.min(100, (r.tokens / r.budget) * 100) + '%';
-    card.querySelector('.rmeta').textContent =
-      `${fmtTok(r.tokens)} / ${fmtTok(r.budget)} tok${r.cacheRead ? ` · ${fmtTok(r.cacheRead)} cached` : ''}${r.cost ? ` · ≈$${r.cost.toFixed(4)}` : ''}${r.denials ? ` · ${r.denials} denied` : ''}`;
+    card.querySelector('.rmeta').textContent = runMetaLine(r);
     card.querySelector('.rlast').textContent = r.lastLine ?? '';
     card.querySelector('.rtopup').style.display = r.resumable ? '' : 'none';
     card.querySelector('.rresult').textContent = r.resultText ?? '';
@@ -1024,11 +1023,7 @@
       addMsg('err', 'push setup failed: ' + err.message);
     }
   }
-  function urlB64ToU8(s) {
-    const pad = '='.repeat((4 - (s.length % 4)) % 4);
-    const raw = atob((s + pad).replace(/-/g, '+').replace(/_/g, '/'));
-    return Uint8Array.from(raw, (c) => c.charCodeAt(0));
-  }
+  const urlB64ToU8 = urlBase64ToUint8Array; // lib/text.js — unit-tested
   $('pushBtn').addEventListener('click', enablePush);
 
   $('fleetSpawn').addEventListener('click', () => {
@@ -1050,9 +1045,7 @@
     }).catch(() => addMsg('err', 'cockpit server unreachable'));
   });
 
-  $('fleetKillAll').addEventListener('click', () => {
-    fetch('/api/fleet/kill', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: 'all' }) });
-  });
+  $('fleetKillAll').addEventListener('click', () => sendKill('all', fleetIO));
 
   // ── Inline AI edit (helis-d, Tier-2) ──
   // Proposes a replacement into the CodeMirror buffer. Nothing writes disk —
@@ -1174,15 +1167,7 @@
     });
     return row;
   }
-  function gitColorDiff(diff) {
-    if (!diff) return '<span class="diff-context">(no changes)</span>';
-    return diff.split('\n').map((l) => {
-      const cls = l.startsWith('@@') ? 'diff-hdr'
-        : (l.startsWith('+') && !l.startsWith('+++')) ? 'diff-add'
-          : (l.startsWith('-') && !l.startsWith('---')) ? 'diff-del' : 'diff-context';
-      return `<span class="${cls}">${escapeHtml(l)}</span>`;
-    }).join('\n');
-  }
+  const gitColorDiff = colorDiffHtml; // lib/text.js — unit-tested in test/weblib.mjs
   $('gitRefresh')?.addEventListener('click', gitRefresh);
   $('gitStageBtn')?.addEventListener('click', () => {
     if (!gitActiveFile) return;
@@ -1460,7 +1445,7 @@
     const root = $('scanProjSel').value;
     if (!root) return;
     $('scanBtn').disabled = true;
-    $('scanMeta').textContent = 'scanning ' + (root.split('/').pop() || root) + ' …';
+    $('scanMeta').textContent = 'scanning ' + (root.split(/[\\/]/).pop() || root) + ' …';
     $('scanList').innerHTML = '';
     fetch('/api/scan?path=' + encodeURIComponent(root)).then((r) => r.json()).then((res) => {
       $('scanBtn').disabled = false;
@@ -1507,15 +1492,11 @@
   function openScanFinding(root, relFile, line) {
     const abs = root.replace(/\/$/, '') + '/' + relFile;
     document.querySelector('nav button[data-s="s-editor"]')?.click();
-    fetch('/api/file?path=' + encodeURIComponent(abs)).then((r) => r.json()).then((f) => {
-      if (f.error) return addMsg('err', f.error);
-      initEditor();
-      cmEditor.setValue(f.content); edClean = f.content; edCurrentPath = f.path;
-      $('edName').textContent = f.name; $('edPath').value = f.path; $('edDirty').textContent = '';
-      edMode(f.name);
+    openInto(abs, edUI).then((f) => {
+      if (!f) return; // declined, or unreadable — edUI.fail already said so
       if (line) { const ln = Math.max(0, line - 1); cmEditor.setCursor({ line: ln, ch: 0 }); cmEditor.scrollIntoView({ line: ln, ch: 0 }, 120); }
       cmEditor.refresh(); cmEditor.focus();
-    }).catch(() => {});
+    });
   }
 
   // ── fleet sub-nav: Runs | Routines | Builder ──
@@ -1909,18 +1890,7 @@
       box.append(card);
     }
   }
-  const LINK_ROW = () => {
-    const cmdOpts = hierCommands.map((c) => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.name)}</option>`).join('');
-    const tierChecks = hierTiers.map((t) => `<label class="ck"><input type="checkbox" data-tier="${t.id}" checked>${t.id}</label>`).join('');
-    return `<div class="linkedit">
-      <input data-k="id" placeholder="link id (e.g. extract)">
-      <select data-k="commandId">${cmdOpts}</select>
-      <input data-k="inputsFrom" placeholder="inputs from (comma: job.input, extract.field)">
-      <div class="tierrow">start:<select data-k="startTier">${hierTiers.map((t) => `<option value="${escapeHtml(t.id)}">${escapeHtml(t.id)}</option>`).join('')}</select>
-        ladder: ${tierChecks}
-        <select data-k="onCheckerFail"><option value="escalate">escalate</option><option value="human">ask me</option><option value="halt">halt</option></select></div>
-      <button class="btn ghost linkdel">✖ link</button></div>`;
-  };
+  const LINK_ROW = () => linkRowHtml(hierCommands, hierTiers);
   function addLinkRow(data) {
     const wrap = document.createElement('div');
     wrap.innerHTML = LINK_ROW();
@@ -1943,7 +1913,10 @@
     $('jobGate').value = jb?.humanGate ?? 'on-tier3';
     $('jobBudget').value = String(jb?.budget ?? 200000);
     $('linkRows').innerHTML = '';
-    (jb?.links ?? [{}]).forEach(addLinkRow);
+    // null, not {} — {} is truthy, so it took addLinkRow's "restore a saved
+    // link" branch and set commandId '' on a <select> with no empty option,
+    // blanking the picker. null takes the ＋ link path, which never had this.
+    (jb?.links?.length ? jb.links : [null]).forEach(addLinkRow);
   }
   $('jobNewBtn').addEventListener('click', () => editJob(null));
   $('jobCancel').addEventListener('click', () => { $('jobForm').style.display = 'none'; jobEditing = null; });
@@ -2018,6 +1991,10 @@
     setTimeout(() => layer.remove(), 4200);
   }
 
+  // Ask the server where the preview lives before anything can open it. On
+  // failure previewUrl() still returns the http answer, so a cockpit on plain
+  // loopback keeps working even if this request never lands.
+  fetch('/api/config').then((r) => r.json()).then(resolvePreviewUrl).catch(() => resolvePreviewUrl(null));
   connect();
   greet();
   initVoice();

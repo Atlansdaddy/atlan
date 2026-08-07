@@ -66,14 +66,32 @@ await test('Fleet tab: profiles load, spawn form + KILL ALL present', async () =
   await page.locator('nav button:has-text("Chat")').click();
 });
 
-await test('engine switcher has all four groups populated', async () => {
+await test('engine switcher has all five groups POPULATED', async () => {
+  // Said "four groups" until 2026-08-04, after the Escalate/ladder group shipped
+  // — so the new group could have rendered empty and nothing would have noticed.
+  // Every group is now checked for CONTENT, not just presence: an optgroup with
+  // zero options is exactly the vacuous pass this repo hunts.
   const groups = await page.locator('#modelSel optgroup').evaluateAll((els) =>
     els.map((e) => ({ label: e.label, n: e.children.length })));
+  assert.equal(groups.length, 5, `expected 5 optgroups, got ${groups.length}: ${groups.map((g) => g.label).join(' | ')}`);
   const byLabel = Object.fromEntries(groups.map((g) => [g.label.split(' ')[0], g.n]));
   assert.ok(byLabel['Claude'] >= 4, 'missing Claude agents');
   assert.ok(groups.some((g) => g.label.startsWith('Agent') && g.n >= 2), 'missing agent CLIs');
   assert.ok(groups.some((g) => g.label.startsWith('On-phone')), 'missing local group');
   assert.ok(groups.some((g) => g.label.startsWith('Cloud')), 'missing cloud group');
+  const ladder = groups.find((g) => g.label.startsWith('Escalate'));
+  assert.ok(ladder, 'missing the Escalate/ladder group');
+  assert.ok(ladder.n >= 1, 'ladder group rendered EMPTY — /api/ladder failed or loadLadder() threw');
+});
+
+await test('the ladder option carries a real rung chain, not a placeholder', async () => {
+  // Guards the whole /api/ladder → loadLadder() → <option> path. A label with no
+  // arrow means the rungs never arrived and the option is decorative.
+  const o = await page.locator('#ogLadder option').first()
+    .evaluate((el) => ({ value: el.value, text: el.textContent, title: el.title }));
+  assert.equal(o.value, 'ladder|', 'ladder option must be selectable as engine "ladder"');
+  assert.match(o.text, /→/, 'label should chain the rungs, e.g. "Ladder · on-phone → Flash → Opus"');
+  assert.match(o.title, /free/i, 'tooltip must say which rungs are free — the phone-relevant fact');
 });
 
 await test('opus-4.8 is selectable', async () => {

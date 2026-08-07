@@ -4,6 +4,8 @@ import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { FLEET_DIR } from './config.js';
+import { agentStatus } from './agents.js';
+import { interactiveGate } from './enginePolicy.js';
 
 const sh = promisify(exec);
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -46,8 +48,30 @@ export async function runPreflight() {
   add('gitignore', 'Secrets git-ignored', covered.length === 0,
     covered.length ? 'missing from .gitignore: ' + covered.join(', ') : 'keys/secrets never committable');
 
-  add('permmode', 'Claude permission gate', true,
-    'sessions run permission-mode default — every dangerous tool asks you first');
+  // ── agent permission gates ──────────────────────────────────────────────
+  // This used to be `add('permmode', 'Claude permission gate', true, 'sessions
+  // run permission-mode default — every dangerous tool asks you first')` — a
+  // source-code literal that probed nothing, unlike every other check in this
+  // function. It was also false: agents.js launches Codex, Antigravity, Grok
+  // and Copilot with their approval systems switched off on EVERY interactive
+  // turn, so four of the five engines surface no permission card at all and a
+  // prompt-injected instruction routed through any of them executes with no
+  // human in the loop. Preflight is the one surface a user is told to check
+  // before deciding it is safe to expose the cockpit, and it was showing a
+  // green row asserting the opposite.
+  //
+  // Now it ASKS. `interactiveGate` is the same table agents.js reads to build
+  // its argv, so this row cannot drift from what actually launches, and
+  // `ready` from agentStatus() means "installed AND authenticated" — an engine
+  // that isn't there is not a live ungated path, and the check says so rather
+  // than blocking on a hypothetical.
+  const ungated = agentStatus()
+    .filter((a) => a.ready && interactiveGate(a.id)?.gated === false)
+    .map((a) => a.id);
+  add('permmode', 'Agent permission gates', ungated.length === 0,
+    ungated.length
+      ? `Claude chat turns are card-gated, but ${ungated.join(', ')} ${ungated.length > 1 ? 'are' : 'is'} installed and authenticated here and run${ungated.length > 1 ? '' : 's'} full-auto — exec-mode CLIs have no per-tool approval, so anything routed through ${ungated.length > 1 ? 'them' : 'it'} executes with NO human in the loop. Safe on a repo you trust; not safe to expose. Log out of ${ungated.length > 1 ? 'those CLIs' : 'that CLI'}, or keep this cockpit on loopback.`
+      : 'Claude chat turns are card-gated and no full-auto agent CLI is installed/authenticated here');
 
   // A SECURITY gate — it must FAIL CLOSED. The old form `pgrep … || true` +
   // catch{} reported "none detected" (GREEN) whenever pgrep itself couldn't run,
