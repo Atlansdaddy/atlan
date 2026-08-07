@@ -379,12 +379,22 @@ await test('atomicWrite PRESERVES the 0600 mode it is given', () => {
   assert.equal(statSync(f).mode & 0o777, 0o600);
 });
 
-await test('atomicWrite goes through a temp sibling and leaves none behind', () => {
+await test('atomicWrite REPLACES the file rather than truncating it in place', () => {
+  // The observable signature of temp+rename, and the one a direct
+  // writeFileSync(path, …) cannot fake: rename(2) swaps the directory entry, so
+  // the target gets a NEW inode and a reader holding the old one still sees a
+  // whole file. An in-place write truncates the SAME inode — which is exactly
+  // the torn-state failure the function's docstring says it exists to prevent,
+  // and which "the content is correct afterwards" cannot detect.
   const dir = scratch('atomic2');
   const f = join(dir, 'store.json');
   atomicWrite(f, '{"a":1}');
+  const first = statSync(f).ino;
+  atomicWrite(f, '{"a":2,"padding":"' + 'x'.repeat(200000) + '"}');
+  const second = statSync(f).ino;
+  assert.notEqual(second, first, 'the file was truncated in place — a crash mid-write leaves half a record');
   assert.equal(readdirSync(dir).length, 1, `a temp file was left behind: ${readdirSync(dir)}`);
-  assert.equal(readFileSync(f, 'utf8'), '{"a":1}');
+  assert.match(readFileSync(f, 'utf8'), /^\{"a":2/);
 });
 
 await test('a failed atomicWrite leaves the ORIGINAL intact and cleans its temp', () => {
@@ -858,14 +868,32 @@ const rawUpgrade = (port, headers) => new Promise((resolve) => {
   setTimeout(() => { sock.destroy(); done(); }, 1200);
 });
 
+// An upstream that WILL complete a WebSocket handshake. Without one, "no 101
+// came back" is true whether the gate refused or the proxy simply had nothing
+// to forward to — so the assertion could not tell a live gate from a dead one,
+// and the gate-off mutant escaped. The same-origin case below is the control
+// that makes the cross-origin case mean something.
+const upstream = http.createServer((_q, s) => { s.writeHead(200); s.end('ok'); });
+upstream.on('upgrade', (_q, socket) => {
+  socket.write('HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n');
+});
+await new Promise((r) => upstream.listen(0, '127.0.0.1', r));
+const UPSTREAM_PORT = upstream.address().port;
+await j(await api('/api/preview/target', { method: 'POST', body: JSON.stringify({ url: `http://127.0.0.1:${UPSTREAM_PORT}` }) }));
+
+await test('a SAME-origin WebSocket upgrade through the preview proxy still works', async () => {
+  const got = await rawUpgrade(PREVIEW_PORT, { Host: `127.0.0.1:${PREVIEW_PORT}`, Origin: `http://127.0.0.1:${PREVIEW_PORT}` });
+  assert.match(got, /HTTP\/1\.1 101/, `the legitimate HMR socket was blocked too: ${got.slice(0, 160)}`);
+});
+
 await test('a cross-site WebSocket upgrade into the preview proxy is dropped', async () => {
   const got = await rawUpgrade(PREVIEW_PORT, { Host: `127.0.0.1:${PREVIEW_PORT}`, Origin: 'http://evil.example' });
-  assert.ok(!/HTTP\/1\.1 101/.test(got), `the upgrade was ACCEPTED from a foreign origin: ${got.slice(0, 120)}`);
+  assert.ok(!/HTTP\/1\.1 101/.test(got), `the upgrade was ACCEPTED from a foreign origin: ${got.slice(0, 160)}`);
 });
 
 await test('a rebinding Host on the preview WS upgrade is dropped', async () => {
   const got = await rawUpgrade(PREVIEW_PORT, { Host: 'attacker.example', Origin: `http://127.0.0.1:${PREVIEW_PORT}` });
-  assert.ok(!/HTTP\/1\.1 101/.test(got), `the upgrade was ACCEPTED for a foreign Host: ${got.slice(0, 120)}`);
+  assert.ok(!/HTTP\/1\.1 101/.test(got), `the upgrade was ACCEPTED for a foreign Host: ${got.slice(0, 160)}`);
 });
 
 await test('the HTTP path of the same gate is still closed', async () => {
@@ -904,6 +932,7 @@ await test('every interactive-gate flag the check reports is the flag agents.js 
 });
 
 // ── teardown ──────────────────────────────────────────────────────────────
+upstream.close();
 server.kill();
 try { execFileSync('pkill', ['-f', join(STATE, 'fakebin')]); } catch { /* nothing left */ }
 rmSync(STATE, { recursive: true, force: true });
