@@ -20,6 +20,7 @@ _Free suites only. The E2E suite (real Claude runs) is opt-in — `RUN_PAID=1 no
 | Connection | Live WebSocket + PTY: authed connect, 4001 on bad token, malformed-frame survival, multi-client broadcast, tmux round-trip, reconnection. (Spawns 2 tiny killed runs.) | ✅ 6/6 |
 | Security/Penetration | Auth bypass, SSRF (preview + harness), secret exfiltration, path traversal, stored-XSS, oversized-body DoS, profile privilege-escalation. | ✅ 47/47 |
 | Walls | Every wall SECURITY.md claims, exercised by BEHAVIOUR rather than by grepping the source. A mutation pass found that the daily token cap, the concurrency cap, the budget clamp, the in-flight reservation, scout's canUseTool, the preview proxy's WS-upgrade gate, atomicWrite's 0600 and temp+rename, the failed-login throttle, session revocation, the session store's freedom from replayable tokens and scrubbedEnv's explicit DROP list could all be neutered with the whole gate still green — because the assertions read the source text instead of making the thing happen. Boots its OWN cockpit (it changes the password and SIGKILLs the process), and covers the orphaned-child, corrupt-store, silent-exit and scheduler classes the same way. | ✅ 51/51 |
+| Security Spine | The OS sandbox and credential blindness, attacked with the real kernel: 24 filesystem-escape spellings, 22 ways of reading a masked credential, /proc scrape of parent and siblings, egress + the cockpit's own loopback port, fail-closed refusal, and the honest limits (hardlink bypass, re-encoded secrets) asserted so they cannot change silently. | ✅ 122/122 |
 | Adversarial | Malformed/oversized/hostile input across all surfaces; profile tool-blocking; preflight honesty. | ✅ 32/32 |
 | Worker Hierarchy | Job = chain of checker-gated links; cheapest-tier-first, escalate-on-fail up the model ladder, blackboard wiring, human gate pause/resume, ladder-exhaustion error. Mock tier engines — no real spend. | ✅ 7/7 |
 | Attachments | Upload (image/file) + reference (file/folder) + path-traversal guard + oversize/empty reject + audio/video graceful degradation without a key. | ✅ 7/7 |
@@ -34,7 +35,7 @@ _Free suites only. The E2E suite (real Claude runs) is opt-in — `RUN_PAID=1 no
 | Tour/Onboarding | Drives all tour steps live — every step spotlights a real visible element; handbook opens/searches/relaunches. | ✅ 10/10 |
 | UI · Fleet | Every Fleet control driven at 412x900: top-up cannot be double-tapped into a double-spend, a kill that fails is reported, the header burn gauge moves while a run burns, Hierarchy job links come with a command selected, and Builder rows stay wide enough to type into. First of the five per-surface specs to reach zero — the rest join as their surfaces are fixed (docs/UI-AUDIT.md). | ✅ 29/29 |
 
-**Total: 528 passed, 0 failed across 22 suites.**
+**Total: 650 passed, 0 failed across 23 suites.**
 
 ## Unit
 
@@ -445,6 +446,159 @@ WALLS — behavioural, never source-text
   ✓ every interactive-gate flag the check reports is the flag agents.js actually passes
 
 51 passed, 0 failed
+```
+
+## Security Spine
+
+The OS sandbox and credential blindness, attacked with the real kernel: 24 filesystem-escape spellings, 22 ways of reading a masked credential, /proc scrape of parent and siblings, egress + the cockpit's own loopback port, fail-closed refusal, and the honest limits (hardlink bypass, re-encoded secrets) asserted so they cannot change silently.
+
+```
+$ node test/sandbox.mjs
+SECURITY SPINE SUITE (OS sandbox + credential blindness)
+
+── A. filesystem fence: escape by every spelling ──
+  ✓ workspace itself is writable (a fence that blocks everything is broken, not safe)
+  ✓ write escape refused: plain-absolute
+  ✓ write escape refused: dotdot-relative
+  ✓ write escape refused: dotdot-deep
+  ✓ write escape refused: double-slash
+  ✓ write escape refused: dot-segments
+  ✓ write escape refused: trailing-dot-dir
+  ✓ write escape refused: home
+  ✓ write escape refused: etc
+  ✓ write escape refused: usr-bin
+  ✓ write escape refused: proc-sysrq
+  ✓ write escape refused: unicode-name
+  ✓ write escape refused: newline-in-name
+  ✓ write escape refused: overwrite-existing
+  ✓ write escape refused: delete-outside
+  ✓ write escape refused: rename-outside
+  ✓ write escape refused: chmod-outside
+  ✓ write escape refused: append-outside
+  ✓ write escape refused: truncate-outside
+  ✓ write escape refused: mkdir-outside
+  ✓ write escape refused: symlink-then-write
+  ✓ write escape refused: symlink-to-file
+  ✓ write escape refused: tee-outside
+  ✓ write escape refused: dd-outside
+  ✓ write escape refused: cp-outside
+  ✓ the HOST tree is byte-identical after every escape attempt
+  ✓ the run's own writes DO land on the host (isolation must not be a black hole)
+
+── B. credential blindness: filesystem ──
+  ✓ credential unreadable: cat-absolute
+  ✓ credential unreadable: cat-relative
+  ✓ credential unreadable: cat-dotdot
+  ✓ credential unreadable: cat-double-slash
+  ✓ credential unreadable: cat-dot-segment
+  ✓ credential unreadable: head
+  ✓ credential unreadable: dd
+  ✓ credential unreadable: od
+  ✓ credential unreadable: grep
+  ✓ credential unreadable: wc-then-read
+  ✓ credential unreadable: via-symlink
+  ✓ credential unreadable: via-symlink-chain
+  ✓ credential unreadable: find-exec
+  ✓ credential unreadable: ssh-key-in-masked-dir
+  ✓ credential unreadable: ls-masked-dir
+  ✓ credential unreadable: glob-masked-dir
+  ✓ credential unreadable: node-readfile
+  ✓ credential unreadable: node-openfd
+  ✓ credential unreadable: after-umount
+  ✓ credential unreadable: after-remount-rw
+  ✓ credential unreadable: after-nested-userns
+  ✓ credential unreadable: after-chroot
+  ✓ a credential path that does not exist cannot be CREATED inside the run
+  ✓ a credential under TMPDIR is handled, not fatal (the private /tmp shadows it first)
+  ✓ masking is not a mutation: the credential is intact on the host afterwards
+
+── C. credential blindness: environment ──
+  ✓ childEnv is an ALLOWLIST — no credential-shaped or unknown variable survives
+  ✓ childEnv keeps exactly what a CLI needs to run at all
+  ✓ childEnv drops NODE_OPTIONS — code execution, and no credential denylist would catch it
+  ✓ childEnv drops SSH_AUTH_SOCK — an agent socket is a credential with no key-shaped name
+  ✓ grant adds exactly one provider key and nothing adjacent
+  ✓ grant ignores empty/null values rather than exporting an empty credential
+  ✓ shell + pager history are pointed at /dev/null
+  ✓ ENV_ALLOW itself contains no credential-bearing name (guards against a careless addition)
+  ✓ the confined child's OWN /proc/self/environ holds no credential
+  ✓ MEASURED LIMIT: delete process.env does NOT scrub /proc/self/environ (why masking exists)
+
+── D. /proc scrape of parent and siblings ──
+  ✓ sibling /proc/<pid>/environ is unreachable
+  ✓ sibling /proc/<pid>/cmdline is unreachable
+  ✓ sibling /proc/<pid>/fd is unreachable
+  ✓ sibling /proc/<pid>/cwd is unreachable
+  ✓ the COCKPIT process is not in /proc at all
+  ✓ only the run's own processes are visible
+  ✓ PID 1 inside is the run itself, not the host init
+  ✓ a blind sweep of every readable /proc/*/environ yields no credential
+
+── E. network egress ──
+  ✓ net:none — outbound internet is unreachable
+  ✓ net:none — the cockpit's own loopback port is unreachable (the 2026-08-04 vector)
+  ✓ net:none — IPv6 loopback is unreachable too
+  ✓ net:none — DNS resolution fails
+  ✓ net:none — curl to the cockpit fails
+  ✓ net:none — the namespace has only loopback, no host interface
+  ✓ CONTROL: the same listener IS reachable under net:shared (so the block above is real)
+  ✓ net:shared reports network as NOT enforced — no quiet claim of an egress gate
+
+── F. fail-closed behaviour ──
+  ✓ a required control the host cannot prove ⇒ THROWS and spawns nothing
+  ✓ a nonexistent writable path is a refusal, not a silently created hole
+  ✓ a relative writable path is refused (it would mean something different inside)
+  ✓ a path containing a newline or NUL is refused rather than quoted-and-hoped
+  ✓ unconfinedSpawn refuses without an explicit acknowledgement
+  ✓ an acknowledged unconfined child is LABELLED enforced:false with a reason
+  ✓ a confined child is LABELLED enforced:true and carries the kernel's evidence
+  ✓ a workspace given as a SYMLINK is resolved, so the real directory is the writable one
+  ✓ the child's exit code reaches the parent through unshare + setpriv
+
+── J. regressions from the three adversarial reviews ──
+  ✓ LAYER 1: a writable mount whose path contains a SPACE is not a hole
+  ✓ LAYER 1: an UNDECLARED writable mount refuses the run outright
+  ✓ LAYER 2: an UNLISTED credential under HOME is invisible (allowlist, not denylist)
+  ✓ LAYER 2: ~/.gitconfig still reaches the child, or every agent commit is authorless
+  ✓ LAYER 3: filesystem unix sockets are gone — a netns does not isolate them
+  ✓ LAYER 3: an UNDECLARED parent unix socket is unreachable from net:none
+  ✓ KNOWN GAP, asserted: a socket INSIDE a declared path is connectable, read-only or not
+  ✓ LAYER 3: an inherited socket fd is refused — egress the namespace cannot see
+  ✓ LAYER 3: an empty `require` list is refused, not stamped enforced:true
+  ✓ LAYER 3: the probe proves the mask MOUNT exists, not just that a read came back empty
+  ✓ shadowed and masked are DISTINGUISHABLE — the fact the verdict above relies on
+  ✓ the credentials verdict DECIDES on the mask mount, not only reports it
+  ✓ the net:none verdict DECIDES on the unix-socket count, not only reports it
+  ✓ the confinement script is not truncated (a backtick in a comment ends the template)
+
+── G. credential inventory and preconditions ──
+  ✓ credentialTargets is derived from HOME and appRoot — no hardcoded path or username
+  ✓ the cockpit token — the file the 2026-08-04 incident read — is in the mask set
+  ✓ every vendor store except the running engine's is masked
+  ✓ shell history files are treated as credential stores
+  ✓ preflight DETECTS a planted hardlink — the one bypass a path mask cannot cover
+  ✓ KNOWN GAP, asserted so it cannot silently change: a hardlink DOES bypass the mask
+  ✓ the launcher ENFORCES the hardlink precondition under strict, not just reports it
+  ✓ preflight flags a credential readable beyond its owner
+  ✓ preflight is silent about paths that do not exist
+
+── H. indirect readback (logs, tool results, error messages) ──
+  ✓ redactor removes the exact value wherever it appears
+  ✓ redactor prefers the longest value, so an overlapping secret is not half-left
+  ✓ redactor ignores values too short to redact without shredding ordinary text
+  ✓ redactor tolerates empty/non-string input without throwing
+  ✓ HONEST LIMIT, asserted: a re-encoded secret passes the redactor untouched
+
+── I. the capability probe is behavioural, not declarative ──
+  ✓ sandbox.js consults NO capability flag file
+  ✓ every probe verdict carries evidence, whichever way it went
+  ✓ the probe tests the SHIPPED construction (same argv builder as confinedSpawn)
+  ✓ net:none adds a network namespace and net:shared does not
+  ✓ confinementReport says plainly what this host can and cannot do
+  ✓ NO SILENT SKIPPING: a host that CAN do namespaces must get full coverage
+  ✓ HOST HONESTY: the suite reported its own coverage truthfully
+
+122 passed, 0 failed
 ```
 
 ## Adversarial
