@@ -24,7 +24,7 @@
 
 import { probe } from './probe.js';
 import { plan } from './plan.js';
-import { assertTier, rank, TierRefusal } from './tiers.js';
+import { assertTier, isTier, TierRefusal } from './tiers.js';
 
 export { TierRefusal };
 
@@ -43,7 +43,8 @@ export function establish(declared) {
  * swappable between resolution and read.
  */
 export function confineSpawn({ declared, cmd, args, cwd, engine = null }) {
-  if (rank(declared) < rank('T1')) return null; // T0 = the caller spawns as before
+  if (!isTier(declared)) throw new TierRefusal(`unknown declared tier: ${declared}`, { declared, established: null });
+  if (declared === 'T0') return null; // T0 = the caller spawns as before
   const v = establish(declared);
   const p = plan({ declared, insertionPoint: 'ip1-agent-cli', workspace: cwd, engine, bins: [cmd] });
   return {
@@ -68,7 +69,8 @@ const shq = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
  * Returns null at T0 so the caller keeps today's behaviour verbatim.
  */
 export function confineBash({ declared, command, cwd }) {
-  if (rank(declared) < rank('T1')) return null;
+  if (!isTier(declared)) throw new TierRefusal(`unknown declared tier: ${declared}`, { declared, established: null });
+  if (declared === 'T0') return null;
   const v = establish(declared);
   const p = plan({ declared, insertionPoint: 'ip2-sdk-bash', workspace: cwd, engine: null, bins: [] });
   // Semicolons stand in for newlines: the policy has to survive one trip through

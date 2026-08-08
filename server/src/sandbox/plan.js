@@ -31,7 +31,7 @@ import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { APP_ROOT } from '../config.js';
 import { guardPath, isSensitive, isUnder } from '../guards.js';
-import { rank } from './tiers.js';
+import { FLOOR_RUNG, tierRequires } from './tiers.js';
 
 // Each engine's own store, keyed the way agents.js keys engines. Not a second
 // credential list — every entry here must ALSO be matched by guards.js's
@@ -155,14 +155,19 @@ export function assertGrantsSafe({ ro = [], rw = [], workspace = null, engine = 
  * @returns {{policy:string, confinement:object, ro:string[], rw:string[]}}
  */
 export function plan({ declared, insertionPoint, workspace, engine = null, bins = [], home = homedir() }) {
-  const wantFs = rank(declared) >= rank('T3');
+  // ASK WHAT THE TIER REQUIRES, NEVER WHERE IT SITS. A magnitude test was right
+  // while the ladder was a line and became unwritable the moment TS existed: it
+  // requires the egress rung and not the deny-set rung, so no integer puts it in
+  // the right place relative to T1. Naming the rung is also self-documenting —
+  // `>= T3` needed the reader to know what T3 meant.
+  const wantFs = tierRequires(declared, 'landlock-canary');
   // THE SPLIT THAT IS THE ARCHITECTURE. The process that must reach
   // api.<provider>.com and the process that must not read ~/.ssh are, for an
   // agent CLI, THE SAME PROCESS. Denying AF_INET at IP-1 does not narrow egress,
   // it stops the agent thinking. At IP-2 the process is a shell the agent asked
   // for, which has no legitimate reason to open a socket at all — so that is
   // where the first real egress boundary Atlan has ever had actually goes.
-  const denyEgress = insertionPoint === 'ip2-sdk-bash' && rank(declared) >= rank('T2');
+  const denyEgress = insertionPoint === 'ip2-sdk-bash' && tierRequires(declared, 'egress-denial');
 
   const ro = [];
   const rw = [];
@@ -215,7 +220,7 @@ export function plan({ declared, insertionPoint, workspace, engine = null, bins 
       // they reach anywhere — an agent CLI's provider connection is a channel we
       // blessed, and calling it gated would be the lie this file exists to avoid.
       egress: denyEgress ? 'denied' : (insertionPoint === 'ip1-agent-cli' ? 'open-to-provider' : 'open'),
-      caps: rank(declared) >= rank('T1') ? 'removed' : 'none',
+      caps: tierRequires(declared, FLOOR_RUNG) ? 'removed' : 'none',
       probe: null,           // filled by the caller with the rung that certified the top tier
     },
   };

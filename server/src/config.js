@@ -2,6 +2,10 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
+// tiers.js imports nothing, so naming the tier vocabulary from here cannot make
+// a cycle — and the alternative is a second copy of the valid-tier list, which
+// is exactly how guards.js's credential list drifted and lost `.fleet`.
+import { isTier } from './sandbox/tiers.js';
 
 // One place for everything instance- or person-specific, so the code carries no
 // personal data and a fork = editing atlan.config.json (or env), never source.
@@ -122,42 +126,60 @@ export function confineMode() {
 // DEFAULT IS T0. It was briefly T1 on 2026-08-07 and that was WRONG — the
 // measurement behind it came from a context Atlan does not run in.
 //
-// The bare kernel numbers are good. 15/15 on the WSL2 node; 14/15 on a real
-// Android 15 kernel (6.6.30-android15, via adb), the single miss being Landlock,
-// which is absent until the android16-6.12 GKI. Egress denial passed there — a
-// genuine kernel-enforced boundary on the primary platform.
+// The bare kernel numbers are good. 16/16 on the WSL2 node; 14/15 on a real
+// Android 15 kernel (6.6.30-android15, via adb) on the ladder as it stood then,
+// the single miss being Landlock, which is absent until the android16-6.12 GKI.
+// Egress denial passed there — a genuine kernel-enforced boundary on the
+// primary platform.
 //
-// BUT ATLAN RUNS INSIDE PROOT ON THE PHONE, AND UNDER PROOT THE LADDER DROPS TO
-// 11/15. Measured, same binary, same box:
+// BUT ATLAN RUNS INSIDE PROOT ON THE PHONE. Under proot the same binary first
+// scored 11/15, because a ptrace supervisor VOIDS a syscall by rewriting its
+// number to a sentinel and our default-deny tail killed the process for it. That
+// is fixed — out-of-range numbers now get ENOSYS, in-range unlisted ones still
+// die — and the ladder under `proot -0` on this node is 14/16:
 //
 //   ✗ ptrace-arbitration   RET_TRACE returned 0/Success — something IS between
 //                          us and the kernel, which is exactly what this rung
 //                          exists to notice
-//   ✗ egress-denial        child killed by SIGSYS
-//   ✗ selftest-denyset     child killed by SIGSYS
-//   ✗ selftest-allowsanity child killed by SIGSYS
+//   ✗ selftest-denyset     ptrace was NOT denied by the real filter (ret 0)
 //
-// The last two are T1 rungs, so under proot a device establishes T0 and a T1
-// default would REFUSE EVERY RUN on the platform this project exists for. The
-// fail-closed design would have worked perfectly and the product would have been
-// unusable. PROOT_NO_SECCOMP=1 does not help (still 11/15), so it is the filter
-// STACKING, not proot's acceleration.
+// That is what THAT supervisor costs. It is not what every supervisor costs, and
+// assuming otherwise repeated the 2026-08-07 mistake in a subtler place.
 //
-// The mechanism, and the reason this is fixable rather than fatal: our filter's
-// tail is default-deny (rung14 proves it), and a ptrace supervisor makes the
-// traced child issue syscalls on proot's behalf that our allow-list never
-// listed. They hit the default-deny and die with SIGSYS. Composing with a
-// supervisor means the allow-list has to cover what the supervisor itself needs,
-// or the launcher has to detect arbitration and adapt. That is engineering work,
-// not a wall.
+// THE SUPERVISOR ON THE PHONE IS NOT THE ONE ON THIS NODE. WSL2 has Ubuntu's
+// proot 5.1.0. Termux ships its own fork, 5.1.107, whose source deliberately
+// fakes some syscalls and leaves others alone. Measured 2026-08-08 in the
+// emulator, Android 15 (kernel 6.6.30, x86_64), Termux's proot binary pulled
+// from the Termux repo and run with its own loader:
 //
-// Until then T0 is the honest default, and it is not a silent degrade: its UI
-// string says "This run was explicitly allowed to start ungated" in words.
-// Measure any device with `node test/phone-ladder.mjs` — run it INSIDE proot,
-// because that is where the agents are.
+//   bare        16 of 16 denials held
+//   under proot 16 of 16 denials held   — ptrace, chroot and setuid INCLUDED,
+//                                         while ptrace-arbitration still
+//                                         reported a tracer in the way
+//
+// So under the supervisor the phone actually runs, T1's rungs hold and the
+// device establishes T2 — not TS. TS remains a true description of a host whose
+// supervisor DOES take those denials, and the ladder picks it automatically on
+// such a host, because dominance is derived from measured rungs rather than from
+// a platform name. Nothing here declares which tier a phone gets.
+//
+// THE DEFAULT STILL DOES NOT MOVE. Everything above is an x86_64 EMULATOR in an
+// adb shell: not arm64, not a zygote-forked app process carrying Android's own
+// seccomp filter, and with no Samsung kernel or Knox in the picture — and a
+// vendor build can only be more restrictive, never less. Raising this is a
+// commit that carries a transcript from a real device, not a config change —
+// measure with `node test/phone-ladder.mjs`, run INSIDE proot and inside Termux,
+// because that is where the agents actually are.
+//
+// T0 is not a silent degrade: its UI string says "This run was explicitly
+// allowed to start ungated" in words.
 export function declaredTier() {
-  const t = process.env.ATLAN_CONFINE_TIER ?? file.confineTier ?? 'T0';
-  return /^T[0-3]$/.test(String(t)) ? String(t) : 'T0';
+  const t = String(process.env.ATLAN_CONFINE_TIER ?? file.confineTier ?? 'T0');
+  // isTier, never a regex over T0-T3. The regex this replaced silently mapped a
+  // deliberate `TS` to T0 — an operator on the primary platform would have asked
+  // for the one tier their device can hold and been given no confinement at all,
+  // with nothing in the logs to say so.
+  return isTier(t) ? t : 'T0';
 }
 
 // Branding / identity — neutral defaults; a fork sets its own (logo stays a file)

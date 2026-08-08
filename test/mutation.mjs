@@ -1,8 +1,8 @@
 // mutation.mjs — break each control on purpose, confirm its test goes red.
 //
 // NOT a suite and deliberately NOT registered in run-all.mjs: it EDITS THE
-// WORKING TREE (and restores it) and takes ~2 minutes. It is the receipt for
-// test/sandbox.mjs, run by hand:  node test/mutation.mjs
+// WORKING TREE (and restores it) and takes tens of minutes. It is the receipt
+// for the confinement suites, run by hand:  node test/mutation.mjs
 //
 // WHY IT EXISTS. A test that passes against broken code is worthless, and this
 // repo already carries the reason to distrust a green suite: three of eleven
@@ -86,14 +86,24 @@ const MUTANTS = [
   ['M16', C, 'the landlock rung drops its inside-the-grant half', 'denying everything would read as enforcing something',
     '  f = open(g_llinside, O_RDONLY);\n  if (f < 0) { snprintf(d, n, "scratch INSIDE the grant is not openable (%s) — that is breakage, not a boundary", strerror(errno)); return 1; }',
     '  f = open(g_llinside, O_RDONLY);\n  if (0) { return 1; }'],
-  ['M17', TI, 'ladder climbable from the middle', 'a broken floor with working egress would report T2',
-    '    if (!REQUIRES[t].every((id) => ok.has(id))) break;\n    top = t;',
-    '    if (REQUIRES[t].every((id) => ok.has(id))) top = t;'],
+  ['M17', TI, 'ladder climbable from the middle', 'a broken floor with working egress would report T3',
+    '  const satisfied = TIERS.filter((t) => REQUIRES[t].every((id) => ok.has(id)));',
+    '  const satisfied = TIERS.filter((t) => !REQUIRES[t].length || REQUIRES[t].some((id) => ok.has(id)));'],
   ['M18', TI, 'assertTier always passes', 'fail-closed itself',
-    '  if (rank(established) >= rank(declared)) return true;', '  return true;'],
+    '  if (dominates(established, declared)) return true;', '  return true;'],
+  ['M18b', TI, 'dominance becomes a magnitude comparison again',
+    'the whole reason the ladder is a partial order — TS would satisfy a run that declared T1, whose ptrace denial it cannot make true',
+    '  const have = new Set(REQUIRES[a]);\n  return REQUIRES[b].every((id) => have.has(id));',
+    '  return ladderIndex(a) >= ladderIndex(b);'],
+  ['M18c', TI, 'the supervised tier silently requires the rung a supervisor defeats',
+    'TS itself — the phone would fall back to T0 and every agent run would be refused',
+    "const SUPERVISOR_DEFEATS = ['selftest-denyset'];", 'const SUPERVISOR_DEFEATS = [];'],
+  ['M18d', TI, "T3 stops measuring the file door it claims to close",
+    'the only evidence behind "process isolation begins here" — the claim would rest on the grant list being read correctly, not on the kernel',
+    "'egress-denial', 'landlock-canary', 'sibling-memory'],", "'egress-denial', 'landlock-canary'],"],
   ['M19', TI, 'a missing rung counts as green', 'absence reads as a pass',
-    "      if (!r || !r.ok) return r ?? { n: 0, id, ok: false, detail: 'rung never ran, so nothing was proven' };",
-    '      if (r && !r.ok) return r;'],
+    "    if (!r || !r.ok) return r ?? { n: 0, id, ok: false, detail: 'rung never ran, so nothing was proven' };",
+    '    if (r && !r.ok) return r;'],
   ['M20', TI, 'the phone tier calls itself a sandbox', 'the one regression that would discredit everything else',
     '**This is capability removal plus containment against error. It is not a sandbox.**',
     '**This is a lightweight sandbox for the phone.**'],
@@ -105,8 +115,8 @@ const MUTANTS = [
     "  for (const r of ['/usr', '/bin', '/sbin', '/lib', '/lib64', '/opt', '/system', '/apex']) ro.add(r);",
     "  for (const r of ['/usr', '/bin', '/sbin', '/lib', '/lib64', '/opt', '/system', '/apex', '/etc', '/proc', '/dev']) ro.add(r);"],
   ['M24', PL, 'IP-1 egress denied too', 'the split that IS the architecture — the agent CLI stops being able to reach its model',
-    "  const denyEgress = insertionPoint === 'ip2-sdk-bash' && rank(declared) >= rank('T2');",
-    "  const denyEgress = rank(declared) >= rank('T2');"],
+    "  const denyEgress = insertionPoint === 'ip2-sdk-bash' && tierRequires(declared, 'egress-denial');",
+    "  const denyEgress = tierRequires(declared, 'egress-denial');"],
   ['M25', PL, 'workspace no longer goes through guards.js', 'PROJECTS_DIR scoping, APP_ROOT blocking and the realpath symlink check',
     "    guardPath(workspace, { mustExist: true, blockAppRoot: true, verb: 'grantable' });", '    void workspace;'],
   ['M26', PL, '/tmp granted again instead of a per-run scratch', 'a shared channel between concurrently confined agents',
@@ -123,10 +133,10 @@ const MUTANTS = [
     "const shq = (s) => `'${String(s).replace(/'/g, `'\\\\''`)}'`;", "const shq = (s) => `'${String(s)}'`;"],
   ['M31', CO, 'IP-2 silently skips confinement instead of refusing',
     'the fail-closed direction at the one insertion point that has a real egress boundary',
-    "export function confineBash({ declared, command, cwd }) {\n  if (rank(declared) < rank('T1')) return null;",
+    "export function confineBash({ declared, command, cwd }) {\n  if (!isTier(declared)) throw new TierRefusal(`unknown declared tier: ${declared}`, { declared, established: null });\n  if (declared === 'T0') return null;",
     'export function confineBash({ declared, command, cwd }) {\n  return null;'],
   ['M32', CO, 'IP-1 silently spawns unconfined instead of refusing', 'capability removal at the agent-CLI insertion point',
-    "export function confineSpawn({ declared, cmd, args, cwd, engine = null }) {\n  if (rank(declared) < rank('T1')) return null;",
+    "export function confineSpawn({ declared, cmd, args, cwd, engine = null }) {\n  if (!isTier(declared)) throw new TierRefusal(`unknown declared tier: ${declared}`, { declared, established: null });\n  if (declared === 'T0') return null; // T0 = the caller spawns as before",
     'export function confineSpawn({ declared, cmd, args, cwd, engine = null }) {\n  return null;'],
   ['M33', C, 'the policy accepts a path instead of only argv/fd',
     "the TOCTOU rule — the launcher's own configuration must not be swappable between resolution and read",
@@ -135,17 +145,31 @@ const MUTANTS = [
     '// tiers.js — the confinement ladder', '// tiers.js -- the confinement ladder'],
 ];
 
+// THE SUITES THIS IS A RECEIPT FOR. `test/phone-sandbox.mjs` is the one that
+// asserts the confinement controls; it used to be called test/sandbox.mjs, was
+// renamed, and a DIFFERENT suite (the security spine, added in d1c0b6f) took the
+// old name. This harness kept naming the string and silently started measuring
+// the wrong file — on 2026-08-08 it reported 30-odd ESCAPED mutants including
+// "default tail ALLOWs instead of killing", while re-running that same mutant
+// against phone-sandbox.mjs turned three assertions red immediately.
+//
+// A mutation harness pointed at the wrong suite is worse than none: it produces
+// a written record that the controls are untested. Hence the list, and hence the
+// baseline guard below refuses if ANY of them is red.
+const SUITES = ['test/phone-sandbox.mjs', 'test/sandbox.mjs', 'test/docdrift.mjs'];
 const run = (file) => spawnSync(process.execPath, [file], { cwd: REPO, encoding: 'utf8', timeout: 900000 });
-const redLines = (r) => (r.stdout + r.stderr).split('\n').filter((l) => l.trim().startsWith('✗'));
+const runAll = () => SUITES.map(run);
+const redLines = (rs) => rs.flatMap((r) => (r.stdout + r.stderr).split('\n').filter((l) => l.trim().startsWith('✗')));
+const anyRed = (rs) => rs.some((r) => r.status !== 0);
 
-console.log('MUTATION TEST — test/sandbox.mjs + test/docdrift.mjs\n');
-const b1 = run('test/sandbox.mjs'), b2 = run('test/docdrift.mjs');
-if (b1.status !== 0 || b2.status !== 0) {
+console.log(`MUTATION TEST — ${SUITES.join(' + ')}\n`);
+const base = runAll();
+if (anyRed(base)) {
   console.error('baseline is not green — refusing to mutation-test against a red suite');
-  console.error(redLines(b1).concat(redLines(b2)).join('\n'));
+  console.error(redLines(base).join('\n'));
   process.exit(2);
 }
-console.log(`baseline green (${(b1.stdout.match(/✓/g) || []).length} assertions)\n`);
+console.log(`baseline green (${base.reduce((n, r) => n + (r.stdout.match(/✓/g) || []).length, 0)} assertions)\n`);
 
 let caught = 0; const escaped = [];
 for (const [id, file, what, removes, oldS, newS] of MUTANTS) {
@@ -153,10 +177,10 @@ for (const [id, file, what, removes, oldS, newS] of MUTANTS) {
   const n = src.split(oldS).length - 1;
   if (n !== 1) { escaped.push([id, what, `ANCHOR MISS — ${n} occurrences, mutant never applied`]); console.log(`!!      ${id} ${what} — ANCHOR MISS`); continue; }
   writeFileSync(join(REPO, file), src.replace(oldS, newS));
-  const r1 = run('test/sandbox.mjs'), r2 = run('test/docdrift.mjs');
+  const rs = runAll();
   restore();
-  if (r1.status !== 0 || r2.status !== 0) {
-    const first = redLines(r1).concat(redLines(r2))[0] ?? '[no ✗ line — the suite failed hard]';
+  if (anyRed(rs)) {
+    const first = redLines(rs)[0] ?? '[no ✗ line — the suite failed hard]';
     console.log(`CAUGHT  ${id} ${what}\n        by:${first.replace(/^\s*/, ' ')}`.slice(0, 200));
     caught++;
   } else {

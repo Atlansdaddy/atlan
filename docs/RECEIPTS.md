@@ -18,8 +18,8 @@ _Free suites only. The E2E suite (real Claude runs) is opt-in — `RUN_PAID=1 no
 | Fleet Actions | The fleet buttons that spend money or stop work. Top-up disarms BEFORE the request, so a second tap cannot land in the gap and resume the same session on a second budget; it re-arms only when nothing was spent. Kill — per-run and fleet-wide — reports every way it can fail, because a kill that did not land must never look like one that did. | ✅ 13/13 |
 | Function | Every HTTP endpoint contract + shape, plus data-store durability (corrupt/truncated JSON fails soft). (Spawns 1 tiny killed run.) | ✅ 25/25 |
 | Connection | Live WebSocket + PTY: authed connect, 4001 on bad token, malformed-frame survival, multi-client broadcast, tmux round-trip, reconnection. (Spawns 2 tiny killed runs.) | ✅ 6/6 |
-| Proot ladder | The confinement ladder measured THROUGH a ptrace supervisor — the context Atlan actually runs in on a phone. Exists because the default tier was once raised to T1 on a bare-kernel measurement that was true and was not this environment: under proot the same binary loses two T1 rungs to SIGSYS, so a T1 default would have refused every agent run on the primary platform. Pins the rule that a tier measured without the supervisor is not a measurement of this product. | ✅ 6/6 |
-| Confinement tier | The homebuilt confinement layer, attacked rather than described: the 15-rung behavioural ladder run on THIS device, the full (declared, established) refusal matrix, the credential grant list, and per-control escapes — relative and symlink path escapes, TOCTOU grant swaps, static binaries, direct syscalls, unlisted syscalls, inherited descriptors, AF_UNIX and loopback egress. Compiles the real launcher and runs real processes under it; skips (counted, printed) on a device with no toolchain. | ✅ 99/99 |
+| Proot ladder | The confinement ladder measured THROUGH a ptrace supervisor — the context Atlan actually runs in on a phone. Exists because the default tier was once raised to T1 on a bare-kernel measurement that was true and was not this environment: under proot the same binary loses two T1 rungs to SIGSYS, so a T1 default would have refused every agent run on the primary platform. Pins the rule that a tier measured without the supervisor is not a measurement of this product. | ✅ 8/8 |
+| Confinement tier | The homebuilt confinement layer, attacked rather than described: the 15-rung behavioural ladder run on THIS device, the full (declared, established) refusal matrix, the credential grant list, and per-control escapes — relative and symlink path escapes, TOCTOU grant swaps, static binaries, direct syscalls, unlisted syscalls, inherited descriptors, AF_UNIX and loopback egress. Compiles the real launcher and runs real processes under it; skips (counted, printed) on a device with no toolchain. | ✅ 114/114 |
 | Security/Penetration | Auth bypass, SSRF (preview + harness), secret exfiltration, path traversal, stored-XSS, oversized-body DoS, profile privilege-escalation. | ✅ 47/47 |
 | Walls | Every wall SECURITY.md claims, exercised by BEHAVIOUR rather than by grepping the source. A mutation pass found that the daily token cap, the concurrency cap, the budget clamp, the in-flight reservation, scout's canUseTool, the preview proxy's WS-upgrade gate, atomicWrite's 0600 and temp+rename, the failed-login throttle, session revocation, the session store's freedom from replayable tokens and scrubbedEnv's explicit DROP list could all be neutered with the whole gate still green — because the assertions read the source text instead of making the thing happen. Boots its OWN cockpit (it changes the password and SIGKILLs the process), and covers the orphaned-child, corrupt-store, silent-exit and scheduler classes the same way. | ✅ 51/51 |
 | Security Spine | The OS sandbox and credential blindness, attacked with the real kernel: 24 filesystem-escape spellings, 22 ways of reading a masked credential, /proc scrape of parent and siblings, egress + the cockpit's own loopback port, fail-closed refusal, and the honest limits (hardlink bypass, re-encoded secrets) asserted so they cannot change silently. | ✅ 122/122 |
@@ -37,7 +37,7 @@ _Free suites only. The E2E suite (real Claude runs) is opt-in — `RUN_PAID=1 no
 | Tour/Onboarding | Drives all tour steps live — every step spotlights a real visible element; handbook opens/searches/relaunches. | ✅ 10/10 |
 | UI · Fleet | Every Fleet control driven at 412x900: top-up cannot be double-tapped into a double-spend, a kill that fails is reported, the header burn gauge moves while a run burns, Hierarchy job links come with a command selected, and Builder rows stay wide enough to type into. First of the five per-surface specs to reach zero — the rest join as their surfaces are fixed (docs/UI-AUDIT.md). | ✅ 29/29 |
 
-**Total: 757 passed, 0 failed across 25 suites.**
+**Total: 774 passed, 0 failed across 25 suites.**
 
 ## Unit
 
@@ -313,9 +313,11 @@ PROOT LADDER SUITE
   ✓ the supervisor measurably costs tiers, and the loss is visible
       T1 rungs missing under proot: selftest-denyset
   ✓ T1 is NOT establishable under proot on this host (why the default is T0)
+  ✓ but the supervised tier IS established under proot — the phone is not T0
+  ✓ the egress boundary — the one real kernel wall on a phone — survives the supervisor
   ✓ PROOT_NO_SECCOMP does not rescue it (so it is the stacking, not the acceleration)
 
-6 passed, 0 failed
+8 passed, 0 failed
 ```
 
 ## Confinement tier
@@ -332,7 +334,11 @@ SANDBOX / CONFINEMENT SUITE
   ✓ egress works but the floor is broken → still T0, not T2
   ✓ landlock alone does not grant T3 without egress
   ✓ an empty ladder is T0 — not-measured is not a capability
-  ✓ every (declared, established) pair: lower-or-equal passes, higher refuses
+  ✓ every (declared, established) pair: a tier passes exactly when it CONTAINS the declaration
+  ✓ TS and T1 are INCOMPARABLE in both directions — neither substitutes for the other
+  ✓ a device with a supervisor establishes TS, not T0 and not T1
+  ✓ a supervised device with NO Landlock still establishes TS — the real phone shape
+  ✓ the maximal established tier is never ambiguous, over EVERY possible ladder
   ✓ the refusal names the rung that said no, with its detail verbatim
   ✓ the refusal names the FIRST blocking rung, not the last
   ✓ a rung that never ran refuses too — absence is not a pass
@@ -345,6 +351,14 @@ SANDBOX / CONFINEMENT SUITE
   ✓ T2 refuses to call IP-1 egress gated and says whose connection stays open
   ✓ T3 carries its honest limits rather than only its claim
   ✓ T0 says out loud that it was explicitly allowed to start ungated
+  ✓ TS names the three denials it CANNOT make, rather than listing only what holds
+  ✓ TS still claims the egress boundary it really has — honesty is not self-deprecation
+  ✓ TS says agents are not isolated from EACH OTHER, and by which door
+  ✓ every tier below T3 discloses the /proc/<pid>/mem gap — none of them may imply isolation
+  ✓ no statement says a filter CANNOT close the file door — a checker refuted that, twice over
+  ✓ T3 claims process isolation ONLY because a rung measures it
+  ✓ the supervisor sentence does NOT generalise from one supervisor to all of them
+  ✓ no tier statement claims a particular platform establishes it
   ✓ the no-Landlock sentence distinguishes unavailable from disabled
   ✓ every tier has a label and a statement
 
@@ -365,7 +379,8 @@ SANDBOX / CONFINEMENT SUITE
 
 · policy emission
   ✓ IP-1 never denies egress, at ANY tier — the agent CLI is the model client
-  ✓ IP-2 denies egress from T2 up, and never calls it "gated"
+  ✓ IP-2 denies egress for every tier that REQUIRES the rung, and never calls it "gated"
+  ✓ TS gets the egress boundary — the phone tier is not a demotion of T1
   ✓ fs=landlock only from T3 — no tier silently implies a boundary it lacks
   ✓ a newline in a grant path is refused, never escaped
   ✓ the confinement record never redefines `boundary` — it is a separate object
@@ -383,6 +398,7 @@ SANDBOX / CONFINEMENT SUITE
   ✓ T1: ordinary work still runs (a too-tight allow-list must fail LOUD, and does not here)
   ✓ T1: node itself runs under the filter (the engines are node)
   ✓ T1: a DIRECT syscall bypasses no layer — ptrace via raw syscall is EPERM
+  ✓ T1: the file door into a sibling's MEMORY is open, and the statement says so because of this
   ✓ T1: an unlisted syscall is FATAL, not quietly EPERM (the tail is default-deny)
   ✓ T1: the filter survives execve and every fork after it
   ✓ T2: a shell cannot open a socket — internet
@@ -407,6 +423,7 @@ SANDBOX / CONFINEMENT SUITE
   ✓ T3: unicode and encoded path forms are not a bypass either
   ✓ T3: a partial read of a denied file yields nothing — the refusal is at open()
   ✓ T3: /proc/self/cwd does not walk out of the grant
+  ✓ T3: and the SAME door into a sibling's memory is shut — this is what T3 claims
   ✓ T3: a TOCTOU swap of the grant target does not widen it (grants are fd-attached at O_PATH)
   ✓ an unknown policy directive refuses rather than ignoring it
   ✓ fs=landlock with no grants refuses — denying everything is not enforcement
@@ -437,7 +454,7 @@ SANDBOX / CONFINEMENT SUITE
   ✓ IP-1 at T1 produces a process that ACTUALLY runs under the filter (end to end)
   ✓ establish() surfaces the rung that certified the top tier
 
-99 passed, 0 failed
+114 passed, 0 failed
 ```
 
 ## Security/Penetration

@@ -808,11 +808,40 @@ static int x_inherit(void) { errno = 0; marker(); return errno == EOWNERDEAD ? 0
  * PR_GET_NO_NEW_PRIVS is the observation that works everywhere. */
 static int x_nnp(void) { return prctl(PR_GET_NO_NEW_PRIVS, 0, 0, 0, 0) == 1 ? 0 : 1; }
 static int x_sock(void) { int s = socket(AF_INET, SOCK_STREAM, 0); if (s >= 0) { close(s); return 1; } return errno == EACCES ? 0 : 2; }
+/* ANDROID HAS NO /tmp, AND TWO RUNGS ASSUMED IT DID.
+ *
+ * Measured 2026-08-08 in the emulator: /tmp is absent on Android 10 and present
+ * on Android 15. Both `x_sane` and the Landlock canary fixture hardcoded it, so
+ * on Android 10 the sanity rung returned its mkstemp failure code and
+ * landlock-canary reported "could not build the canary fixture" — a device that
+ * establishes T0 for reasons that have nothing to do with its kernel. That is
+ * the worst kind of wrong answer this ladder can give: it under-reports the
+ * primary platform and blames the platform.
+ *
+ * TMPDIR is what Android gives instead (/data/local/tmp for a shell,
+ * $PREFIX/tmp under Termux). Only an absolute path is accepted — this runs
+ * before any confinement, so a relative or empty value is a malformed
+ * environment, not a location. */
+static const char *tmpbase(void) {
+  /* TMPDIR first — Termux sets it to $PREFIX/tmp, and inside an app that is the
+   * only writable scratch there is. But measured 2026-08-08: on Android 7.0 and
+   * 8.0 a shell has NO TMPDIR at all and no /tmp either, so a single fallback is
+   * not enough. The candidates are ATTEMPTED in order rather than assumed,
+   * which is the same rule the rest of this file follows about capabilities. */
+  const char *t = getenv("TMPDIR");
+  if (t && t[0] == '/' && access(t, W_OK | X_OK) == 0) return t;
+  static const char *cand[] = { "/data/local/tmp", "/tmp", "/var/tmp" };
+  for (unsigned i = 0; i < sizeof(cand) / sizeof(cand[0]); i++)
+    if (access(cand[i], W_OK | X_OK) == 0) return cand[i];
+  return "/tmp";   /* nothing worked; the fixture will fail loudly and say so */
+}
+
 static int x_sane(void) {
   /* Ordinary work under the real filter: identity, fork+wait, file io, exec-less
    * exit. If the allow-list is too tight this is where it dies, loudly. */
   if (getpid() <= 0) return 1;
-  char tmp[] = "/tmp/atlan-confine-sane-XXXXXX";
+  char tmp[288];
+  snprintf(tmp, sizeof tmp, "%s/atlan-confine-sane-XXXXXX", tmpbase());
   int fd = mkstemp(tmp);
   if (fd < 0) return 2;
   if (write(fd, "ok", 2) != 2) return 3;
@@ -969,12 +998,27 @@ static int r_iouring(char *d, size_t n) {
 }
 /* Replaces parsing /proc/self/status TracerPid, which any tracer can hide. With
  * no tracer the kernel fails a RET_TRACE syscall with ENOSYS; under proot it
- * does not, and a "traced" verdict permanently disables USER_NOTIF here. */
+ * does not.
+ *
+ * THIS RUNG SAYS A TRACER IS PRESENT. IT DOES NOT SAY USER_NOTIF IS DEAD — this
+ * comment and the string below both used to claim a traced verdict "permanently
+ * disables USER_NOTIF here", and that is false. Measured 2026-08-08 in the SAME
+ * probe run that fails this rung: `user-notif` completes a full
+ * RECV -> ID_VALID -> SEND round trip under `proot -0` on a WSL2 kernel, and
+ * again on an Android 15 GKI kernel (6.6.30-android15) in the emulator.
+ *
+ * Why the correction matters more than it looks. A seccomp FILTER cannot refuse
+ * an open() by path — it may not dereference the pointer. A user_notify
+ * SUPERVISOR can, because it is a process rather than a BPF program. That makes
+ * user_notify the only mechanism in reach that could shut /proc/<pid>/mem on a
+ * kernel with no Landlock — which is every Android before the android16-6.12
+ * GKI, i.e. the phone this project is for. A comment asserting it is unavailable
+ * closes a door nobody thinks to re-open. */
 static int r_traced(char *d, size_t n) {
   if (nnp() || install_marker_filter(SECCOMP_RET_TRACE)) { snprintf(d, n, "setup: %s", strerror(errno)); return 1; }
   errno = 0; long r = marker();
   if (r < 0 && errno == ENOSYS) { snprintf(d, n, "RET_TRACE -> ENOSYS: no ptracer is arbitrating this process"); return 0; }
-  snprintf(d, n, "RET_TRACE returned %ld/%s — a ptracer (proot?) is between us and the kernel; USER_NOTIF is off here permanently", r, strerror(errno));
+  snprintf(d, n, "RET_TRACE returned %ld/%s — a ptracer (proot?) is between us and the kernel", r, strerror(errno));
   return 1;
 }
 static uint16_t g_port;
@@ -1029,6 +1073,144 @@ static int r_landlock(char *d, size_t n) {
   snprintf(d, n, "abi %d: outside-grant open -> EACCES, inside-grant open -> ok", abi);
   return 0;
 }
+/* ── the file door ─────────────────────────────────────────────────────────
+ * Every capability this launcher removes is a SYSCALL, and the tier statements
+ * name syscalls. A reader takes "it cannot use ptrace or process_vm_readv" to
+ * mean it cannot get inside another process, and that inference is FALSE:
+ * /proc/<pid>/mem is a file. open() + pread() reaches another process's address
+ * space with no filtered syscall anywhere on the path.
+ *
+ * seccomp cannot single that path out, and not by oversight. A filter sees the
+ * syscall number and the register values; it is forbidden from following a
+ * pointer argument into the path, because another thread can rewrite that memory
+ * between the check and the use.
+ *
+ * A filter CAN shut the door by refusing open()/openat() outright — that was
+ * measured on 2026-08-08 after a contextless checker refuted the stronger claim
+ * — and in the same run it refused /etc/hostname too, which is what makes it
+ * useless as a boundary rather than clever. So the only layer here that can
+ * close this ONE path while leaving a toolchain runnable is L3 — and
+ * whether L3 actually does is a fact about this kernel's procfs, not something
+ * the Landlock canary already established on a regular file. Hence its own rung.
+ *
+ * Both halves are required, exactly as for the canary: the sibling's memory must
+ * be readable BEFORE the boundary — otherwise "blocked" proves nothing, since a
+ * wrong address fails too — and unreadable after, while a GRANTED /proc entry
+ * keeps opening, otherwise we broke procfs and called it enforcement. */
+#define SIBMARK "atlan-sibling-memory-marker"
+
+static int sib_read(pid_t pid, unsigned long addr, char *out, size_t outn) {
+  char path[64];
+  snprintf(path, sizeof(path), "/proc/%d/mem", (int)pid);
+  int fd = open(path, O_RDONLY);
+  if (fd < 0) return -1;
+  memset(out, 0, outn);
+  ssize_t r = pread(fd, out, outn - 1, (off_t)addr);
+  int e = errno;
+  close(fd);
+  errno = e;
+  return r > 0 ? 0 : -2;
+}
+
+static int sib_attack(pid_t v, unsigned long addr, char *d, size_t n) {
+  char buf[64];
+  int before = sib_read(v, addr, buf, sizeof(buf));
+  if (!(before == 0 && !strcmp(buf, SIBMARK))) {
+    /* A device that already refuses this passes — the rung measures the
+     * PROPERTY, not Landlock — but it has to say which reason applied, because
+     * "isolated by this kernel" and "isolated by our boundary" fail differently
+     * later. Yama's ptrace_scope and a hardened procfs both land here. */
+    snprintf(d, n, "a sibling's /proc/<pid>/mem was ALREADY unreadable before any boundary was applied (%s) — this kernel isolates process memory on its own",
+             before == -1 ? strerror(errno) : "opened, but the read returned nothing");
+    return 0;
+  }
+  int abi = ll_abi();
+  if (abi < 1) {
+    snprintf(d, n, "a sibling's memory IS readable through /proc/<pid>/mem and this device has no Landlock to close it (%s) — a filter can only refuse this path by refusing open() for every path", strerror(errno));
+    return 1;
+  }
+  if (nnp()) { snprintf(d, n, "NNP: %s", strerror(errno)); return 1; }
+  uint64_t handled = ll_handled(abi);
+  struct ll_ruleset_attr attr = { .handled_access_fs = handled };
+  int rs = (int)syscall(__NR_landlock_create_ruleset, &attr, sizeof(attr), 0);
+  if (rs < 0) { snprintf(d, n, "create_ruleset(abi %d): %s", abi, strerror(errno)); return 1; }
+  char err[200];
+  /* Granting a /proc entry the way the real policy does, so this measures
+   * DISCRIMINATION WITHIN procfs. A ruleset that simply denied all of /proc
+   * would pass a weaker test and break every toolchain that reads a counter. */
+  if (ll_grant(rs, "/proc/stat", LL_RO & handled, err, sizeof(err))) { snprintf(d, n, "%s", err); return 1; }
+  if (syscall(__NR_landlock_restrict_self, rs, 0)) { snprintf(d, n, "restrict_self: %s", strerror(errno)); return 1; }
+  close(rs);
+  int g = open("/proc/stat", O_RDONLY);
+  if (g < 0) { snprintf(d, n, "the GRANTED /proc/stat stopped opening (%s) — that is breakage, not a boundary", strerror(errno)); return 1; }
+  close(g);
+  errno = 0;
+  if (sib_read(v, addr, buf, sizeof(buf)) == 0 && !strcmp(buf, SIBMARK)) {
+    snprintf(d, n, "the boundary is applied and a sibling's memory is STILL readable through /proc/<pid>/mem");
+    return 1;
+  }
+  snprintf(d, n, "sibling memory readable before the boundary, %s after, while the granted /proc/stat still opens", strerror(errno));
+  return 0;
+}
+
+static int r_siblingmem(char *d, size_t n) {
+  int vp[2], ap[2];
+  if (pipe(vp)) { snprintf(d, n, "pipe: %s", strerror(errno)); return 1; }
+  if (pipe(ap)) { snprintf(d, n, "pipe: %s", strerror(errno)); return 1; }
+
+  /* Victim and attacker are BOTH children of this rung, so they are siblings of
+   * each other. Parent-reads-child is the shape the kernel special-cases and
+   * Yama's scope 1 permits outright, so measuring that would flatter the answer
+   * — and two agents under one cockpit are siblings, which is the shape a tier
+   * statement is actually about. */
+  pid_t v = fork();
+  if (v == 0) {
+    close(vp[0]); close(ap[0]); close(ap[1]);
+    char *buf = malloc(64);
+    if (!buf) _exit(1);
+    memset(buf, 0, 64);
+    memcpy(buf, SIBMARK, sizeof(SIBMARK));
+    char line[64];
+    int k = snprintf(line, sizeof(line), "%llu", (unsigned long long)(uintptr_t)buf);
+    ssize_t w = write(vp[1], line, (size_t)k); (void)w;
+    close(vp[1]);
+    for (;;) sleep(1);   /* killed by the rung once the attacker has reported */
+  }
+  close(vp[1]);
+  char ab[64] = { 0 };
+  ssize_t got = read(vp[0], ab, sizeof(ab) - 1);
+  close(vp[0]);
+  if (got <= 0) {
+    if (v > 0) { kill(v, SIGKILL); waitpid(v, NULL, 0); }
+    close(ap[0]); close(ap[1]);
+    snprintf(d, n, "the victim child never published an address — nothing was measured, which is not a pass");
+    return 1;
+  }
+  unsigned long addr = (unsigned long)strtoull(ab, NULL, 10);
+
+  pid_t a = fork();
+  if (a == 0) {
+    close(ap[0]);
+    char det[200] = { 0 };
+    int rc = sib_attack(v, addr, det, sizeof(det));
+    ssize_t w = write(ap[1], det, strlen(det)); (void)w;
+    close(ap[1]);
+    _exit(rc ? 1 : 0);
+  }
+  close(ap[1]);
+  char det[200] = { 0 };
+  ssize_t dg = read(ap[0], det, sizeof(det) - 1);
+  if (dg < 0) dg = 0;
+  det[dg] = 0;
+  close(ap[0]);
+  int st = 0;
+  waitpid(a, &st, 0);
+  kill(v, SIGKILL);
+  waitpid(v, NULL, 0);
+  snprintf(d, n, "%s", det[0] ? det : "the attacker child produced no verdict");
+  return (WIFEXITED(st) && WEXITSTATUS(st) == 0) ? 0 : 1;
+}
+
 static int r_fdhygiene(char *d, size_t n) {
   int f = open("/dev/null", O_RDONLY);
   if (f < 0) { snprintf(d, n, "cannot open a marker fd: %s", strerror(errno)); return 1; }
@@ -1170,7 +1352,7 @@ static int do_probe(void) {
   if (srv >= 0 && bind(srv, (struct sockaddr *)&a, sizeof(a)) == 0 && listen(srv, 8) == 0 && getsockname(srv, (struct sockaddr *)&a, &al) == 0) g_port = ntohs(a.sin_port);
 
   /* rung 9 needs a canary OUTSIDE the grant, proven readable first */
-  snprintf(g_lldir, sizeof(g_lldir), "/tmp/atlan-confine-ll-XXXXXX");
+  snprintf(g_lldir, sizeof(g_lldir), "%s/atlan-confine-ll-XXXXXX", tmpbase());
   int have_ll_fixture = 0;
   if (mkdtemp(g_lldir)) {
     snprintf(g_llcanary, sizeof(g_llcanary), "%s/canary", g_lldir);
@@ -1193,6 +1375,7 @@ static int do_probe(void) {
   rung("egress-denial", r_egress);
   if (have_ll_fixture) rung("landlock-canary", r_landlock);
   else { VID[VN] = "landlock-canary"; V[VN].ok = 0; snprintf(V[VN].detail, sizeof(V[VN].detail), "could not build the canary fixture in /tmp — rung not run, so nothing is claimed"); VN++; }
+  rung("sibling-memory", r_siblingmem);
   rung("fd-hygiene", r_fdhygiene);
   rung("tsync", r_tsync);
   rung("user-notif", r_usernotif);

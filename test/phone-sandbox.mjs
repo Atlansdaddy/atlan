@@ -1,4 +1,12 @@
-// sandbox.mjs — the confinement tier, attacked rather than described.
+// phone-sandbox.mjs — the confinement tier, attacked rather than described.
+//
+// THE NAME IN THIS HEADER USED TO SAY sandbox.mjs, AND THAT COST SOMETHING. This
+// file was renamed; a different suite (the security spine) later took the old
+// name; and test/mutation.mjs — the receipt for everything below — kept naming
+// the string `test/sandbox.mjs` and silently began measuring the wrong file. On
+// 2026-08-08 it reported thirty-odd ESCAPED mutants, including "the default tail
+// ALLOWs instead of killing", all of which this suite catches on the first try.
+// A stale name in a comment is how that started.
 //
 // WHY THIS SUITE DOES NOT USE FIXTURES FOR THE CONTROLS. Standing rule in this
 // repo since three of eleven WarLibrary guards were broken while every fixture
@@ -25,8 +33,8 @@ process.env.ATLAN_FLEET_DIR ??= mkdtempSync(join(tmpdir(), 'atlan-sbx-fleet-'));
 // dynamic import below, never after.
 process.env.ATLAN_PROJECTS = tmpdir();
 
-const { TIERS, rank, isTier, STATEMENT, LABEL, NO_FS_ON_THIS_DEVICE, REQUIRES, FLOOR_RUNG,
-  tierFromRungs, blockingRung, assertTier, TierRefusal } = await import('../server/src/sandbox/tiers.js');
+const { TIERS, dominates, isTier, STATEMENT, LABEL, NO_FS_ON_THIS_DEVICE, SUPERVISOR_ON_THIS_DEVICE,
+  REQUIRES, FLOOR_RUNG, tierFromRungs, blockingRung, assertTier, TierRefusal } = await import('../server/src/sandbox/tiers.js');
 const { ensureBinary, workingCompiler, sourceHash, SOURCE } = await import('../server/src/sandbox/build.js');
 const { probe, clearProbeCache, ladderLines } = await import('../server/src/sandbox/probe.js');
 const planMod = await import('../server/src/sandbox/plan.js');
@@ -50,6 +58,7 @@ const RUNGS_ALL = [
   ...REQUIRES.T1.map((id, i) => ({ n: i + 1, id, ok: true, detail: 'ok' })),
   { n: 11, id: 'egress-denial', ok: true, detail: 'ok' },
   { n: 12, id: 'landlock-canary', ok: true, detail: 'ok' },
+  { n: 13, id: 'sibling-memory', ok: true, detail: 'ok' },
 ];
 const withFail = (id, detail) => RUNGS_ALL.map((r) => (r.id === id ? { ...r, ok: false, detail } : r));
 
@@ -71,10 +80,50 @@ test('an empty ladder is T0 — not-measured is not a capability', () => {
   assert.strictEqual(tierFromRungs(undefined), 'T0');
 });
 
-test('every (declared, established) pair: lower-or-equal passes, higher refuses', () => {
+test('every (declared, established) pair: a tier passes exactly when it CONTAINS the declaration', () => {
+  // Not "greater or equal". TS and T1 are incomparable — TS holds an egress
+  // boundary T1 does not and cannot deny ptrace, which T1 does — so any test
+  // written as a magnitude comparison would have to call one of them a lie.
   for (const d of TIERS) for (const e of TIERS) {
-    if (rank(e) >= rank(d)) assert.strictEqual(assertTier(d, e, RUNGS_ALL), true, `${d} vs ${e} should pass`);
+    if (dominates(e, d)) assert.strictEqual(assertTier(d, e, RUNGS_ALL), true, `${d} vs ${e} should pass`);
     else assert.throws(() => assertTier(d, e, RUNGS_ALL), TierRefusal, `${d} vs ${e} must refuse`);
+  }
+});
+test('TS and T1 are INCOMPARABLE in both directions — neither substitutes for the other', () => {
+  assert.strictEqual(dominates('TS', 'T1'), false, 'a supervised device must not satisfy a run that declared T1');
+  assert.strictEqual(dominates('T1', 'TS'), false, 'T1 has no egress boundary, so it cannot stand in for TS');
+  assert.ok(dominates('T2', 'TS') && dominates('T2', 'T1'), 'T2 requires everything either of them requires');
+  assert.ok(dominates('T3', 'TS'), 'and T3 is above T2');
+});
+test('a device with a supervisor establishes TS, not T0 and not T1', () => {
+  // The measured phone shape: everything green except the deny-set rung, which
+  // a ptrace supervisor performs itself and answers for.
+  const supervised = RUNGS_ALL.map((r) => (r.id === 'selftest-denyset'
+    ? { ...r, ok: false, detail: 'ptrace was NOT denied by the real filter (ret 0, Success)' }
+    : r));
+  assert.strictEqual(tierFromRungs(supervised), 'TS');
+  assert.throws(() => assertTier('T1', 'TS', supervised), /Rung 8 \(selftest-denyset\) said no/);
+  assert.strictEqual(assertTier('TS', 'TS', supervised), true);
+});
+test('a supervised device with NO Landlock still establishes TS — the real phone shape', () => {
+  const phone = RUNGS_ALL.map((r) => (['selftest-denyset', 'landlock-canary', 'sibling-memory'].includes(r.id)
+    ? { ...r, ok: false, detail: 'unavailable on this device' } : r));
+  assert.strictEqual(tierFromRungs(phone), 'TS');
+});
+test('the maximal established tier is never ambiguous, over EVERY possible ladder', () => {
+  // The partial order admits incomparable tiers, so "the tier this device
+  // establishes" is only well defined if no two incomparable tiers can both be
+  // maximal. That is a property of the rung sets, not something to hope for —
+  // so enumerate every subset of every rung any tier names and check all of them.
+  const ids = [...new Set(Object.values(REQUIRES).flat())];
+  assert.ok(ids.length <= 20, `${ids.length} rungs is too many to enumerate — rewrite this test, do not delete it`);
+  for (let mask = 0; mask < (1 << ids.length); mask++) {
+    const ok = new Set(ids.filter((_, i) => mask & (1 << i)));
+    const satisfied = TIERS.filter((t) => REQUIRES[t].every((id) => ok.has(id)));
+    const maximal = satisfied.filter((t) => !satisfied.some((o) => o !== t && dominates(o, t)));
+    assert.strictEqual(maximal.length, 1,
+      `rungs {${[...ok].join(',')}} leave ${maximal.length} maximal tiers (${maximal.join(', ')}) — the ladder shape is ambiguous`);
+    assert.strictEqual(tierFromRungs([...ok].map((id) => ({ id, ok: true }))), maximal[0]);
   }
 });
 test('the refusal names the rung that said no, with its detail verbatim', () => {
@@ -132,6 +181,82 @@ test('T3 carries its honest limits rather than only its claim', () => {
 });
 test('T0 says out loud that it was explicitly allowed to start ungated', () => {
   assert.match(STATEMENT.T0, /explicitly allowed to start ungated/);
+});
+test('TS names the three denials it CANNOT make, rather than listing only what holds', () => {
+  // The whole reason this tier exists. A statement that only listed the wins
+  // would read as T2 with extra words, and the reader would infer a ptrace
+  // denial that is measurably absent on the primary platform.
+  for (const call of ['ptrace', 'chroot', 'setuid']) {
+    assert.ok(STATEMENT.TS.includes(`\`${call}\``), `TS must name ${call} as NOT held`);
+  }
+  assert.match(STATEMENT.TS, /do NOT hold here/);
+  assert.match(STATEMENT.TS, /can attach to its siblings/);
+});
+test('TS still claims the egress boundary it really has — honesty is not self-deprecation', () => {
+  assert.match(STATEMENT.TS, /cannot open a network socket/);
+  assert.match(STATEMENT.TS, /AF_UNIX/);
+});
+test('TS says agents are not isolated from EACH OTHER, and by which door', () => {
+  assert.match(STATEMENT.TS, /not isolated from one another/);
+  assert.match(STATEMENT.TS, /\/proc\/<pid>\/mem/);
+  assert.match(STATEMENT.TS, /file, not a syscall/);
+});
+test('every tier below T3 discloses the /proc/<pid>/mem gap — none of them may imply isolation', () => {
+  // Measured 2026-08-08, unprivileged, sibling process: under the REAL T1
+  // filter, ptrace and process_vm_readv are refused and open("/proc/<pid>/mem")
+  // reads the target's heap anyway. Naming the denied syscalls without naming
+  // this door is an overclaim by implication, which is the failure mode these
+  // strings exist to prevent.
+  for (const t of ['TS', 'T1', 'T2']) {
+    assert.match(STATEMENT[t], /\/proc\/<pid>\/mem/, `${t} must disclose the file door into process memory`);
+  }
+  assert.match(STATEMENT.T1, /is not process isolation/);
+  assert.match(STATEMENT.T2, /carries over exactly/);
+});
+test('no statement says a filter CANNOT close the file door — a checker refuted that, twice over', () => {
+  // The first draft of these paragraphs said "no syscall filter can close it".
+  // A contextless checker broke it on 2026-08-08 and the counterexample
+  // reproduced here: a filter that EPERMs open/openat refuses /proc/<pid>/mem
+  // — and refuses /etc/hostname in the same run, which is the part that makes
+  // it useless rather than clever. An overclaim in the direction of "we are
+  // helpless" is still an overclaim, and it is the kind a reader cannot check.
+  for (const t of TIERS) {
+    assert.ok(!/no syscall filter can|cannot be closed by any/i.test(STATEMENT[t]),
+      `${t} states an absolute a seccomp filter genuinely can violate`);
+  }
+  assert.match(STATEMENT.T1, /refusing `open\(\)` outright/);
+  assert.match(STATEMENT.T1, /cannot single that path out/);
+});
+test('T3 claims process isolation ONLY because a rung measures it', () => {
+  assert.match(STATEMENT.T3, /process isolation begins/);
+  assert.ok(REQUIRES.T3.includes('sibling-memory'),
+    'T3 claims the file door is shut, so a rung must prove it on this device every boot');
+  assert.ok(!REQUIRES.T2.includes('sibling-memory') && !REQUIRES.TS.includes('sibling-memory'),
+    'no tier below T3 may require it — they disclose the gap instead');
+});
+test('the supervisor sentence does NOT generalise from one supervisor to all of them', () => {
+  // Measured 2026-08-08, both on the same day: under Ubuntu's proot 5.1.0 on a
+  // WSL2 kernel, ptrace/chroot/setuid are all defeated. Under TERMUX's proot
+  // 5.1.107 on an Android 15 kernel — the fork a phone actually runs — all 16
+  // denials hold, while the arbitration rung still reports a tracer.
+  //
+  // The first draft of this sentence stated the first result as a universal and
+  // named the phone as its example: the one platform where it is false. So the
+  // rule this test pins is that the string describes BOTH cases and defers to
+  // the rungs, and that it names no platform at all.
+  assert.match(SUPERVISOR_ON_THIS_DEVICE, /some supervisors/i);
+  assert.match(SUPERVISOR_ON_THIS_DEVICE, /others leave them to the kernel/i);
+  assert.ok(!/phone|android|termux/i.test(SUPERVISOR_ON_THIS_DEVICE),
+    'naming a platform where a measured rung belongs is exactly how this got it wrong the first time');
+});
+test('no tier statement claims a particular platform establishes it', () => {
+  // The ladder is per-device and measured. A statement that says "the phone gets
+  // this one" is a prediction wearing a measurement's clothes, and it was wrong
+  // within a day of being written.
+  for (const t of TIERS) {
+    assert.ok(!/on the phone that is|the phone therefore|phone establishes/i.test(STATEMENT[t]),
+      `${t} predicts which tier a platform establishes instead of letting the rungs say`);
+  }
 });
 test('the no-Landlock sentence distinguishes unavailable from disabled', () => {
   assert.match(NO_FS_ON_THIS_DEVICE, /Not disabled, not skipped/);
@@ -218,13 +343,13 @@ console.log('\n· policy emission');
 
 const WS = mkdtempSync(join(tmpdir(), 'atlan-sbx-ws-'));
 test('IP-1 never denies egress, at ANY tier — the agent CLI is the model client', () => {
-  for (const t of ['T1', 'T2', 'T3']) {
+  for (const t of ['TS', 'T1', 'T2', 'T3']) {
     const p = plan({ declared: t, insertionPoint: 'ip1-agent-cli', workspace: WS, engine: null, home: HOME });
     assert.match(p.policy, /egress=open/, t);
     assert.strictEqual(p.confinement.egress, 'open-to-provider', t);
   }
 });
-test('IP-2 denies egress from T2 up, and never calls it "gated"', () => {
+test('IP-2 denies egress for every tier that REQUIRES the rung, and never calls it "gated"', () => {
   const t1 = plan({ declared: 'T1', insertionPoint: 'ip2-sdk-bash', workspace: WS, home: HOME });
   const t2 = plan({ declared: 'T2', insertionPoint: 'ip2-sdk-bash', workspace: WS, home: HOME });
   assert.match(t1.policy, /egress=open/);
@@ -232,8 +357,18 @@ test('IP-2 denies egress from T2 up, and never calls it "gated"', () => {
   assert.strictEqual(t2.confinement.egress, 'denied');
   for (const p of [t1, t2]) assert.notStrictEqual(p.confinement.egress, 'gated');
 });
+test('TS gets the egress boundary — the phone tier is not a demotion of T1', () => {
+  // Under a magnitude ladder TS would have to sit below T1 to be honest about
+  // ptrace, and would then have lost the one real kernel boundary the phone
+  // actually holds. This is the test that would have caught that.
+  const ts = plan({ declared: 'TS', insertionPoint: 'ip2-sdk-bash', workspace: WS, home: HOME });
+  assert.match(ts.policy, /egress=deny/);
+  assert.strictEqual(ts.confinement.egress, 'denied');
+  assert.strictEqual(ts.confinement.caps, 'removed');
+  assert.match(ts.policy, /fs=none/);
+});
 test('fs=landlock only from T3 — no tier silently implies a boundary it lacks', () => {
-  for (const t of ['T1', 'T2']) assert.match(plan({ declared: t, insertionPoint: 'ip2-sdk-bash', workspace: WS, home: HOME }).policy, /fs=none/);
+  for (const t of ['TS', 'T1', 'T2']) assert.match(plan({ declared: t, insertionPoint: 'ip2-sdk-bash', workspace: WS, home: HOME }).policy, /fs=none/);
   assert.match(plan({ declared: 'T3', insertionPoint: 'ip2-sdk-bash', workspace: WS, home: HOME }).policy, /fs=landlock/);
 });
 test('a newline in a grant path is refused, never escaped', () => {
@@ -372,6 +507,55 @@ if (!built.ok && !cc) {
     const r = run('tier=T1;egress=open;fs=none', [exe]);
     assert.match(r.stdout, /^-1 1\b/, `expected EPERM(1), got ${JSON.stringify(r.stdout)}`);
     rmSync(src, { force: true }); rmSync(exe, { force: true });
+  });
+  // Two SIBLING processes under the same real filter: one holds a marker in its
+  // heap, the other opens /proc/<pid>/mem and reads it. Siblings, never
+  // parent/child — the kernel special-cases the ancestor case and Yama's scope 1
+  // permits it outright, so measuring that shape would flatter the answer.
+  const SIBSRC = [
+    '#define _GNU_SOURCE', '#include <errno.h>', '#include <fcntl.h>', '#include <signal.h>',
+    '#include <stdio.h>', '#include <stdlib.h>', '#include <string.h>', '#include <sys/wait.h>', '#include <unistd.h>',
+    'int main(void){',
+    '  int p[2]; if(pipe(p)) return 2;',
+    '  pid_t v=fork();',
+    '  if(v==0){ close(p[0]); char*b=malloc(64); if(!b) _exit(3); memset(b,0,64); strcpy(b,"SIBLING-SECRET-OK");',
+    '    char l[32]; int k=snprintf(l,sizeof l,"%llu",(unsigned long long)(size_t)b);',
+    '    ssize_t w=write(p[1],l,(size_t)k); (void)w; close(p[1]); for(;;) sleep(1); }',
+    '  if(v<0) return 4;',
+    '  close(p[1]); char a[32]={0}; ssize_t g=read(p[0],a,sizeof a-1); (void)g; close(p[0]);',
+    '  unsigned long addr=strtoul(a,NULL,10);',
+    '  char path[64]; snprintf(path,sizeof path,"/proc/%d/mem",(int)v);',
+    '  char out[64]={0}; int fd=open(path,O_RDONLY);',
+    '  if(fd<0) printf("BLOCKED-OPEN %s\\n",strerror(errno));',
+    '  else { ssize_t n=pread(fd,out,32,(off_t)addr);',
+    '    if(n>0) printf("READ %s\\n",out); else printf("BLOCKED-READ %s\\n",strerror(errno)); close(fd); }',
+    '  kill(v,SIGKILL); waitpid(v,NULL,0); return 0; }',
+  ].join('\n');
+  const buildSib = (dir) => {
+    const src = join(dir, `atlan-sib-${process.pid}.c`);
+    const exe = join(dir, `atlan-sib-${process.pid}`);
+    writeFileSync(src, SIBSRC + '\n');
+    const c = spawnSync(cc, ['-O0', src, '-o', exe], { encoding: 'utf8' });
+    rmSync(src, { force: true });
+    return c.status === 0 ? exe : null;
+  };
+
+  test('T1: the file door into a sibling\'s MEMORY is open, and the statement says so because of this', () => {
+    // The measurement the T1/T2/TS wording rests on. ptrace and
+    // process_vm_readv are genuinely refused one test above; this reads the same
+    // memory anyway through open()+pread(), which no seccomp filter can stop —
+    // a filter matches syscall numbers and registers and may not dereference the
+    // path pointer, because another thread could rewrite it after the check.
+    // If this test ever fails, the honest response is to WEAKEN the disclosure
+    // in tiers.js, not to delete the test.
+    const exe = buildSib(tmpdir());
+    if (!exe) return skipped('sibling memory at T1', 'the helper did not compile on this host');
+    try {
+      const r = run('tier=T1;egress=open;fs=none', [exe]);
+      assert.match(r.stdout, /^(READ|BLOCKED)/, `helper produced nothing: ${JSON.stringify(r.stdout)} ${r.stderr}`);
+      assert.match(r.stdout, /READ SIBLING-SECRET-OK/,
+        `a sibling's memory was NOT readable under T1 (${r.stdout.trim()}) — if this kernel isolates process memory on its own, the tier statements are now understating it`);
+    } finally { rmSync(exe, { force: true }); }
   });
   test('T1: an unlisted syscall is FATAL, not quietly EPERM (the tail is default-deny)', () => {
     const rung = V.rungs.find((r) => r.id === 'selftest-defaultdeny');
@@ -535,6 +719,20 @@ if (!built.ok && !cc) {
       const r = T3([], ['/bin/sh', '-c', 'cat /proc/self/cwd/../outside.txt && echo READ || echo refused']);
       assert.ok(!/SECRET-OUTSIDE/.test(r.stdout), r.stdout);
     });
+    test("T3: and the SAME door into a sibling's memory is shut — this is what T3 claims", () => {
+      // The other half of the T1 test above, and the only reason T3's statement
+      // is allowed to say "process isolation begins here". Same helper, same
+      // kernel, same siblings — the single difference is the grant list, which
+      // names the /proc entries the toolchain needs and never another process's.
+      const exe = buildSib(FS.ws);
+      if (!exe) return skipped('sibling memory at T3', 'the helper did not compile on this host');
+      try {
+        const r = T3([], [exe]);
+        assert.match(r.stdout, /^BLOCKED/,
+          `a sibling's memory is still reachable with the filesystem boundary applied: ${r.stdout.trim()}`);
+        assert.ok(!/SIBLING-SECRET-OK/.test(r.stdout), r.stdout);
+      } finally { rmSync(exe, { force: true }); }
+    });
     test('T3: a TOCTOU swap of the grant target does not widen it (grants are fd-attached at O_PATH)', () => {
       // The grant is taken on an O_PATH fd, so replacing the PATH after
       // restrict_self cannot repoint the rule at a different inode.
@@ -691,7 +889,7 @@ test('T0 wraps nothing — today\'s behaviour is preserved verbatim', () => {
   assert.strictEqual(confineSpawn({ declared: 'T0', cmd: 'echo', args: [], cwd: WS }), null);
   assert.strictEqual(confineBash({ declared: 'T0', command: 'echo hi', cwd: WS }), null);
 });
-if (built.ok && V && rank(V.tier) >= rank('T1')) {
+if (built.ok && V && dominates(V.tier, 'T1')) {
   test('IP-2 rewrites the Bash command through the launcher and quotes it totally', () => {
     const c = confineBash({ declared: 'T1', command: `echo 'single' "double" $(id) \`x\``, cwd: WS });
     assert.ok(c.command.startsWith(`'${built.bin}'`), c.command);
@@ -725,7 +923,7 @@ if (built.ok && V && rank(V.tier) >= rank('T1')) {
     // The IP-2 tests above prove the rewrite is well-formed. This one runs the
     // rewritten command and checks the boundary, which is what catches a
     // confineBash that quietly falls back to an unconfined command.
-    if (rank(V.tier) < rank('T2')) return skipped('IP-2 end to end', `device establishes ${V.tier}`);
+    if (!dominates(V.tier, 'T2')) return skipped('IP-2 end to end', `device establishes ${V.tier}`);
     // node, not bash's /dev/tcp: the rewrite runs the command under /bin/sh,
     // and dash has no /dev/tcp AND exits outright on a redirect error, so a
     // bash-ism here would measure the test's shell rather than the boundary.

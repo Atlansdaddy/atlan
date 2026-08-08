@@ -16,7 +16,7 @@
 import assert from 'node:assert';
 import { readFileSync } from 'node:fs';
 import { FLEET_ENGINES } from '../server/src/fleet.js';
-import { STATEMENT, NO_FS_ON_THIS_DEVICE, TIERS } from '../server/src/sandbox/tiers.js';
+import { STATEMENT, NO_FS_ON_THIS_DEVICE, SUPERVISOR_ON_THIS_DEVICE, TIERS } from '../server/src/sandbox/tiers.js';
 
 const read = (rel) => readFileSync(new URL(rel, import.meta.url), 'utf8');
 
@@ -169,12 +169,18 @@ test('SECURITY.md quotes every tier statement VERBATIM from tiers.js', () => {
       `docs/SECURITY.md does not contain the ${t} statement byte-for-byte — edit server/src/sandbox/tiers.js and re-paste, never the other way round`);
   }
   assert.ok(doc.includes(NO_FS_ON_THIS_DEVICE), 'SECURITY.md is missing the no-Landlock-on-this-device sentence');
+  assert.ok(doc.includes(SUPERVISOR_ON_THIS_DEVICE), 'SECURITY.md is missing the supervisor-on-this-device sentence');
 });
 
 test('the phone tier never claims a sandbox (the one regression that discredits everything else)', () => {
-  const hits = [...STATEMENT.T1.matchAll(/sandbox/gi)];
-  assert.strictEqual(hits.length, 1, `the T1 statement says "sandbox" ${hits.length} times; the only permitted use is "is not a sandbox"`);
-  assert.match(STATEMENT.T1, /It is not a sandbox\./);
+  // TS is the phone tier now; T1 is what a bare kernel with no supervisor holds.
+  // Both must carry the disclaimer — the tier that runs on the primary platform
+  // is the one whose wording gets screenshotted.
+  for (const t of ['TS', 'T1']) {
+    const hits = [...STATEMENT[t].matchAll(/sandbox/gi)];
+    assert.strictEqual(hits.length, 1, `the ${t} statement says "sandbox" ${hits.length} times; the only permitted use is "is not a sandbox"`);
+    assert.match(STATEMENT[t], /It is not a sandbox\./);
+  }
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);

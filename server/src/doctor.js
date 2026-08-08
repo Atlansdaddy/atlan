@@ -150,23 +150,29 @@ export async function runDoctor() {
       // CONFIG_USER_NS guard. A flag file lies; a forked child that performs the
       // operation does not.
       const { probe, ladderLines } = await import('./sandbox/probe.js');
-      const { LABEL, NO_FS_ON_THIS_DEVICE } = await import('./sandbox/tiers.js');
+      const { LABEL, NO_FS_ON_THIS_DEVICE, SUPERVISOR_ON_THIS_DEVICE, dominates } = await import('./sandbox/tiers.js');
       const { declaredTier } = await import('./config.js');
       const v = probe();
       const declared = declaredTier();
       const failed = v.rungs.filter((r) => !r.ok);
       const ladder = ladderLines(v).join(' · ');
       const noFs = v.rungs.some((r) => r.id === 'landlock-canary' && !r.ok);
+      // A supervisor is not a weaker kernel, it is a kernel we are no longer
+      // talking to directly, and the rungs it costs are known by name. Saying so
+      // is the difference between "your device is worse" and "here is what is
+      // between us and the kernel, and here is exactly what that removes".
+      const supervised = v.rungs.some((r) => r.id === 'ptrace-arbitration' && !r.ok);
       const detail = `established ${v.tier} (${LABEL[v.tier]}) · runs declare ${declared}`
         + (v.arch ? ` · ${v.arch}` : '')
         + (v.landlockAbi > 0 ? ` · landlock abi ${v.landlockAbi}` : '')
         + ` — ${ladder}`
+        + (supervised ? ` — ${SUPERVISOR_ON_THIS_DEVICE.replace(/\*\*/g, '')}` : '')
         + (noFs ? ` — ${NO_FS_ON_THIS_DEVICE.replace(/\*\*/g, '')}` : '');
-      // ok tracks whether the run CAN START: established >= declared. A device
-      // that establishes less than every rung is not a failure to report as red
-      // if nothing asks for the missing rungs.
-      const order = ['T0', 'T1', 'T2', 'T3'];
-      return { ok: order.indexOf(v.tier) >= order.indexOf(declared), warn: failed.length > 0, detail: detail.slice(0, 1200) };
+      // ok tracks whether the run CAN START — which is CONTAINMENT, not
+      // magnitude. The hardcoded ['T0','T1','T2','T3'] this replaced would have
+      // scored TS at indexOf -1, i.e. below T0, and reported the primary
+      // platform as red for declaring the tier it actually holds.
+      return { ok: dominates(v.tier, declared), warn: failed.length > 0, detail: detail.slice(0, 1200) };
     }),
     check('piper', 'Piper voice (local TTS)', async () => {
       // Optional "sounds good" local voice. Browser voice always works without
