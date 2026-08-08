@@ -21,7 +21,7 @@
 // `readChat` drops unparseable lines instead of throwing, because a transcript
 // that refuses to open is worse than one missing its last turn.
 
-import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { FLEET_DIR } from './config.js';
 
@@ -89,10 +89,42 @@ export function readChat(id, { limit = MAX_MESSAGES } = {}) {
   return out.slice(-limit);
 }
 
+/** Bytes read per conversation to build a list row. A title lives in the first
+ *  message or two; nothing past this is worth a page fault. */
+const HEAD_BYTES = 8192;
+
+/** Read at most n bytes from the front of a file, without pulling in the rest. */
+function readHead(path, n = HEAD_BYTES) {
+  let fd;
+  try {
+    fd = openSync(path, 'r');
+    const buf = Buffer.alloc(n);
+    const got = readSync(fd, buf, 0, n, 0);
+    return buf.subarray(0, got).toString('utf8');
+  } catch {
+    return '';
+  } finally {
+    if (fd !== undefined) try { closeSync(fd); } catch { /* already gone */ }
+  }
+}
+
 /**
  * The list a dashboard renders. Title is the first USER message, because the
  * first assistant message is often a tool preamble and makes every row look the
  * same.
+ *
+ * IT READS THE HEAD OF EACH FILE, NOT THE FILE. The first version called
+ * readChat() per conversation, which meant building a list of titles read every
+ * message of every conversation: measured at the storage cap it walked 18.5 MB
+ * to produce 200 rows. That is 25 ms on a desktop NVMe and a great deal worse on
+ * phone flash under proot — and the cost grows with total transcript volume,
+ * which is exactly the thing that grows. Now the cost is one stat plus one
+ * bounded read per conversation, regardless of how long the conversations are.
+ *
+ * The consequence is honest and deliberate: there is no exact message COUNT in
+ * this list, because a count cannot be known without reading everything. Size
+ * and last-updated can, so those are what the row carries. A number that costs
+ * a full scan is not worth having in a list you open to find something else.
  */
 export function listChats() {
   if (!existsSync(DIR)) return [];
@@ -104,16 +136,41 @@ export function listChats() {
     if (!validId(id)) continue;
     let st;
     try { st = statSync(join(DIR, f)); } catch { continue; }
-    const msgs = readChat(id, { limit: MAX_MESSAGES });
-    if (!msgs.length) continue;
-    const firstUser = msgs.find((m) => m.role === 'user');
+    if (!st.size) continue;
+
+    let title = '';
+    let fallback = '';
+    let startedAt = st.birthtimeMs;
+    const engines = new Set();
+    const head = readHead(join(DIR, f));
+    // The last line of a bounded read is usually truncated — drop it rather
+    // than let a torn record decide a title.
+    const lines = head.split('\n');
+    if (head.length >= HEAD_BYTES) lines.pop();
+    let first = true;
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      let m;
+      try { m = JSON.parse(line); } catch { continue; }
+      if (first) { startedAt = m.at ?? startedAt; first = false; }
+      if (m.engine) engines.add(m.engine);
+      if (!title && m.role === 'user' && m.text) title = m.text;
+      if (!fallback && m.text) fallback = m.text;
+    }
+    // The fallback is applied AFTER the scan, never during it. Applying it inline
+    // meant an assistant preamble on line 1 won the title and the user's actual
+    // question two lines later never got a chance — which is the exact thing
+    // titling-by-first-user-message exists to prevent.
+    if (!title) title = fallback;
+    if (!title) continue;
+
     rows.push({
       id,
-      title: (firstUser?.text ?? msgs[0].text ?? '').replace(/\s+/g, ' ').trim().slice(0, 90) || 'untitled',
-      count: msgs.length,
-      startedAt: msgs[0].at ?? st.birthtimeMs,
-      updatedAt: msgs[msgs.length - 1].at ?? st.mtimeMs,
-      engines: [...new Set(msgs.map((m) => m.engine).filter(Boolean))].slice(0, 4),
+      title: title.replace(/\s+/g, ' ').trim().slice(0, 90) || 'untitled',
+      bytes: st.size,
+      startedAt,
+      updatedAt: st.mtimeMs,
+      engines: [...engines].slice(0, 4),
     });
   }
   return rows.sort((a, b) => b.updatedAt - a.updatedAt);

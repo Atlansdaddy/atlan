@@ -105,7 +105,10 @@ export async function openHistory({ panel, onOpen }) {
     t.textContent = c.title;                     // textContent, never innerHTML: a title is user text
     const meta = document.createElement('div');
     meta.className = 'hist-meta';
-    meta.textContent = `${when(c.updatedAt)} · ${c.count} message${c.count === 1 ? '' : 's'}`
+    // Size, not a message count: the server cannot know a count without reading
+    // every conversation end to end, and a list should not cost that.
+    const kb = Math.max(1, Math.round((c.bytes ?? 0) / 1024));
+    meta.textContent = `${when(c.updatedAt)} · ${kb} KB`
       + (c.engines?.length ? ` · ${c.engines.join(', ')}` : '')
       + (c.id === active ? ' · current' : '');
     row.append(t, meta);

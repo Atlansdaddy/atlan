@@ -108,7 +108,8 @@ test('listChats titles a conversation by its first USER message', () => {
   const row = listChats().find((c) => c.id === id);
   assert.ok(row, 'the conversation must appear in the list');
   assert.strictEqual(row.title, 'why is the ladder not a line?');
-  assert.strictEqual(row.count, 2);
+  assert.ok(row.bytes > 0, 'the row carries size, which is free from stat');
+  assert.ok(!('count' in row), 'a message count cannot be known without reading everything — the list must not pretend');
   deleteChat(id);
   assert.ok(!listChats().some((c) => c.id === id), 'delete must actually remove it');
 });
