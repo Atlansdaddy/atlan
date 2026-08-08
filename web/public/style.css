@@ -154,6 +154,20 @@ header{display:flex;align-items:center;gap:10px;padding:12px 14px 10px;border-bo
   color:var(--ink);background:var(--surface);border:1px solid var(--line);
   border-radius:10px;padding:8px;margin-bottom:8px}
 
+/* doctor, grouped by the question each check answers */
+.docgroup{border:1px solid var(--line);border-radius:12px;background:var(--surface);
+  margin-bottom:8px;overflow:hidden}
+.docgroup-head{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:11px 12px;
+  cursor:pointer;min-height:var(--tap);list-style:none}
+.docgroup-head::-webkit-details-marker{display:none}
+.docgroup-name{font-size:13.5px;color:var(--ink);font-weight:600}
+.docgroup-badge{font-size:11px;padding:2px 8px;border-radius:999px;
+  border:1px solid var(--line);color:var(--muted)}
+.docgroup-badge.pass{color:#5fd08a;border-color:#2d6b46}
+.docgroup-badge.warn{color:#e5b567;border-color:#6b5a2d}
+.docgroup-blurb{flex-basis:100%;font-size:11px;color:var(--muted)}
+.docgroup .check{border-top:1px solid var(--line);border-radius:0;margin:0}
+
 /* chat history */
 .chatbar{display:flex;gap:8px;align-items:center;flex-shrink:0}
 .chatbar .btn{font-size:12px;padding:6px 10px;min-height:var(--tap)}

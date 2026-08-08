@@ -215,7 +215,13 @@ export async function runDoctor() {
       }
       return { ok: true, detail: `ENFORCED (${mode}) — ${gated.join(', ')}, each verified by a live probe. Egress is NOT gated (net:shared): the CLIs must reach their provider, so the cockpit token is masked instead of the network being closed` };
     }),
-    check('confine', 'Homebuilt confinement ladder (atlan-confine, seccomp)', async () => {
+    // NAMED FOR THE QUESTION, NOT THE IMPLEMENTATION. This was "Homebuilt
+    // confinement ladder (atlan-confine, seccomp)" — which tells you what was
+    // built, not that this is the row answering "how contained is an agent on my
+    // phone". A user looking for exactly that scrolled past it, and landed on
+    // "Bash OS-sandbox" instead, which is a different thing. The implementation
+    // names still appear, in the detail, where an engineer will still find them.
+    check('confine', 'Agent containment on this device', async () => {
       // Everything this reports was ESTABLISHED BY ATTEMPT on this boot. Nothing
       // here reads /proc/sys, /sys/kernel/security/lsm, uname, an Android release
       // or ANDROID_* — each of those has been observed to lie in at least one
@@ -321,11 +327,46 @@ export async function runDoctor() {
   return checks;
 }
 
+/**
+ * WHICH QUESTION DOES THIS CHECK ANSWER? Seventeen rows in one flat list, sorted
+ * by nothing, is why a user hunting for "the sandbox stuff" walked past the
+ * confinement ladder at position thirteen. The groups are the four questions
+ * someone actually opens this tab holding:
+ *
+ *   safety   — how contained is an agent on this device
+ *   engines  — what can answer me right now
+ *   build    — can I produce an app from here
+ *   health   — is the cockpit itself okay
+ *
+ * A check with no group still renders; it lands in health, which is the honest
+ * default for "something we watch".
+ */
+export const DOCTOR_GROUPS = {
+  safety: { label: 'Containment', blurb: 'how much an agent can reach on this device' },
+  engines: { label: 'Engines', blurb: 'what can answer you right now' },
+  build: { label: 'Build toolchain', blurb: 'what it takes to produce an installable app' },
+  health: { label: 'Health', blurb: 'the cockpit looking after itself' },
+};
+
+const GROUP_OF = {
+  confine: 'safety', 'bash-sandbox': 'safety', 'cli-confinement': 'safety',
+  'cli-connections': 'engines', claude: 'engines', auth: 'engines', llama: 'engines', piper: 'engines',
+  jdk: 'build', sdk: 'build', aapt2: 'build',
+  tailnet: 'health', disk: 'health', 'chat-store': 'health', tmux: 'health',
+  watchdog: 'health', 'sw-no-fetch': 'health',
+};
+
 async function check(id, label, fn) {
+  // The group's LABEL rides on every row rather than being fetched separately.
+  // /api/doctor has always returned a flat array and something may depend on
+  // that; changing the response into {checks, groups} to save a few duplicated
+  // strings would be trading a real compatibility risk for a cosmetic win.
+  const group = GROUP_OF[id] ?? 'health';
+  const meta = { group, groupLabel: DOCTOR_GROUPS[group].label, groupBlurb: DOCTOR_GROUPS[group].blurb };
   try {
     const r = await fn();
-    return { id, label, ok: !!r.ok, warn: !!r.warn, detail: r.detail ?? '' };
+    return { id, label, ...meta, ok: !!r.ok, warn: !!r.warn, detail: r.detail ?? '' };
   } catch (err) {
-    return { id, label, ok: false, warn: false, detail: String(err?.message ?? err).slice(0, 100) };
+    return { id, label, ...meta, ok: false, warn: false, detail: String(err?.message ?? err).slice(0, 100) };
   }
 }

@@ -24,6 +24,7 @@ import { previewUrl } from './lib/previewurl.js';
 import { appendConsoleLine } from './lib/previewconsole.js';
 import { renderRichMessage, rungChip } from './lib/richmsg.js';
 import { initDoctorReport } from './lib/doctorreport.js';
+import { renderDoctor } from './lib/doctorview.js';
 import { initPreviewMax } from './lib/previewmax.js';
 import { convId, newConversation, restoreChat, openHistory } from './lib/chathistory.js';
 
@@ -1371,18 +1372,7 @@ import { convId, newConversation, restoreChat, openHistory } from './lib/chathis
     list.innerHTML = '<div class="hint">running checks…</div>';
     fetch('/api/doctor').then((r) => r.json()).then((checks) => {
       lastChecks = checks;
-      list.innerHTML = '';
-      let bad = false;
-      for (const c of checks) {
-        if (!c.ok && !c.warn) bad = true;
-        const div = document.createElement('div');
-        div.className = 'check ' + (c.ok ? 'pass' : c.warn ? 'warn' : '');
-        div.innerHTML = `<span class="sig"></span><div><div class="what"></div><div class="how"></div></div>`;
-        div.querySelector('.what').textContent = c.label;
-        div.querySelector('.how').textContent = c.detail;
-        list.append(div);
-      }
-      if (bad) setMood('alarmed');
+      if (renderDoctor(list, checks)) setMood('alarmed');
     }).catch(() => { list.innerHTML = '<div class="hint">doctor endpoint unreachable</div>'; });
   }
   $('doctorBtn').addEventListener('click', () => { loadDoctor(); loadPreflight(); });
