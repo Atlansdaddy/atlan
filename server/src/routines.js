@@ -3,7 +3,8 @@ import { mkdirSync } from 'node:fs';
 import { atomicWrite, readJsonState } from './fsutil.js';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { spawnRun, isActive } from './fleet.js';
+import { spawnRun, isActive, FLEET_ENGINES } from './fleet.js';
+import { DEFAULT_ENGINE, defaultModel } from './enginePolicy.js';
 import { listPersonas, compilePersona } from './personas.js';
 import { PROJECTS_DIR } from './config.js';
 import { resolveInProjects } from './guards.js';
@@ -67,7 +68,11 @@ export function upsertRoutine(r) {
     // one path that spends unattended on a timer, so a cwd it will refuse at
     // 3am should be refused now, while a human is looking at the form.
     cwd: resolveInProjects(S(r.cwd, 300) || PROJECTS_DIR, { mustExist: true }),
-    model: S(r.model, 80) || 'claude-haiku-4-5-20251001',
+    // A routine has no engine field, so it has always been implicitly the
+    // default engine's — worth naming rather than leaving as a literal that
+    // reads like a choice. Giving routines their own engine is a separate job.
+    engine: FLEET_ENGINES.includes(r.engine) ? r.engine : DEFAULT_ENGINE,
+    model: S(r.model, 80) || defaultModel(FLEET_ENGINES.includes(r.engine) ? r.engine : DEFAULT_ENGINE, 'fleet'),
     budget: Math.min(2_000_000, Math.max(1000, Number(r.budget) || 50000)),
     enabled: r.enabled !== false,
     lastFireAt: state.routines.find((x) => x.id === r.id)?.lastFireAt ?? null,
@@ -137,7 +142,9 @@ export function fireRoutine(id, { late = false } = {}) {
   const persona = listPersonas().find((p) => p.id === r.personaId);
   const prompt = (persona ? compilePersona(persona) + '\n\n' : '')
     + `[Atlan routine "${r.name}"${late ? ' — LATE RUN, fired manually after a missed slot' : ''}. Scheduled, budgeted, reported: do the task, end with a compact report.]\n\n${r.prompt}`;
-  const run = spawnRun({ prompt, profile: r.profile, cwd: r.cwd, model: r.model, budget: r.budget, source: `routine:${r.name}` });
+  // engine travels with the run. It was omitted, so spawnRun fell back to its
+  // own default and a routine's engine field would have been decorative.
+  const run = spawnRun({ prompt, profile: r.profile, cwd: r.cwd, engine: r.engine, model: r.model, budget: r.budget, source: `routine:${r.name}` });
   r.lastFireAt = Date.now();
   r.lastRunId = run.id;
   r.missed = false;

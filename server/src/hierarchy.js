@@ -7,6 +7,7 @@ import { FLEET_DIR, PROJECTS_DIR, LOCAL_LLM_BASE } from './config.js';
 import { listCommands, listPersonas, compilePersona, compileCommand, templateSchema, runCheckers } from './personas.js';
 import { getStoredKey } from './keys.js';
 import { agentExec } from './agentExec.js';
+import { defaultModel, usesSdk } from './enginePolicy.js';
 
 // Worker hierarchy — the approved schema, made runtime. A JOB is a chain of
 // scoped LINKS; each Link is a Persona+ structured command run by the CHEAPEST
@@ -47,7 +48,7 @@ export const TIERS = {
   // code-shaped work this rung catches, and Fable's thinking cannot be disabled.
   // Both run on the subscription via frontierExecute, so this is a capability
   // choice, not a cost one — set ATLAN_TIER_FRONTIER_MODEL to override.
-  frontier: { engine: 'claude',   base: null,      keyEnv: null,                                                   model: process.env.ATLAN_TIER_FRONTIER_MODEL || 'claude-opus-5', constrained: false, label: 'Claude Opus 5 (frontier)' },
+  frontier: { engine: 'claude',   base: null,      keyEnv: null,                                                   model: process.env.ATLAN_TIER_FRONTIER_MODEL || defaultModel('claude', 'frontier'), constrained: false, label: 'Claude Opus 5 (frontier)' },
   // The agentic rung. NOT a step up the intelligence ladder — a step sideways
   // into a different capability. The benchmark split is real and consistent
   // across aggregators: Claude leads code EDITING (SWE-bench Verified), GPT-5.6
@@ -275,7 +276,7 @@ function assemble(run) {
 async function callTier(tierId, cmd, vars, run) {
   const tier = TIERS[tierId];
   const persona = listPersonas().find((p) => p.id === cmd.personaId);
-  if (tier.engine === 'claude') {
+  if (usesSdk(tier.engine)) {
     // frontier tier: the Agent SDK, no tools, awaited to completion so its JSON
     // is checked and passed down the chain like any other tier's output.
     const prompt = `${persona ? compilePersona(persona) + '\n\n' : ''}${compileCommand(cmd, vars)}\n\n[Reply with ONLY the JSON object the template demands — no prose, no fences. This is a hierarchy escalation: a smaller model failed the deterministic checkers.]`;

@@ -108,6 +108,54 @@ export const ENGINE_POLICY = {
 
 export const engineFidelity = (engine) => ENGINE_POLICY[engine]?.fidelity ?? 'unknown';
 
+// ── how each engine RUNS, and what it defaults to ─────────────────────────
+// ENGINE_POLICY above describes the four exec-mode CLIs, because gating is the
+// only axis where they differ from Claude. That left Claude with no row
+// anywhere, and the consequences spread: its default models were written as
+// literals in FOUR separate files (claudeEngine.js, index.js, fleet.js,
+// routines.js), and three call sites branched on `engine === 'claude'` to pick a
+// runner, a budget mode, or a fallback when no engine was named at all.
+//
+// Branching on a vendor's NAME is the bug. What those sites actually needed was
+// a capability — does this engine run in-process through the Agent SDK, and can
+// it report spend mid-run — and a capability belongs in a table where a new
+// engine can declare it, not in an `if` that a new engine has to be added to.
+//
+// `models` is per PURPOSE, not one default: a chat turn wants a strong model and
+// a fleet worker wants a cheap one, and collapsing those was how the fleet ended
+// up quietly expensive once before.
+export const ENGINE_RUNTIME = {
+  claude: {
+    label: 'Claude Code',
+    // In-process via the Agent SDK, so it has canUseTool, per-tool cards, and
+    // live usage. The four CLIs are exec'd and have none of that.
+    runner: 'sdk',
+    budget: 'mid-run',
+    models: { chat: 'claude-fable-5', fleet: 'claude-haiku-4-5-20251001', frontier: 'claude-opus-5' },
+  },
+  codex: { label: 'Codex', runner: 'cli', budget: 'pre-flight', models: {} },
+  antigravity: { label: 'Antigravity', runner: 'cli', budget: 'pre-flight', models: {} },
+  grok: { label: 'Grok', runner: 'cli', budget: 'pre-flight', models: {} },
+  copilot: { label: 'Copilot', runner: 'cli', budget: 'pre-flight', models: {} },
+};
+
+/**
+ * The engine used when a caller names none.
+ *
+ * It was `!m.engine || m.engine === 'claude'` — an unnamed engine silently WAS
+ * Claude, which is the least visible kind of hardcoding because it never
+ * mentions the thing it is choosing. Now it is one overridable value.
+ */
+export const DEFAULT_ENGINE = process.env.ATLAN_DEFAULT_ENGINE ?? 'claude';
+
+export const engineRuntime = (engine) => ENGINE_RUNTIME[engine] ?? null;
+/** A model for this engine and purpose, or null — never another engine's model. */
+export const defaultModel = (engine, purpose) => ENGINE_RUNTIME[engine]?.models?.[purpose] ?? null;
+/** True when the engine runs in-process through the Agent SDK rather than as an exec'd CLI. */
+export const usesSdk = (engine) => ENGINE_RUNTIME[engine]?.runner === 'sdk';
+/** 'mid-run' where the engine reports spend as it goes, 'pre-flight' where the budget must be checked before starting. */
+export const budgetEnforcement = (engine) => ENGINE_RUNTIME[engine]?.budget ?? 'pre-flight';
+
 // Returns the argv fragment that enforces `profile` on `engine`, or throws.
 // Throwing is the feature: a caller asking for a guarantee we cannot deliver
 // gets an error, never a silent bypass.

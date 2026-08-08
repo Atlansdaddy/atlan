@@ -31,6 +31,7 @@ import {
 import { tailnetHost, tailnetOrigin } from './tailnet.js';
 import { listRoutines, upsertRoutine, deleteRoutine, setPaused, fireRoutine, startScheduler } from './routines.js';
 import { appendChat, listChats, readChat, deleteChat, validId, chatUsage, archiveChats } from './chatlog.js';
+import { DEFAULT_ENGINE, defaultModel, engineRuntime, usesSdk } from './enginePolicy.js';
 import { initHierarchy, listJobs, upsertJob, deleteJob, startJob, listRuns as listHierarchyRuns, getRun as getHierarchyRun, resolveGate, tierList } from './hierarchy.js';
 import { ladderRungs, CHAT_LADDER, MIN_USEFUL_CHARS } from './ladder.js';
 import { saveUpload, saveRef, turnContext } from './attachments.js';
@@ -617,14 +618,19 @@ wss.on('connection', (ws, req) => {
           text += `\n\n[Atlan preview console — errors since last turn, from ${getPreviewTarget()}]\n`
             + pending.errors.slice(-12).map((e) => `• ${e}`).join('\n');
         }
-        const isClaude = !m.engine || m.engine === 'claude';
-        const isAgentCli = m.engine === 'codex' || m.engine === 'antigravity' || m.engine === 'grok' || m.engine === 'copilot';
-        if (isClaude || isAgentCli) {
+        // An unnamed engine used to mean Claude by silent default, and the CLI
+        // list was spelled out here as four literals — so adding a fifth engine
+        // meant remembering this line existed. Both come from the engine table
+        // now: what runs in-process, what is exec'd, and what we fall back to.
+        const engineId = m.engine || DEFAULT_ENGINE;
+        const isSdkEngine = usesSdk(engineId);
+        const isAgentCli = engineRuntime(engineId)?.runner === 'cli';
+        if (isSdkEngine || isAgentCli) {
           for (const p of pending.snaps) {
             text += `\n\n[Atlan preview snapshot saved at ${p} — Read/view that image file to SEE the current preview.]`;
           }
         }
-        pending.errors = []; pending.snaps = (isClaude || isAgentCli) ? [] : pending.snaps;
+        pending.errors = []; pending.snaps = (isSdkEngine || isAgentCli) ? [] : pending.snaps;
 
         // live self-awareness (incl. clock) rides the uncached tail — always fresh, ~0 token cost
         text += cockpitContext(currentTab, (claude && claude.cwd) || m.cwd || PROJECTS_DIR);
@@ -634,10 +640,10 @@ wss.on('connection', (ws, req) => {
           agentState.set(m.engine, state);
           // `owner` ties the child to THIS socket so closing it reaps the child.
           agentTurn({ engine: m.engine, cwd: m.cwd || PROJECTS_DIR, text, send, state, model: m.model, owner: connId });
-        } else if (isClaude) {
+        } else if (isSdkEngine) {
           if (!claude || (m.cwd && claude.cwd !== m.cwd)) {
             claude?.dispose(); // end the old warm session before replacing it (cwd changed)
-            claude = new ClaudeSession({ cwd: m.cwd || PROJECTS_DIR, model: m.model || 'claude-fable-5', send });
+            claude = new ClaudeSession({ cwd: m.cwd || PROJECTS_DIR, model: m.model || defaultModel(engineId, 'chat'), send });
           } else if (m.model) {
             claude.setModel(m.model); // warm-session model switch — no respawn, keeps context
           }

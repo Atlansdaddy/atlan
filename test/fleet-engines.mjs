@@ -253,13 +253,21 @@ test('topUpRun spends the halt BEFORE it spawns, so there is no window', () => {
 });
 
 // ── budget + caps still apply across engines ───────────────────────────────
+// The runner branch, as a source anchor. It moved once already — from
+// `engine === 'claude'` to a capability test — and the ORDERING either side of
+// it is the property these two tests guard. If this anchor ever fails to match,
+// re-point it; do not delete the assertions, and do not weaken them to a regex
+// that would match a branch that had been moved above the guards.
+const RUNNER_BRANCH = 'usesSdk(engine) ? exec(run, prof)';
+
 test('budget is clamped identically regardless of engine', () => {
   // The clamp lives before the engine branch, so a CLI run cannot be spawned
-  // with an absurd or negative budget any more than a Claude one.
+  // with an absurd or negative budget any more than an SDK one.
   const src = readFleetSource();
   assert.ok(/Math\.min\(2_000_000, Math\.max\(1000/.test(src), 'the budget clamp must still be there');
   const clampIdx = src.indexOf('Math.min(2_000_000');
-  const branchIdx = src.indexOf("engine === 'claude' ? exec(run, prof)");
+  const branchIdx = src.indexOf(RUNNER_BRANCH);
+  assert.ok(branchIdx > 0, `the runner branch anchor no longer matches: ${RUNNER_BRANCH}`);
   assert.ok(clampIdx > 0 && branchIdx > clampIdx, 'the clamp must run BEFORE the engine branch');
 });
 
@@ -267,7 +275,8 @@ test('concurrency and daily-token caps are checked before any engine branch', ()
   const src = readFleetSource();
   const conc = src.indexOf('MAX_CONCURRENT_RUNS > 0');
   const daily = src.indexOf('DAILY_TOKEN_CAP > 0');
-  const branch = src.indexOf("engine === 'claude' ? exec(run, prof)");
+  const branch = src.indexOf(RUNNER_BRANCH);
+  assert.ok(branch > 0, `the runner branch anchor no longer matches: ${RUNNER_BRANCH}`);
   assert.ok(conc > 0 && daily > 0, 'both aggregate guards must exist');
   assert.ok(branch > conc && branch > daily, 'guards must precede the engine branch — a CLI run cannot skip the wall');
 });

@@ -16,7 +16,7 @@ import { FLEET_DIR, DAILY_TOKEN_CAP, MAX_CONCURRENT_RUNS, TURN_RESERVE, sandboxO
 import { confineBash, establish } from './sandbox/confine.js';
 import { agentExec, killTree } from './agentExec.js';
 import { isUnder, guardPath, resolveInProjects } from './guards.js';
-import { engineFidelity, policyArgs } from './enginePolicy.js';
+import { engineFidelity, policyArgs, defaultModel, usesSdk, budgetEnforcement as budgetModeFor } from './enginePolicy.js';
 
 // Engines that report no usage numbers at all. Admitting one under a token
 // budget would be a promise nothing can keep: the run burns real tokens and the
@@ -54,12 +54,15 @@ export const FLEET_ENGINES = ['claude', ...CLI_ENGINES];
 /** What each engine can actually promise here — drives the UI, honestly. */
 export function engineCapabilities() {
   return FLEET_ENGINES.map((id) => {
-    if (id === 'claude') {
+    // Capability, not identity: an SDK engine gets per-tool gating and mid-run
+    // budget halts because of HOW it runs, and a second one would inherit this
+    // row by declaring runner:'sdk' rather than by being named here.
+    if (usesSdk(id)) {
       return {
         id,
         fidelity: 'full',
         profiles: Object.keys(PROFILES),
-        budgetEnforcement: 'mid-run',
+        budgetEnforcement: budgetModeFor(id),
         resumable: true,
         why: 'Agent SDK: per-tool canUseTool gating + mid-run budget halt',
       };
@@ -71,7 +74,7 @@ export function engineCapabilities() {
       id,
       fidelity: engineFidelity(id),
       profiles,
-      budgetEnforcement: 'pre-flight',
+      budgetEnforcement: budgetModeFor(id),
       resumable: false,
       why: profiles.length
         ? `native gate for ${profiles.join('/')}`
@@ -322,13 +325,18 @@ export function spawnRun({
   // scout auditing Atlan's own repo is a real and wanted use, and the builder's
   // per-write check is what refuses the cockpit's source and state.
   cwd = resolveInProjects(cwd || PROJECTS_DIR, { mustExist: true });
-  // Model default is PER ENGINE. A hardcoded claude-haiku default was fine
-  // while the fleet was Claude-only and becomes a bug the moment it is not.
-  if (!model) model = engine === 'claude' ? 'claude-haiku-4-5-20251001' : null;
+  // Model default is PER ENGINE, and now comes from the engine table rather
+  // than a literal — the comment that used to sit here said this was "a bug the
+  // moment the fleet is not Claude-only", and it was right.
+  if (!model) model = defaultModel(engine, 'fleet');
   // Fail EARLY and loudly if this engine cannot honestly enforce the profile
   // here — before a run id exists, before the ledger sees it, before the UI
   // shows a run that was never gated. policyArgs throws with the reason.
-  if (engine !== 'claude') {
+  //
+  // The test is "is it exec'd", not "is it Claude": the SDK path enforces
+  // profiles through canUseTool, every exec'd CLI has to express them in native
+  // flags. A second SDK engine would work here without touching this line.
+  if (!usesSdk(engine)) {
     policyArgs(engine, profile, { allowUnsandboxed });
   }
   // An engine that cannot report usage cannot be held to a budget. Saying so
@@ -387,7 +395,7 @@ export function spawnRun({
     enforced: null, boundary: null, proposal: null,
     // Set at spawn, not at finish: if the process dies mid-run the record must
     // still say which kind of budget this run ever had.
-    budgetEnforcement: engine === 'claude' ? 'mid-run' : 'pre-flight',
+    budgetEnforcement: budgetModeFor(engine),
   };
   runs.unshift(run);
   if (runs.length > 200) runs.pop();
@@ -396,7 +404,7 @@ export function spawnRun({
   broadcast({ t: 'atlan.mood', mood: 'building', agents: active.size + 1 });
   // fire-and-forget: exec self-handles internally, but a stray rejection must
   // never become an unhandledRejection that takes down the whole server.
-  const runner = engine === 'claude' ? exec(run, prof) : execCli(run);
+  const runner = usesSdk(engine) ? exec(run, prof) : execCli(run);
   runner.catch((err) => { console.error('[fleet] exec crashed:', err); });
   return publicRun(run);
 }

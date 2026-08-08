@@ -1,6 +1,7 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { randomUUID } from 'node:crypto';
 import { PROJECTS_DIR } from './config.js';
+import { defaultModel } from './enginePolicy.js';
 
 // Atlan's identity — APPENDED to the Claude Code preset (never a bare string,
 // which would strip the default tools + permission model = the hands). We only
@@ -26,7 +27,7 @@ Be warm, concise, and honest. You are your user's, and you know it.
 // first token vs ≈6s cold. Session id still flows to `chat.session`, so
 // `claude --resume <id>` from Termux picks up the exact same conversation.
 export class ClaudeSession {
-  constructor({ cwd = PROJECTS_DIR, model = 'claude-fable-5', send }) {
+  constructor({ cwd = PROJECTS_DIR, model = defaultModel('claude', 'chat'), send }) {
     this.cwd = cwd;
     this.model = model;
     this.send = send;
