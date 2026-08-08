@@ -18,6 +18,34 @@
  * engine that is not ready appends what it NEEDS — the honest-readiness rule:
  * the picker never silently offers a capability the user cannot use.
  */
+/**
+ * Keep the composer telling you WHO you are about to talk to.
+ *
+ * It said "Message Claude Code…" since the days of one engine, which is simply
+ * wrong once Grok is selected. The first fix made it generic — "Message your
+ * agent…" — and that was a downgrade: a newcomer facing a dropdown of five
+ * agents, four brains and an escalation ladder needs to know which of them is
+ * about to read the sentence they type. Generic copy is not neutral; it moves
+ * the question somewhere you cannot see it.
+ *
+ * So it follows the selection. The optgroup carries the ENGINE, which is the
+ * part worth showing; the option carries the model, which the picker shows anyway.
+ */
+export function initComposerHint({ select, input }) {
+  if (!select || !input) return null;
+  const paint = () => {
+    const opt = select.selectedOptions?.[0];
+    const group = opt?.parentElement?.label?.split('—')[0]?.trim();
+    input.placeholder = group ? `Message ${group}…` : 'Message your agent…';
+  };
+  select.addEventListener('change', paint);
+  // The roster arrives asynchronously, so repaint when the options actually
+  // land — otherwise the hint stays whatever the markup happened to ship with.
+  new MutationObserver(paint).observe(select, { childList: true, subtree: true });
+  paint();
+  return paint;
+}
+
 export function engineOptionLabel(engine, model, tierCount) {
   const short = String(engine.label ?? '').split(' — ')[0];
   const base = tierCount > 1 ? `${short} · ${model}` : engine.label;

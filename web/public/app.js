@@ -14,7 +14,7 @@ import {
 } from './lib/text.js';
 import { isNight, greetingFor, hueFor, MOOD_HUE } from './lib/ambient.js';
 import {
-  engineOptionLabel, engineOptionValue, ladderOptionLabel, ladderOptionTitle, rungLineText,
+  engineOptionLabel, engineOptionValue, ladderOptionLabel, ladderOptionTitle, rungLineText, initComposerHint,
 } from './lib/enginepicker.js';
 import { fmtTok, statusLabel, burnLine, runMetaLine } from './lib/burn.js';
 import { openInto, saveTo } from './lib/editorguard.js';
@@ -1977,5 +1977,5 @@ import { convId, newConversation, restoreChat, openHistory } from './lib/chathis
   restoreChat(addMsg).then((n) => { if (n) { chatlog.firstElementChild?.remove(); scroll(); } });
   $('histBtn').addEventListener('click', () => openHistory({ panel: $('histPanel'), onOpen: replay }));
   $('newChatBtn').addEventListener('click', () => { newConversation(); replay(); });
-  initPreviewMax({ section: $('s-preview'), button: $('previewMax') });
+  initPreviewMax({ section: $('s-preview'), button: $('previewMax') }); initComposerHint({ select: $('modelSel'), input: $('chatInput') });
 })();
