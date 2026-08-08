@@ -70,7 +70,7 @@
       </div>
       <div class="histpanel" id="histPanel" hidden></div>
       <div class="chatlog" id="chatlog" role="log" aria-live="polite" aria-label="conversation">
-        <div class="msg claude"><div class="who">Atlan</div>Pick a project below, then talk to Claude Code. Every session here can be picked up in the terminal with <code>claude --resume</code> — tap the session id to copy the command.</div>
+        <div class="msg claude"><div class="who">Atlan</div>Pick a project below, then talk to your agent. Every session here can be picked up in the terminal with <code>claude --resume</code> — tap the session id to copy the command.</div>
       </div>
       <div class="projbar">
         <select id="projSel" aria-label="project"><option value="">loading projects…</option></select>
@@ -96,7 +96,7 @@
       <div class="composer">
         <button class="btn iconbtn" id="micBtn" title="speak (voice input)" aria-label="voice input">🎤</button>
         <button class="btn iconbtn" id="attachBtn" title="attach image / audio / video / file" aria-label="attach a file">📎</button>
-        <input id="chatInput" placeholder="Message Claude Code…" autocomplete="off" aria-label="message">
+        <input id="chatInput" placeholder="Message your agent…" autocomplete="off" aria-label="message">
         <button class="btn hot send" id="sendBtn" aria-label="send message">➤</button>
       </div>
       <input type="file" id="attachFile" multiple style="display:none">
@@ -113,9 +113,9 @@
         <button class="btn iconbtn" id="previewMax" title="Full screen" aria-pressed="false">⤢</button>
       </div>
       <iframe id="previewFrame" class="viewport" sandbox="allow-scripts allow-same-origin allow-forms" title="Preview"></iframe>
-      <div class="console" id="previewConsole"><div class="hint">console output from the previewed app lands here — errors auto-attach to Claude's next turn</div></div>
+      <div class="console" id="previewConsole"><div class="hint">console output from the previewed app lands here — errors auto-attach to the agent's next turn</div></div>
       <div class="snapbar">
-        <button class="btn hot" id="snapBtn">📸 Snapshot → Claude</button>
+        <button class="btn hot" id="snapBtn">📸 Snapshot → agent</button>
         <button class="btn ghost" id="consoleClear">clear</button>
       </div>
       <div class="seen" id="seenLine"></div>
@@ -134,7 +134,7 @@
         <button class="btn hot" id="edSave">Save</button>
         <button class="btn hot" id="edInlineAi">✨ Inline AI</button>
         <button class="btn ghost" id="edGit">⑂ Git</button>
-        <button class="btn ghost" id="edToChat">Send to Claude for review</button>
+        <button class="btn ghost" id="edToChat">Send to agent for review</button>
       </div>
       <div id="aiModal" class="aimodal" style="display:none">
         <div class="aimodal-content">
@@ -465,13 +465,13 @@
     </div>
     <input id="guideSearch" placeholder="search the handbook…" autocomplete="off">
 
-    <details><summary>What Atlan is</summary><p>A cockpit for building software from your phone. One screen talks to Claude Code (a real agent that edits files, runs commands, and builds apps), previews what you're making, gives you a real terminal, runs autonomous agent fleets on budgets, schedules routines, compiles your Persona+ framework into working agent parts, ships installable APKs, and watches its own health. It runs entirely on this phone at 127.0.0.1 — nothing leaves unless you build the tunnel yourself, and the preflight gate holds you honest about when that's safe.</p></details>
+    <details><summary>What Atlan is</summary><p>A cockpit for building software from your phone. One screen talks to any coding agent you have — Claude Code, Codex, Antigravity, Grok or Copilot — each a real agent that edits files, runs commands and builds apps, previews what you're making, gives you a real terminal, runs autonomous agent fleets on budgets, schedules routines, compiles your Persona+ framework into working agent parts, ships installable APKs, and watches its own health. It runs entirely on this phone at 127.0.0.1 — nothing leaves unless you build the tunnel yourself, and the preflight gate holds you honest about when that's safe.</p></details>
 
     <details><summary>The ladder — start free, climb only if needed</summary><p>Pick <b>Ladder</b> in the switcher and Atlan asks the <b>free on-phone model first</b>, then climbs to a paid rung only when it has to. Each step is shown in the chat as it happens, so you find out what your free tiers can actually handle instead of paying by reflex — which is the whole point on a phone.<br><b>It climbs on things code can SEE:</b> the rung errored, came back empty, was cut off mid-answer, or said outright that it couldn't do the thing. Those are facts about the response, checked in code.<br><b>What it deliberately does NOT do</b> is ask a model whether its own answer was any good. Nothing grades itself here. That means <b>the ladder cannot catch a confidently wrong answer</b> — a rung that states something false, fluently, will be accepted. If a reply looks off, switch to a stronger engine and ask again.<br>We write that limit down instead of hiding it, because an escalation rule that pretended to measure quality would be a fake gate — and a fake gate is worse than none.<br><b>The agentic rung is off by default:</b> Codex has hands and belongs to another vendor, so chat never routes there silently. You opt in by name.</p></details>
 
-    <details><summary>Chat — talking to engines</summary><p><b>Project picker:</b> every folder in your projects directory with git or a package.json. Everything (chat, fleet, build, terminal) happens in the picked project.<br><b>Switcher groups:</b> <b>Ladder</b> is a policy, not a model — see its own entry below. Claude Code models are AGENTS — they act. Codex, Antigravity, Grok Build and Copilot are full agents too, each with its own permission system — Atlan runs them with approvals bypassed today, so no per-tool cards from them yet. On-phone and cloud "brains" only talk — they will say so if you ask them to act.<br><b>Permission cards:</b> when Claude wants to run something risky you get Allow/Deny. Deny is always safe — the agent is told why and works around it.<br><b>Session line:</b> tap to copy <code>claude --resume &lt;id&gt;</code>; the same conversation continues in any terminal.<br><b>Preview context:</b> console errors and 📸 snapshots attach themselves to your next message automatically.</p></details>
+    <details><summary>Chat — talking to engines</summary><p><b>Project picker:</b> every folder in your projects directory with git or a package.json. Everything (chat, fleet, build, terminal) happens in the picked project.<br><b>Switcher groups:</b> <b>Ladder</b> is a policy, not a model — see its own entry below. Claude Code models are AGENTS — they act. Codex, Antigravity, Grok Build and Copilot are full agents too, each with its own permission system — Atlan runs them with approvals bypassed today, so no per-tool cards from them yet. On-phone and cloud "brains" only talk — they will say so if you ask them to act.<br><b>Permission cards:</b> when an agent wants to run something risky you get Allow/Deny. Deny is always safe — the agent is told why and works around it.<br><b>Session line:</b> tap to copy <code>claude --resume &lt;id&gt;</code>; the same conversation continues in any terminal.<br><b>Preview context:</b> console errors and 📸 snapshots attach themselves to your next message automatically.</p></details>
 
-    <details><summary>Preview — watching your app</summary><p>Enter a local dev-server URL (127.0.0.1 only — this is a security choice, not a limitation) and load. The cockpit proxies it and injects a tiny watcher: console output appears in the strip; errors queue for Claude's next turn with file:line; 📸 saves a real PNG that Claude reads with vision. HMR/live-reload passes through untouched.</p></details>
+    <details><summary>Preview — watching your app</summary><p>Enter a local dev-server URL (127.0.0.1 only — this is a security choice, not a limitation) and load. The cockpit proxies it and injects a tiny watcher: console output appears in the strip; errors queue for the agent's next turn with file:line; 📸 saves a real PNG a vision-capable agent reads. HMR/live-reload passes through untouched.</p></details>
 
     <details><summary>Term — the escape hatch</summary><p>A real shell in tmux session <code>atlan-main</code>. From any other terminal on the host, <code>tmux attach -t atlan-main</code> mirrors the exact same screen both ways (Windows hosts get a plain shell instead). Stored API keys are injected into its environment so CLIs auth the same as the cockpit. If the GUI ever annoys you, everything it does is doable here — by design.</p></details>
 
@@ -479,7 +479,7 @@
 
     <details><summary>Routines — scheduled agents</summary><p>Every-N-minutes or daily-at-HH:MM. Each fire is a normal budgeted fleet run (same walls) labeled <code>routine:&lt;name&gt;</code> in the inbox. <b>Missed-run rule:</b> if the server was off past a slot, the routine is flagged MISSED and does nothing until you tap "run late" — a rebooting phone can never silently spend. Pause-all freezes the clock. A disabled routine keeps its config.</p></details>
 
-    <details><summary>Builder — Persona+ compiled</summary><p>Your 2023 framework is the native language here. <b>Persona</b> (NAME/FOCUS/BIO/SKILLS/NO_NOS/TEMPLATE/INSTRUCTIONS) → the system prompt; pick the fleet profile it runs under. <b>Structured command</b> → a typed tool: VARIABLES become JSON-schema parameters; TEMPLATE fields become a constrained JSON answer; the model literally cannot return the wrong shape on engines with constrained decoding. <b>Checkers</b> are deterministic assertions graded by code, never by a model: enum ∈, range, regex, ⊆ input-variable (no invented parts), max length, arithmetic formulas (total = qty*price). <b>Harness:</b> run any command on local/cloud engines, see every check pass/fail with evidence, and escalate failures to a Claude fleet run in one tap. Personas also plug into routines and (soon) chat.</p></details>
+    <details><summary>Builder — Persona+ compiled</summary><p>Your 2023 framework is the native language here. <b>Persona</b> (NAME/FOCUS/BIO/SKILLS/NO_NOS/TEMPLATE/INSTRUCTIONS) → the system prompt; pick the fleet profile it runs under. <b>Structured command</b> → a typed tool: VARIABLES become JSON-schema parameters; TEMPLATE fields become a constrained JSON answer; the model literally cannot return the wrong shape on engines with constrained decoding. <b>Checkers</b> are deterministic assertions graded by code, never by a model: enum ∈, range, regex, ⊆ input-variable (no invented parts), max length, arithmetic formulas (total = qty*price). <b>Harness:</b> run any command on local/cloud engines, see every check pass/fail with evidence, and escalate failures to a fleet run in one tap. Personas also plug into routines and (soon) chat.</p></details>
 
     <details><summary>Build — APK on demand</summary><p>One button runs the proven pipeline: <code>env.sh</code> → web build with CAP_BUILD=1 → Capacitor sync → Gradle using the qemu shim that lets the x86-only aapt2 run on ARM phones. Log streams live. Every APK gets a unique name + visible stamp (stale-cache dodge). Serve/install straight from the cockpit. Needs ~2.5GB free RAM — stop llama-server first if things get tight.</p></details>
 
