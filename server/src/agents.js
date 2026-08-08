@@ -389,7 +389,7 @@ export function agentTurn({ engine, cwd, text, send, state, model = null, owner 
     if (e.type === 'item.completed' && e.item) {
       const it = e.item;
       const itype = it.type ?? it.item_type;
-      if (itype === 'agent_message' && it.text) { sawText = true; send({ t: 'chat.msg', role: 'claude', engine: engineLabel(engine), text: it.text }); }
+      if (itype === 'agent_message' && it.text) { sawText = true; send({ t: 'chat.msg', role: 'assistant', engine: engineLabel(engine), text: it.text }); }
       else if (itype === 'command_execution') send({ t: 'tool.use', name: 'shell', input: String(it.command ?? '').slice(0, 300) });
       else if (itype === 'file_change') send({ t: 'tool.use', name: 'edit', input: (it.changes ?? []).map((c) => c.path).join(', ').slice(0, 300) || 'files changed' });
       else if (itype === 'mcp_tool_call') send({ t: 'tool.use', name: it.tool ?? 'mcp', input: JSON.stringify(it.arguments ?? {}).slice(0, 200) });
@@ -418,7 +418,7 @@ export function agentTurn({ engine, cwd, text, send, state, model = null, owner 
     if (e.type === 'tool_use') send({ t: 'tool.use', name: e.name ?? 'tool', input: JSON.stringify(e.args ?? e.input ?? {}).slice(0, 200) });
     if (e.type === 'result') {
       const finalText = geminiText || e.response || '';
-      if (finalText) { sawText = true; send({ t: 'chat.msg', role: 'claude', engine: engineLabel(engine), text: finalText }); }
+      if (finalText) { sawText = true; send({ t: 'chat.msg', role: 'assistant', engine: engineLabel(engine), text: finalText }); }
       geminiText = '';
       send({ t: 'chat.result', subtype: 'success', brain: engine, tokens: e.stats?.total_tokens ?? null });
     }
@@ -446,7 +446,7 @@ export function agentTurn({ engine, cwd, text, send, state, model = null, owner 
       buf = buf.slice(nl + 1);
       if (!line) continue;
       try { handleEvent(JSON.parse(line)); }
-      catch { if (line.length > 2) { sawText = true; send({ t: 'chat.msg', role: 'claude', engine: engineLabel(engine), text: line }); } }
+      catch { if (line.length > 2) { sawText = true; send({ t: 'chat.msg', role: 'assistant', engine: engineLabel(engine), text: line }); } }
     }
   });
   child.stderr.on('data', (chunk) => {
@@ -491,7 +491,7 @@ export function agentTurn({ engine, cwd, text, send, state, model = null, owner 
       geminiText = '';
       // If it streamed, the bubble is already on screen and complete — sending
       // chat.msg here too would print the whole answer a second time.
-      if (out && !streamOpen) { sawText = true; send({ t: 'chat.msg', role: 'claude', engine: engineLabel(engine), text: out }); }
+      if (out && !streamOpen) { sawText = true; send({ t: 'chat.msg', role: 'assistant', engine: engineLabel(engine), text: out }); }
       if (out && streamOpen) sawText = true;
       send({ t: 'chat.result', subtype: 'success', brain: engine, tokens: null });
       send({ t: 'atlan.mood', mood: 'proud' });

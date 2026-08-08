@@ -24,6 +24,17 @@ export function renderRichMessage(container, text, onSendToEditor) {
   }
 }
 
+/** The one-line chip the escalation ladder prints as it climbs. */
+export function rungChip(text) {
+  const div = document.createElement('div');
+  div.className = 'toolchip';
+  const name = document.createElement('span');
+  name.className = 'tname';
+  name.textContent = text;          // textContent, not innerHTML — it is model-derived
+  div.append(name);
+  return div;
+}
+
 export function buildCodeBlock(code, lang, onSendToEditor) {
   const wrap = document.createElement('div'); wrap.className = 'codeblock';
   const bar = document.createElement('div'); bar.className = 'codebar';

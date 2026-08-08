@@ -84,7 +84,12 @@ export function appendChat(id, { role, text, engine = null, at = Date.now() } = 
     ensureDir();
     appendFileSync(fileFor(key), JSON.stringify({
       at,
-      role: String(role ?? 'claude').slice(0, 16),
+      // 'assistant', not 'claude'. The protocol used to name a vendor as the
+      // word for "the thing that answered", so Codex, Grok, Copilot and
+      // Antigravity output was all stored and rendered under Claude's role.
+      // Readers still accept the old value — transcripts written before this
+      // exist and must keep opening.
+      role: String(role ?? 'assistant').slice(0, 16),
       engine: engine ? String(engine).slice(0, 40) : null,
       text: body.slice(0, MAX_TEXT),
     }) + '\n', { mode: 0o600 });

@@ -148,6 +148,12 @@ header{display:flex;align-items:center;gap:10px;padding:12px 14px 10px;border-bo
 .composer input::placeholder{color:var(--muted)}
 .send{width:44px;height:44px;border-radius:12px;flex-shrink:0;font-size:16px;display:grid;place-items:center}
 
+/* the clipboard fallback: http origins can lack navigator.clipboard, and Atlan
+   is http on loopback by design — so the text has to be selectable instead */
+.doc-report{width:100%;min-height:180px;font-family:var(--mono);font-size:10.5px;
+  color:var(--ink);background:var(--surface);border:1px solid var(--line);
+  border-radius:10px;padding:8px;margin-bottom:8px}
+
 /* chat history */
 .chatbar{display:flex;gap:8px;align-items:center;flex-shrink:0}
 .chatbar .btn{font-size:12px;padding:6px 10px;min-height:var(--tap)}

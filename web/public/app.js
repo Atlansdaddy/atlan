@@ -22,7 +22,8 @@ import { topUp, sendKill } from './lib/fleetactions.js';
 import { linkRowHtml } from './lib/joblink.js';
 import { previewUrl } from './lib/previewurl.js';
 import { appendConsoleLine } from './lib/previewconsole.js';
-import { renderRichMessage } from './lib/richmsg.js';
+import { renderRichMessage, rungChip } from './lib/richmsg.js';
+import { initDoctorReport } from './lib/doctorreport.js';
 import { initPreviewMax } from './lib/previewmax.js';
 import { convId, newConversation, restoreChat, openHistory } from './lib/chathistory.js';
 
@@ -448,13 +449,7 @@ import { convId, newConversation, restoreChat, openHistory } from './lib/chathis
   }
   loadLadder();
 
-  function addRungLine(m) {
-    const div = document.createElement('div');
-    div.className = 'toolchip';
-    div.innerHTML = '<span class="tname"></span>';
-    div.querySelector('.tname').textContent = rungLineText(m);
-    chatlog.append(div); scroll();
-  }
+  const addRungLine = (m) => { chatlog.append(rungChip(rungLineText(m))); scroll(); };
 
   // engine roster → fill the switcher's local/cloud groups
   function loadEngines() {
@@ -1370,10 +1365,12 @@ import { convId, newConversation, restoreChat, openHistory } from './lib/chathis
   });
 
   // ── doctor ──
+  let lastChecks = []; // kept so the report button can copy exactly what you see
   function loadDoctor() {
     const list = $('doctorList');
     list.innerHTML = '<div class="hint">running checks…</div>';
     fetch('/api/doctor').then((r) => r.json()).then((checks) => {
+      lastChecks = checks;
       list.innerHTML = '';
       let bad = false;
       for (const c of checks) {
@@ -1389,6 +1386,7 @@ import { convId, newConversation, restoreChat, openHistory } from './lib/chathis
     }).catch(() => { list.innerHTML = '<div class="hint">doctor endpoint unreachable</div>'; });
   }
   $('doctorBtn').addEventListener('click', () => { loadDoctor(); loadPreflight(); });
+  initDoctorReport({ button: $('doctorCopy'), getChecks: () => lastChecks, panel: $('doctorList') });
 
   // ── preflight (security gate) ──
   function loadPreflight() {

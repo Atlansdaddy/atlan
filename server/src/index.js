@@ -554,7 +554,7 @@ wss.on('connection', (ws, req) => {
         else if (obj.t === 'chat.textstart') { streamed = ''; streamEngine = obj.engine ?? 'Claude'; }
         else if (obj.t === 'chat.delta') streamed += obj.text ?? '';
         else if (obj.t === 'chat.result') {
-          if (streamed.trim()) appendChat(convId, { role: 'claude', text: streamed, engine: streamEngine });
+          if (streamed.trim()) appendChat(convId, { role: 'assistant', text: streamed, engine: streamEngine });
           streamed = '';
         }
       }
