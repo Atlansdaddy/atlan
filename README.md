@@ -4,7 +4,11 @@
 
 Built by John Viruet / Mid-Atlantic AI. Licensed **Apache-2.0** — free to use and fork; keep the attribution. Its resident AI, **Atlan**, is the cockpit's living mascot — a calm presence that reacts to what's actually happening as you build.
 
-> **Status (2026-07-23):** M1–M6 plus streaming chat on a **warm, fast session** (the CLI is spawned once and kept alive — no ~3.7s cold-start per turn; measured ~1.3s to first token warm vs ~7s cold), **live self-awareness** (Atlan perceives the current time, your active tab, running agents, today's token burn, and the open project), **visible reasoning** (summarized thinking streams to a panel), password auth, worker hierarchy, attachments, a code editor, voice I/O (**12 AI-model + 10 voice providers** — browser voice free by default, the rest BYO-key, OpenAI-Realtime honestly marked roadmap), and a **durable auto-respawning server** (`bin/atlan-serve.sh`) with optional Termux:Boot reboot-autostart. **173 automated tests green across 11 suites** (see `docs/RECEIPTS.md`). Runs loopback-only by design; the Preflight security gate goes green once you've set a password (it's part of first-run).
+> **Status (2026-08-08):** M1–M6 plus streaming chat on a **warm, fast session** (the CLI is spawned once and kept alive — no ~3.7s cold-start per turn; measured ~1.3s to first token warm vs ~7s cold), **live self-awareness** (Atlan perceives the current time, your active tab, running agents, today's token burn, and the open project), **visible reasoning** (summarized thinking streams to a panel), password auth, worker hierarchy, attachments, a code editor, voice I/O (**12 AI-model + 10 voice providers** — browser voice free by default, the rest BYO-key, OpenAI-Realtime honestly marked roadmap), and a **durable auto-respawning server** (`bin/atlan-serve.sh`) with optional Termux:Boot reboot-autostart. **828 automated tests green across 25 suites** (see `docs/RECEIPTS.md`). Runs loopback-only by design; the Preflight security gate goes green once you've set a password (it's part of first-run).
+>
+> **New in this pass:** conversations **persist across a refresh** with a searchable history and archiving that never deletes · **chat-to-chat and chat-to-project messages**, bounded by rate, duplicate, backlog and relay-depth limits · a **preview full-screen** toggle · a **Doctor grouped by the question each check answers**, with a one-tap copy-report and a real agent-CLI connection check · a **Persona+ drafter** that fills the form from a plain sentence · and the removal of the last places a vendor name stood in for "the engine you picked" — the wire protocol, the runtime decisions, and the copy.
+>
+> **Confinement, measured on a real Galaxy S24 Ultra (Android 16, kernel 6.1.145-android14, arm64):** 14/16 rungs, **establishes T2**, short of T3 only by Landlock and sibling-memory — because the GKI kernel branch freezes when a device ships, so no OS update will add it. `declaredTier()` still defaults to **T0** on every host: those numbers come from an `adb shell`, and Atlan runs as `untrusted_app` under Android's own zygote seccomp filter, which can only take capabilities away. See `docs/SECURITY.md`.
 
 ---
 
@@ -44,6 +48,9 @@ Atlan is a Node server you drive from a browser. Where the **server** can run de
   - **Cloud brains** — a wide, BYO-key spread through one OpenAI-compatible adapter (chat only; they'll tell you they have no hands): **Gemini, OpenAI, DeepSeek, Kimi (Moonshot), xAI Grok, Mistral, Groq, Together, OpenRouter, Fireworks, Cohere**. Adding another provider is a single base-URL row. Each `defaultModel` is just a starting point — type any model the provider offers.
   - Unavailable options are disabled and say exactly what they need; **Settings → Engine keys** has a "how to get ↗" link for every one.
 - **Permission cards** — when Claude wants a risky action you get Allow/Deny. Deny is always safe; the agent is told why and adapts.
+- **Conversations persist.** A pull-to-refresh used to destroy the thread — chat lived only in the DOM and in a per-socket map the server clears on close. Transcripts are durable now (`FLEET_DIR/chats/*.jsonl`, appended a line at a time so a long chat isn't O(n²) writes on phone flash), so a reload replays where you were. **🗂 History** lists past conversations — searchable, titled by your first message rather than the assistant's tool preamble.
+- **Archiving, never pruning.** Nothing is deleted to make room. Usage is measured — size, free disk, available RAM — and when it matters the Doctor says so and *asks*. Archived conversations stay in the same list, marked, and open on tap; the gzip they came out of is an implementation detail you never see.
+- **Chat-to-chat and chat-to-project messages.** Send a note to another conversation, or to a **project** — "tell whoever is working on auth" — from the History list. A live conversation gets it on screen; a dormant one keeps it in its transcript until you open it. Every peer message is rendered with its own style and a "from" byline: agents run full-auto here, so an unattributed channel between them would be an injection path, and the attribution *is* the control. Rate, duplicate, backlog and relay-depth limits bound it.
 - **Session handoff** — after each turn a line shows cost + session id; tap to copy `claude --resume <id>` and continue the *same* conversation in any terminal.
 - **Auto-attached preview context** — console errors and 📸 snapshots from the Preview tab ride along on your next message automatically.
 - **Voice — talk to Atlan, hear him back.** 🎤 push-to-talk uses the browser's Web Speech API (free, on-device) and drops the transcript in the box to review before sending. 🔈/🔊 toggles spoken replies. Speech-out is a wide, honest, BYO-key spread — pick one in **Settings → Voice**:
@@ -53,13 +60,14 @@ Atlan is a Node server you drive from a browser. Where the **server** can run de
 
 ### ▣ Preview — see the app you're building
 - Point at any local dev server (loopback only — `127.0.0.1` / `localhost` / `::1`, hostname exact-matched against a loopback allowlist; a deliberate SSRF boundary), rendered through a proxy that injects a watcher.
-- **Console strip** mirrors the app's logs. **Errors** queue and auto-attach to Claude's next turn with file:line — you never copy-paste a stack trace again.
-- **📸 Snapshot** saves a real PNG the agent reads with vision ("the button overlaps the header" becomes verifiable).
+- **Console strip** mirrors the app's logs. **Errors** queue and auto-attach to the agent's next turn with file:line — you never copy-paste a stack trace again.
+- **📸 Snapshot** saves a real PNG a vision-capable agent reads ("the button overlaps the header" becomes verifiable).
+- **⤢ Full screen** fills the display and Escape brings it back. It's a CSS class first and the Fullscreen API second, because that API is refused on iOS Safari and inside some webviews — a control that silently does nothing on the primary platform would be worse than none.
 - HMR / live-reload passes straight through.
 
 ### ✎ Editor — write or review code by hand
 - A full code editor (CodeMirror, 122 languages, self-hosted — no CDN). Open a file by path or browse the project tree, edit with syntax highlighting, save to disk.
-- **Send to Claude for review** hands the open file to a chat turn with a review prompt. Scoped to the project; credential paths (`.ssh`, keys) are refused.
+- **Send to agent for review** hands the open file to a chat turn with a review prompt. Scoped to the project; credential paths (`.ssh`, keys) are refused.
 
 ### ❯_ Term — a real terminal
 - `xterm.js` bound to tmux session `atlan-main` in proot. Run anything.
@@ -78,6 +86,7 @@ Atlan is a Node server you drive from a browser. Where the **server** can run de
 
 **Builder — Persona+ compiled to real agent parts.**
 - A **persona** (NAME / FOCUS / BIO / SKILLS / NO_NOS / TEMPLATE / INSTRUCTIONS) compiles into the agent's system prompt, plus a fleet profile.
+- **Or describe it and let an engine fill the form in.** Seven fields ask you to decompose your intent into the framework's shape before you're allowed to express it, and people don't think in schemas — they think *"a reviewer that's brutal about error handling and never touches tests"*. `POST /api/personas/draft` takes that sentence and returns a filled form. **The form stays**: a draft is cheap to tweak and free to change, where re-prompting to nudge one line is expensive and nondeterministic. Nothing is saved until you press save.
 - A **structured command** compiles into a typed tool: VARIABLES → JSON-schema parameters; TEMPLATE fields → a constrained JSON answer (models with constrained decoding literally can't return the wrong shape).
 - **Checkers** are deterministic assertions graded by *code, never by a model*: `enum ∈`, `range`, `regex`, `⊆ input-variable` (no invented values), `max-length`, and `arith` formulas (`total = qty*price`) evaluated by a safe parser with no `eval` reachable.
 - **Test harness** runs any command against a chosen engine (free local first), shows every checker's pass/fail with evidence, and on failure **escalates** the identical command to a Claude fleet run in one tap — the small-model-does-the-reps, frontier-catches-the-hard-5% ladder.
@@ -89,7 +98,10 @@ Runs the proven pipeline in order: `env.sh` → web build (`CAP_BUILD=1`) → Ca
 
 ### ✚ Doctor — health & security
 - **Engine keys** — AES-256-GCM at rest (`.keys.enc` + 0600 secret), shown as last-4 only, never echoed; env vars win over stored keys.
-- **Doctor checks** — every fragile proot-boundary piece: JDK 21, Android SDK, aapt2 shim, `claude` binary + auth, tmux, disk, `llama-server`, Piper voice (binary + model), the push service worker's no-fetch promise, and whether the OS Bash sandbox is available (it isn't in proot — see Security). Green = go; red names exactly what a Termux update broke.
+- **Doctor checks**, grouped by the question they answer rather than listed flat: **Containment** (how much an agent can reach on this device), **Engines** (what can answer you right now), **Build toolchain**, **Health**. Each group carries a verdict; green ones collapse and anything with a problem opens itself. Seventeen rows sorted by nothing is how someone hunting for the containment answer scrolled straight past it.
+- **Agent CLI connections** asks the two questions that both have to be true, by *running* the binary: is it installed, and is it authenticated. Installed-but-logged-out and never-installed used to look identical from chat — silence.
+- **⧉ Copy report** puts the whole thing on the clipboard as text, so "what does your Doctor say?" has an answer on a phone that isn't a screenshot. Built only from what's already on screen, so it can't leak anything the tab doesn't show.
+- Underneath: JDK 21, Android SDK, aapt2 shim, `claude` binary + auth, tmux, disk, chat-transcript usage, `llama-server`, Piper voice, the push service worker's no-fetch promise, and the confinement ladder measured on this boot. Green = go; red names exactly what a Termux update broke.
 - **Preflight** — the *"safe to expose?"* gate (distinct from "does it work?"): loopback bind, password set, encrypted keys, no plaintext key files, gitignore coverage, no live tunnels. It goes green once you've set a password (first-run) and stored any keys encrypted; the app stays loopback-only until you deliberately expose it.
 
 ### Atlan himself
