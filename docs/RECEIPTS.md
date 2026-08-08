@@ -18,6 +18,7 @@ _Free suites only. The E2E suite (real Claude runs) is opt-in — `RUN_PAID=1 no
 | Fleet Actions | The fleet buttons that spend money or stop work. Top-up disarms BEFORE the request, so a second tap cannot land in the gap and resume the same session on a second budget; it re-arms only when nothing was spent. Kill — per-run and fleet-wide — reports every way it can fail, because a kill that did not land must never look like one that did. | ✅ 13/13 |
 | Function | Every HTTP endpoint contract + shape, plus data-store durability (corrupt/truncated JSON fails soft). (Spawns 1 tiny killed run.) | ✅ 25/25 |
 | Connection | Live WebSocket + PTY: authed connect, 4001 on bad token, malformed-frame survival, multi-client broadcast, tmux round-trip, reconnection. (Spawns 2 tiny killed runs.) | ✅ 6/6 |
+| Proot ladder | The confinement ladder measured THROUGH a ptrace supervisor — the context Atlan actually runs in on a phone. Exists because the default tier was once raised to T1 on a bare-kernel measurement that was true and was not this environment: under proot the same binary loses two T1 rungs to SIGSYS, so a T1 default would have refused every agent run on the primary platform. Pins the rule that a tier measured without the supervisor is not a measurement of this product. | ✅ 6/6 |
 | Confinement tier | The homebuilt confinement layer, attacked rather than described: the 15-rung behavioural ladder run on THIS device, the full (declared, established) refusal matrix, the credential grant list, and per-control escapes — relative and symlink path escapes, TOCTOU grant swaps, static binaries, direct syscalls, unlisted syscalls, inherited descriptors, AF_UNIX and loopback egress. Compiles the real launcher and runs real processes under it; skips (counted, printed) on a device with no toolchain. | ✅ 99/99 |
 | Security/Penetration | Auth bypass, SSRF (preview + harness), secret exfiltration, path traversal, stored-XSS, oversized-body DoS, profile privilege-escalation. | ✅ 47/47 |
 | Walls | Every wall SECURITY.md claims, exercised by BEHAVIOUR rather than by grepping the source. A mutation pass found that the daily token cap, the concurrency cap, the budget clamp, the in-flight reservation, scout's canUseTool, the preview proxy's WS-upgrade gate, atomicWrite's 0600 and temp+rename, the failed-login throttle, session revocation, the session store's freedom from replayable tokens and scrubbedEnv's explicit DROP list could all be neutered with the whole gate still green — because the assertions read the source text instead of making the thing happen. Boots its OWN cockpit (it changes the password and SIGKILLs the process), and covers the orphaned-child, corrupt-store, silent-exit and scheduler classes the same way. | ✅ 51/51 |
@@ -36,7 +37,7 @@ _Free suites only. The E2E suite (real Claude runs) is opt-in — `RUN_PAID=1 no
 | Tour/Onboarding | Drives all tour steps live — every step spotlights a real visible element; handbook opens/searches/relaunches. | ✅ 10/10 |
 | UI · Fleet | Every Fleet control driven at 412x900: top-up cannot be double-tapped into a double-spend, a kill that fails is reported, the header burn gauge moves while a run burns, Hierarchy job links come with a command selected, and Builder rows stay wide enough to type into. First of the five per-surface specs to reach zero — the rest join as their surfaces are fixed (docs/UI-AUDIT.md). | ✅ 29/29 |
 
-**Total: 751 passed, 0 failed across 24 suites.**
+**Total: 757 passed, 0 failed across 25 suites.**
 
 ## Unit
 
@@ -294,6 +295,25 @@ CONNECTION SUITE
   ✓ fleet events broadcast to ALL connected clients
   ✓ PTY round-trip: open a tmux pty, echo, receive output
   ✓ reconnection after a drop re-subscribes to broadcasts
+
+6 passed, 0 failed
+```
+
+## Proot ladder
+
+The confinement ladder measured THROUGH a ptrace supervisor — the context Atlan actually runs in on a phone. Exists because the default tier was once raised to T1 on a bare-kernel measurement that was true and was not this environment: under proot the same binary loses two T1 rungs to SIGSYS, so a T1 default would have refused every agent run on the primary platform. Pins the rule that a tier measured without the supervisor is not a measurement of this product.
+
+```
+$ node test/proot-ladder.mjs
+PROOT LADDER SUITE
+  ✓ the launcher builds on this host
+  ✓ bare-kernel ladder is measurable (the control)
+  ✓ a ptrace supervisor is DETECTED, never silently tolerated
+      rungs lost under proot: ptrace-arbitration, selftest-denyset, selftest-allowsanity
+  ✓ the supervisor measurably costs tiers, and the loss is visible
+      T1 rungs missing under proot: selftest-denyset, selftest-allowsanity
+  ✓ T1 is NOT establishable under proot on this host (why the default is T0)
+  ✓ PROOT_NO_SECCOMP does not rescue it (so it is the stacking, not the acceleration)
 
 6 passed, 0 failed
 ```

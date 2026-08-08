@@ -119,33 +119,45 @@ export function confineMode() {
 // platform off is a design the operator disables, which is the same outcome as
 // no boundary with extra steps.
 //
-// DEFAULT IS T1 — capability removal, kernel-enforced, asked for by default.
+// DEFAULT IS T0. It was briefly T1 on 2026-08-07 and that was WRONG — the
+// measurement behind it came from a context Atlan does not run in.
 //
-// It was T0 pending an on-device measurement. T0 means "no OS confinement" and
-// is honest about it, but a security layer whose default is off protects nobody:
-// the 2026-08-04 incident happened on a cockpit where every control that would
-// have stopped it existed and was switched off.
+// The bare kernel numbers are good. 15/15 on the WSL2 node; 14/15 on a real
+// Android 15 kernel (6.6.30-android15, via adb), the single miss being Landlock,
+// which is absent until the android16-6.12 GKI. Egress denial passed there — a
+// genuine kernel-enforced boundary on the primary platform.
 //
-// T1 needs ten rungs, and the load-bearing ones are seccomp reachability and
-// filter inheritance across execve. Those are exactly the properties that DO
-// survive on an unrooted Android device — seccomp(2) is explicitly allowlisted
-// for app processes in bionic's own list ("# Needed for a CTS test of seccomp"),
-// PRoot does not intercept it, and no_new_privs is already set by PRoot's
-// launcher. T1 asks for nothing that needs namespaces, root, or Landlock.
+// BUT ATLAN RUNS INSIDE PROOT ON THE PHONE, AND UNDER PROOT THE LADDER DROPS TO
+// 11/15. Measured, same binary, same box:
 //
-// IF A DEVICE CANNOT HOLD IT, RUNS REFUSE. That is the fail-closed behaviour
-// working, and it is loud rather than silent: the refusal names the rung that
-// said no, and `ATLAN_CONFINE_TIER=T0` reverses it in one line. Measure any
-// device with `node test/phone-ladder.mjs` — it prints which tiers that device
-// can serve and why.
+//   ✗ ptrace-arbitration   RET_TRACE returned 0/Success — something IS between
+//                          us and the kernel, which is exactly what this rung
+//                          exists to notice
+//   ✗ egress-denial        child killed by SIGSYS
+//   ✗ selftest-denyset     child killed by SIGSYS
+//   ✗ selftest-allowsanity child killed by SIGSYS
 //
-// Established 15/15 on the WSL2 accessory node (2026-08-05). Physical-device
-// numbers still pending; T2 and T3 stay opt-in until they exist, because T2
-// closes egress and T3 needs Landlock, which Android's app seccomp filter
-// currently kills with SIGSYS.
+// The last two are T1 rungs, so under proot a device establishes T0 and a T1
+// default would REFUSE EVERY RUN on the platform this project exists for. The
+// fail-closed design would have worked perfectly and the product would have been
+// unusable. PROOT_NO_SECCOMP=1 does not help (still 11/15), so it is the filter
+// STACKING, not proot's acceleration.
+//
+// The mechanism, and the reason this is fixable rather than fatal: our filter's
+// tail is default-deny (rung14 proves it), and a ptrace supervisor makes the
+// traced child issue syscalls on proot's behalf that our allow-list never
+// listed. They hit the default-deny and die with SIGSYS. Composing with a
+// supervisor means the allow-list has to cover what the supervisor itself needs,
+// or the launcher has to detect arbitration and adapt. That is engineering work,
+// not a wall.
+//
+// Until then T0 is the honest default, and it is not a silent degrade: its UI
+// string says "This run was explicitly allowed to start ungated" in words.
+// Measure any device with `node test/phone-ladder.mjs` — run it INSIDE proot,
+// because that is where the agents are.
 export function declaredTier() {
-  const t = process.env.ATLAN_CONFINE_TIER ?? file.confineTier ?? 'T1';
-  return /^T[0-3]$/.test(String(t)) ? String(t) : 'T1';
+  const t = process.env.ATLAN_CONFINE_TIER ?? file.confineTier ?? 'T0';
+  return /^T[0-3]$/.test(String(t)) ? String(t) : 'T0';
 }
 
 // Branding / identity — neutral defaults; a fork sets its own (logo stays a file)
