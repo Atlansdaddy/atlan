@@ -45,6 +45,25 @@ export function liveAgentTurns() {
 // so they run full-auto and the UI labels them that way. Claude stays the
 // gated primary; these are extra hands for repos you trust them in.
 
+/**
+ * The command each agent engine ACTUALLY spawns, resolved exactly the way
+ * agentTurn resolves it.
+ *
+ * agentStatus() answers "is there a credential", which is not the same question
+ * as "will this run" — a CLI can be authenticated and uninstalled, or installed
+ * and logged out, and both looked identical from chat: silence. The Doctor pane
+ * asks the other half by running the binary. test/unit.mjs asserts this list and
+ * agentStatus() name the same engines, so neither can quietly grow past the other.
+ */
+export function agentBinaries() {
+  return [
+    { id: 'codex', cmd: 'codex' },
+    { id: 'antigravity', cmd: agyBin() ?? 'agy' },
+    { id: 'grok', cmd: grokBin() ?? 'grok' },
+    { id: 'copilot', cmd: copilotBin() ?? 'copilot' },
+  ];
+}
+
 export function agentStatus() {
   // homedir() is right on every platform; `HOME ?? '/root'` broke auth
   // detection for anyone not running as root (and always on Windows).
@@ -355,6 +374,12 @@ export function agentTurn({ engine, cwd, text, send, state, model = null, owner 
   let sawText = false;
   let buf = '';
   let geminiText = '';
+  // A turn on these engines showed the user NOTHING until it ended: no thinking,
+  // no output, no way to tell working from hung from broken. Both flags exist to
+  // fix that, and both reuse frames the client already renders — the thinking
+  // panel and the streaming bubble — so none of this needs new UI.
+  let thinkOpen = false;
+  let streamOpen = false;
   let killedFor = null;
   const turnTimeout = setTimeout(() => { killedFor = 'turn timeout (8min)'; killTree(child); }, 480000);
 
@@ -368,7 +393,17 @@ export function agentTurn({ engine, cwd, text, send, state, model = null, owner 
       else if (itype === 'command_execution') send({ t: 'tool.use', name: 'shell', input: String(it.command ?? '').slice(0, 300) });
       else if (itype === 'file_change') send({ t: 'tool.use', name: 'edit', input: (it.changes ?? []).map((c) => c.path).join(', ').slice(0, 300) || 'files changed' });
       else if (itype === 'mcp_tool_call') send({ t: 'tool.use', name: it.tool ?? 'mcp', input: JSON.stringify(it.arguments ?? {}).slice(0, 200) });
-      else if (itype === 'reasoning') { /* keep the thread quiet */ }
+      else if (itype === 'reasoning') {
+        // Was dropped "to keep the thread quiet". The cost of that quiet was
+        // that a working turn and a hung one looked identical, which is the
+        // single most reported problem with these engines. It goes to the same
+        // collapsible panel Claude's thinking uses.
+        const r = String(it.text ?? it.summary ?? it.content ?? '').trim();
+        if (r) {
+          if (!thinkOpen) { thinkOpen = true; send({ t: 'chat.thinkstart' }); }
+          send({ t: 'chat.think', text: r });
+        }
+      }
     }
     if (e.type === 'turn.completed') {
       const u = e.usage ?? {};
@@ -393,7 +428,17 @@ export function agentTurn({ engine, cwd, text, send, state, model = null, owner 
   child.stdout.on('data', (chunk) => {
     // agy and grok print a plain-text response (no event stream we trust yet) —
     // collect it whole and flush as ONE bubble at close, not a bubble per line.
-    if (engine === 'antigravity' || engine === 'grok' || engine === 'copilot') { geminiText += chunk.toString(); return; }
+    if (engine === 'antigravity' || engine === 'grok' || engine === 'copilot') {
+      // These print plain text with no event stream, and used to be buffered
+      // whole and flushed at close — so the user watched an empty screen for the
+      // entire turn. Stream it instead, through the SAME textstart/delta frames
+      // Claude already uses, and skip the duplicate bubble at close.
+      const s = chunk.toString();
+      geminiText += s;
+      if (!streamOpen) { streamOpen = true; send({ t: 'chat.textstart', engine: engineLabel(engine) }); }
+      send({ t: 'chat.delta', text: s });
+      return;
+    }
     buf += chunk.toString();
     let nl;
     while ((nl = buf.indexOf('\n')) >= 0) {
@@ -444,7 +489,10 @@ export function agentTurn({ engine, cwd, text, send, state, model = null, owner 
       else state.copilotStarted = true;
       const out = geminiText.trim();
       geminiText = '';
-      if (out) { sawText = true; send({ t: 'chat.msg', role: 'claude', engine: engineLabel(engine), text: out }); }
+      // If it streamed, the bubble is already on screen and complete — sending
+      // chat.msg here too would print the whole answer a second time.
+      if (out && !streamOpen) { sawText = true; send({ t: 'chat.msg', role: 'claude', engine: engineLabel(engine), text: out }); }
+      if (out && streamOpen) sawText = true;
       send({ t: 'chat.result', subtype: 'success', brain: engine, tokens: null });
       send({ t: 'atlan.mood', mood: 'proud' });
       return;

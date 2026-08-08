@@ -30,6 +30,7 @@ import {
 } from './auth.js';
 import { tailnetHost, tailnetOrigin } from './tailnet.js';
 import { listRoutines, upsertRoutine, deleteRoutine, setPaused, fireRoutine, startScheduler } from './routines.js';
+import { appendChat, listChats, readChat, deleteChat, validId } from './chatlog.js';
 import { initHierarchy, listJobs, upsertJob, deleteJob, startJob, listRuns as listHierarchyRuns, getRun as getHierarchyRun, resolveGate, tierList } from './hierarchy.js';
 import { ladderRungs, CHAT_LADDER, MIN_USEFUL_CHARS } from './ladder.js';
 import { saveUpload, saveRef, turnContext } from './attachments.js';
@@ -203,6 +204,17 @@ app.post('/api/fleet/kill', (req, res) => {
 });
 
 // ── routines: scheduled budgeted runs ──
+// Chat transcripts. Below app.use('/api', authMiddleware), so a transcript is
+// exactly as protected as the cockpit itself — these are the most personal
+// bytes in the product and must never be the one surface that forgot.
+app.get('/api/chats', (_req, res) => res.json({ chats: listChats() }));
+app.get('/api/chats/:id', (req, res) => {
+  const id = validId(req.params.id);
+  if (!id) return res.status(400).json({ error: 'bad conversation id' });
+  res.json({ id, messages: readChat(id) });
+});
+app.post('/api/chats/delete', (req, res) => res.json({ deleted: deleteChat(String(req.body?.id ?? '')) }));
+
 app.get('/api/routines', (_req, res) => res.json(listRoutines()));
 app.post('/api/routines', (req, res) => {
   try { res.json(upsertRoutine(req.body ?? {})); } catch (err) { res.status(400).json({ error: err.message }); }
@@ -486,7 +498,34 @@ wss.on('connection', (ws, req) => {
   // upgrade from an origin that isn't our own (cross-site-WS / rebinding).
   if (!originOk(req)) { ws.close(4003, 'bad origin'); return; }
   if (!wsAuthed(req)) { ws.close(4001, 'auth required'); return; }
-  const send = (obj) => { if (ws.readyState === 1) ws.send(JSON.stringify(obj)); };
+  const rawSend = (obj) => { if (ws.readyState === 1) ws.send(JSON.stringify(obj)); };
+
+  // TRANSCRIPT CAPTURE RIDES THE ONE FUNNEL EVERY OUTBOUND FRAME PASSES THROUGH.
+  // Deliberately here and not in each engine: agents.js, brains.js and
+  // claudeEngine.js all emit chat frames, and a per-engine hook is a list that
+  // the next engine gets left off. Claude streams (textstart → delta* → result)
+  // while the others send a whole chat.msg, so both shapes are handled and a
+  // streamed turn is written ONCE, complete, at the end.
+  let convId = null;
+  let streamed = '';
+  let streamEngine = 'Claude';
+  const send = (obj) => {
+    try {
+      if (convId) {
+        if (obj.t === 'chat.msg') appendChat(convId, { role: obj.role, text: obj.text, engine: obj.engine });
+        // The engine label rides on textstart so a streamed agent-CLI turn is
+        // filed under the engine that produced it rather than all of them being
+        // recorded as Claude.
+        else if (obj.t === 'chat.textstart') { streamed = ''; streamEngine = obj.engine ?? 'Claude'; }
+        else if (obj.t === 'chat.delta') streamed += obj.text ?? '';
+        else if (obj.t === 'chat.result') {
+          if (streamed.trim()) appendChat(convId, { role: 'claude', text: streamed, engine: streamEngine });
+          streamed = '';
+        }
+      }
+    } catch { /* a transcript must never be able to take a live turn down */ }
+    rawSend(obj);
+  };
   const connId = Symbol('ws');
   let claude = null;
   let currentTab = 's-chat'; // last tab the client reported → feeds Atlan's self-awareness
@@ -520,6 +559,13 @@ wss.on('connection', (ws, req) => {
     try { m = JSON.parse(raw); } catch { return; }
     switch (m.t) {
       case 'chat.send': {
+        // The conversation id comes from the client and is validated as a shape,
+        // never trusted as a path — see chatlog.js validId. What gets logged is
+        // what the USER TYPED, before the attachment refs, console errors and
+        // cockpit context are appended below: a transcript full of injected
+        // machinery is not a transcript of a conversation.
+        const cid = validId(m.conv);
+        if (cid) { convId = cid; appendChat(convId, { role: 'user', text: m.text }); }
         let text = m.text;
         // Attachments this turn: images/files/folders as path refs the agent
         // Reads; audio/video already turned to text by a multimodal model.

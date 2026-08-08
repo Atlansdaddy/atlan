@@ -22,6 +22,9 @@ import { topUp, sendKill } from './lib/fleetactions.js';
 import { linkRowHtml } from './lib/joblink.js';
 import { previewUrl } from './lib/previewurl.js';
 import { appendConsoleLine } from './lib/previewconsole.js';
+import { renderRichMessage } from './lib/richmsg.js';
+import { initPreviewMax } from './lib/previewmax.js';
+import { convId, newConversation, restoreChat, openHistory } from './lib/chathistory.js';
 
 (() => {
   const $ = (id) => document.getElementById(id);
@@ -251,7 +254,7 @@ import { appendConsoleLine } from './lib/previewconsole.js';
     switch (m.t) {
       case 'chat.msg': addMsg(m.role, m.text, m.engine); break;
       case 'chat.rung': addRungLine(m); break;
-      case 'chat.err': addMsg('err', m.msg); break;
+      case 'chat.err': addMsg('err', m.msg); endWorking(); $('sendBtn').disabled = false; break; // an error MUST unstick the composer — it used to only re-enable on chat.result, so one failed turn locked chat until reload
       case 'tool.use': addTool(m.name, m.input); break;
       case 'chat.turnstart': startWorking(); break;
       case 'chat.thinkstart': ensureThinking(); break;
@@ -417,7 +420,7 @@ import { appendConsoleLine } from './lib/previewconsole.js';
     // act on disk like their CLIs — routing their large diffs through manual
     // review would be pure fatigue, and the Editor tab is right there when you
     // do want to look. So agents render plain; brains get the code cards.
-    if (role === 'brain') renderRichMessage(div, text);
+    if (role === 'brain') renderRichMessage(div, text, sendToEditor);
     else div.append(document.createTextNode(text));
     // capture non-streamed assistant replies (brains, agent CLIs) for voice
     if ((role === 'claude' || role === 'brain') && !streamBubble) turnText = text;
@@ -426,29 +429,6 @@ import { appendConsoleLine } from './lib/previewconsole.js';
 
   // Render an assistant message: prose as text, ```fenced``` blocks as reviewable
   // code cards. XSS-safe — every node is createElement/textContent, no innerHTML.
-  function renderRichMessage(container, text) {
-    for (const part of parseMessageParts(text)) {
-      if (part.type === 'text') container.appendChild(document.createTextNode(part.content));
-      else container.appendChild(buildCodeBlock(part.content, part.lang));
-    }
-  }
-  function buildCodeBlock(code, lang) {
-    const wrap = document.createElement('div'); wrap.className = 'codeblock';
-    const bar = document.createElement('div'); bar.className = 'codebar';
-    if (lang) { const t = document.createElement('span'); t.className = 'codelang'; t.textContent = lang; bar.append(t); }
-    const toEd = document.createElement('button');
-    toEd.className = 'btn ghost'; toEd.textContent = '→ Editor';
-    toEd.title = 'Open this code in the Editor to review — then set a path and Save. Nothing writes until you do.';
-    toEd.addEventListener('click', () => sendToEditor(code, lang));
-    const cp = document.createElement('button');
-    cp.className = 'btn ghost'; cp.textContent = 'Copy';
-    cp.addEventListener('click', () => { if (navigator.clipboard) { navigator.clipboard.writeText(code); cp.textContent = 'Copied'; setTimeout(() => { cp.textContent = 'Copy'; }, 1200); } });
-    bar.append(toEd, cp);
-    const pre = document.createElement('pre'); const codeEl = document.createElement('code');
-    codeEl.textContent = code; pre.append(codeEl);
-    wrap.append(bar, pre);
-    return wrap;
-  }
 
   // The escalation ladder as a pickable "engine". It is not a model — it is a
   // policy: try the cheapest rung, climb only when the answer is observably
@@ -678,10 +658,10 @@ import { appendConsoleLine } from './lib/previewconsole.js';
     const ready = attachments.filter((a) => a.path || a.note); // drop still-uploading
     addMsg('user', text + (ready.length ? `  ·  📎 ${ready.length}` : ''));
     const [engine, model] = $('modelSel').value.split('|');
-    send({ t: 'chat.send', text, cwd: $('projSel').value, engine, model, attachments: ready });
+    send({ t: 'chat.send', text, cwd: $('projSel').value, engine, model, attachments: ready, conv: convId() });
     input.value = '';
     attachments = []; renderChips();
-    $('sendBtn').disabled = true;
+    $('sendBtn').disabled = true; startWorking(); // locally, not on a server frame: only Claude emits chat.turnstart, so every other engine showed NOTHING while it worked
     errCount = 0; updateSeen(); // queued preview context flushes into this turn
   }
   $('sendBtn').addEventListener('click', sendChat);
@@ -1998,4 +1978,16 @@ import { appendConsoleLine } from './lib/previewconsole.js';
   connect();
   greet();
   initVoice();
+
+  // Chat survives a refresh now. The seeded greeting stays only when there is
+  // nothing to restore — replaying a conversation under "Pick a project below"
+  // would read as a new session that had somehow already happened.
+  const replay = (id) => {
+    chatlog.textContent = '';
+    restoreChat(addMsg, id).then((n) => { if (!n) addMsg('claude', 'New conversation. Say anything.'); scroll(); });
+  };
+  restoreChat(addMsg).then((n) => { if (n) { chatlog.firstElementChild?.remove(); scroll(); } });
+  $('histBtn').addEventListener('click', () => openHistory({ panel: $('histPanel'), onOpen: replay }));
+  $('newChatBtn').addEventListener('click', () => { newConversation(); replay(); });
+  initPreviewMax({ section: $('s-preview'), button: $('previewMax') });
 })();

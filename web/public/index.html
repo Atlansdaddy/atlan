@@ -64,6 +64,11 @@
   <div class="screens">
 
     <section class="screen active" id="s-chat">
+      <div class="chatbar">
+        <button class="btn ghost" id="histBtn" title="past conversations">🗂 History</button>
+        <button class="btn ghost" id="newChatBtn" title="start a new conversation">＋ New</button>
+      </div>
+      <div class="histpanel" id="histPanel" hidden></div>
       <div class="chatlog" id="chatlog" role="log" aria-live="polite" aria-label="conversation">
         <div class="msg claude"><div class="who">Atlan</div>Pick a project below, then talk to Claude Code. Every session here can be picked up in the terminal with <code>claude --resume</code> — tap the session id to copy the command.</div>
       </div>
@@ -105,6 +110,7 @@
       <div class="ptools">
         <input class="url" id="previewUrl" value="http://127.0.0.1:5173" spellcheck="false" enterkeyhint="go">
         <button class="btn iconbtn" id="previewGo" title="Load">↻</button>
+        <button class="btn iconbtn" id="previewMax" title="Full screen" aria-pressed="false">⤢</button>
       </div>
       <iframe id="previewFrame" class="viewport" sandbox="allow-scripts allow-same-origin allow-forms" title="Preview"></iframe>
       <div class="console" id="previewConsole"><div class="hint">console output from the previewed app lands here — errors auto-attach to Claude's next turn</div></div>

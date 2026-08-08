@@ -3,6 +3,7 @@
 // evaluator, the checker engine, the Persona+ compilers, the schema builders,
 // scheduler due/grace math, and the timing-safe token compare.
 import assert from 'node:assert';
+import { appendFileSync } from 'node:fs';
 import {
   safeArith, runCheckers, upsertPersona, upsertCommand, compilePersona,
   compileCommand, templateSchema, toolSchema, listPersonas, deletePersona, unsafeRegex,
@@ -10,6 +11,8 @@ import {
 import { _testInternals as ROUT } from '../server/src/routines.js';
 import { _testInternals as AUTH } from '../server/src/auth.js';
 import { runBuild } from '../server/src/build.js';
+import { appendChat, readChat, listChats, deleteChat, validId, MAX_TEXT, _testInternals as CHATLOG } from '../server/src/chatlog.js';
+import { agentStatus, agentBinaries } from '../server/src/agents.js';
 
 let pass = 0, fail = 0;
 function test(name, fn) {
@@ -18,6 +21,97 @@ function test(name, fn) {
 }
 
 console.log('UNIT SUITE');
+
+// ── chat transcripts: the id is untrusted and becomes a path ──
+// A refresh used to delete the conversation, so these now persist. The id
+// arrives from the client, which makes it the same class of input guards.js
+// exists for — every test below that rejects something is rejecting a path.
+test('validId accepts a normal generated id', () => {
+  assert.ok(validId('cm2x8q1a-9fz3kd'));
+  assert.ok(validId('a1b2c3d4'));
+});
+test('validId REFUSES traversal, separators and absolute paths', () => {
+  for (const bad of ['../../.keys.enc', 'a/../../etc/passwd', '/etc/passwd', 'a/b', 'a\\b',
+    'c:\\x', 'aaaaaaa\u0000b', '.hidden-file', '-leading-dash']) {
+    assert.strictEqual(validId(bad), null, `accepted ${JSON.stringify(bad)}`);
+  }
+});
+test('validId REFUSES the wrong shape rather than trimming it', () => {
+  assert.strictEqual(validId('short'), null, 'too short');
+  assert.strictEqual(validId('A'.repeat(12)), null, 'uppercase is not the generated shape');
+  assert.strictEqual(validId('x'.repeat(41)), null, 'too long');
+  assert.strictEqual(validId(''), null);
+  assert.strictEqual(validId(null), null);
+  assert.strictEqual(validId({ toString: () => '../etc' }), null);
+});
+test('a transcript round-trips, oldest first', () => {
+  const id = 'unittest-roundtrip1';
+  deleteChat(id);
+  assert.ok(appendChat(id, { role: 'user', text: 'first question' }));
+  assert.ok(appendChat(id, { role: 'claude', text: 'an answer', engine: 'Claude' }));
+  const msgs = readChat(id);
+  assert.strictEqual(msgs.length, 2);
+  assert.strictEqual(msgs[0].role, 'user');
+  assert.strictEqual(msgs[0].text, 'first question');
+  assert.strictEqual(msgs[1].engine, 'Claude');
+  assert.ok(msgs[1].at > 0, 'every message carries a timestamp');
+  deleteChat(id);
+});
+test('an invalid id writes NOTHING — it never falls back to a default path', () => {
+  assert.strictEqual(appendChat('../escape', { role: 'user', text: 'x' }), false);
+  assert.strictEqual(appendChat('', { role: 'user', text: 'x' }), false);
+  assert.deepStrictEqual(readChat('../escape'), []);
+});
+test('empty and whitespace-only turns are not stored', () => {
+  const id = 'unittest-emptyturns';
+  deleteChat(id);
+  assert.strictEqual(appendChat(id, { role: 'user', text: '   ' }), false);
+  assert.strictEqual(appendChat(id, { role: 'user', text: '' }), false);
+  assert.deepStrictEqual(readChat(id), []);
+});
+test('an oversized paste is capped, not refused — the turn still happened', () => {
+  const id = 'unittest-bigpaste00';
+  deleteChat(id);
+  appendChat(id, { role: 'user', text: 'z'.repeat(MAX_TEXT * 2) });
+  const [m] = readChat(id);
+  assert.strictEqual(m.text.length, MAX_TEXT);
+  deleteChat(id);
+});
+test('a torn final line costs one message, never the file', () => {
+  // The failure mode JSONL is chosen for: a phone losing power mid-append.
+  const id = 'unittest-tornwrite1';
+  deleteChat(id);
+  appendChat(id, { role: 'user', text: 'survivor' });
+  appendFileSync(CHATLOG.fileFor(id), '{"at":1,"role":"claude","text":"trunc');
+  const msgs = readChat(id);
+  assert.strictEqual(msgs.length, 1, 'the intact message must still be readable');
+  assert.strictEqual(msgs[0].text, 'survivor');
+  deleteChat(id);
+});
+test('every agent engine the Doctor can AUTH-check, it can also BIN-check', () => {
+  // Two lists that must name the same engines: agentStatus() answers "is there a
+  // credential", agentBinaries() answers "will it run". An engine present in one
+  // and missing from the other is exactly the silent half-configured state the
+  // Doctor pane exists to surface, so it must not be possible to add one alone.
+  const statusIds = agentStatus().map((a) => a.id).sort();
+  const binIds = agentBinaries().map((b) => b.id).sort();
+  assert.deepStrictEqual(binIds, statusIds);
+  for (const b of agentBinaries()) assert.ok(b.cmd && typeof b.cmd === 'string', `${b.id} resolves no command`);
+});
+test('listChats titles a conversation by its first USER message', () => {
+  // Titling by the first message full stop made every row read the same, because
+  // an assistant often opens with a tool preamble.
+  const id = 'unittest-titlerow1';
+  deleteChat(id);
+  appendChat(id, { role: 'claude', text: 'Reading files…', engine: 'Claude' });
+  appendChat(id, { role: 'user', text: 'why is the ladder not a line?' });
+  const row = listChats().find((c) => c.id === id);
+  assert.ok(row, 'the conversation must appear in the list');
+  assert.strictEqual(row.title, 'why is the ladder not a line?');
+  assert.strictEqual(row.count, 2);
+  deleteChat(id);
+  assert.ok(!listChats().some((c) => c.id === id), 'delete must actually remove it');
+});
 
 // ── safeArith: the tier-2 arithmetic checker's engine ──
 test('safeArith does basic precedence', () => {
