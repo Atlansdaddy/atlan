@@ -30,7 +30,7 @@ import {
 } from './auth.js';
 import { tailnetHost, tailnetOrigin } from './tailnet.js';
 import { listRoutines, upsertRoutine, deleteRoutine, setPaused, fireRoutine, startScheduler } from './routines.js';
-import { appendChat, listChats, readChat, deleteChat, validId } from './chatlog.js';
+import { appendChat, listChats, readChat, deleteChat, validId, chatUsage, archiveChats } from './chatlog.js';
 import { initHierarchy, listJobs, upsertJob, deleteJob, startJob, listRuns as listHierarchyRuns, getRun as getHierarchyRun, resolveGate, tierList } from './hierarchy.js';
 import { ladderRungs, CHAT_LADDER, MIN_USEFUL_CHARS } from './ladder.js';
 import { saveUpload, saveRef, turnContext } from './attachments.js';
@@ -214,6 +214,14 @@ app.get('/api/chats/:id', (req, res) => {
   res.json({ id, messages: readChat(id) });
 });
 app.post('/api/chats/delete', (req, res) => res.json({ deleted: deleteChat(String(req.body?.id ?? '')) }));
+// Usage is REPORTED, never acted on. Archiving happens only when asked, because
+// silently removing someone's conversations to save space is data loss with a
+// tidy name on it.
+app.get('/api/chats/usage', (_req, res) => res.json(chatUsage()));
+app.post('/api/chats/archive', (req, res) => {
+  const keepNewest = Math.max(0, Math.min(1000, Number(req.body?.keepNewest ?? 20)));
+  res.json(archiveChats({ keepNewest }));
+});
 
 app.get('/api/routines', (_req, res) => res.json(listRoutines()));
 app.post('/api/routines', (req, res) => {

@@ -11,7 +11,7 @@ import {
 import { _testInternals as ROUT } from '../server/src/routines.js';
 import { _testInternals as AUTH } from '../server/src/auth.js';
 import { runBuild } from '../server/src/build.js';
-import { appendChat, readChat, listChats, deleteChat, validId, MAX_TEXT, _testInternals as CHATLOG } from '../server/src/chatlog.js';
+import { appendChat, readChat, listChats, deleteChat, validId, MAX_TEXT, chatUsage, archiveChats, _testInternals as CHATLOG } from '../server/src/chatlog.js';
 import { agentStatus, agentBinaries } from '../server/src/agents.js';
 
 let pass = 0, fail = 0;
@@ -87,6 +87,42 @@ test('a torn final line costs one message, never the file', () => {
   assert.strictEqual(msgs.length, 1, 'the intact message must still be readable');
   assert.strictEqual(msgs[0].text, 'survivor');
   deleteChat(id);
+});
+test('an ARCHIVED conversation is still listed and still opens', () => {
+  // The whole difference between archiving and deleting. If archiving removed a
+  // row from the list, or made it unopenable without a shell, it would be
+  // deletion with a friendlier name.
+  const id = 'unittest-archiveme1';
+  deleteChat(id);
+  appendChat(id, { role: 'user', text: 'archive me and give me back' });
+  appendChat(id, { role: 'claude', text: 'ok', engine: 'Claude' });
+  const r = archiveChats({ keepNewest: 0 });
+  assert.ok(r.archived >= 1, 'the conversation should have been archived');
+  assert.ok(r.file, 'an archive file must be written');
+
+  const row = listChats().find((c) => c.id === id);
+  assert.ok(row, 'an archived conversation must still appear in the list');
+  assert.strictEqual(row.archived, true, 'and must say that it is archived');
+  assert.strictEqual(row.title, 'archive me and give me back');
+
+  const msgs = readChat(id);
+  assert.strictEqual(msgs.length, 2, 'and must open with its messages intact');
+  assert.strictEqual(msgs[0].text, 'archive me and give me back');
+});
+test('nothing is archived when nothing matches, and nothing is removed', () => {
+  const before = listChats().length;
+  const r = archiveChats({ olderThanMs: 0 });
+  assert.strictEqual(r.archived, 0);
+  assert.strictEqual(listChats().length, before, 'a no-op archive must not touch the store');
+});
+test('chatUsage REPORTS and never acts', () => {
+  const u = chatUsage();
+  assert.ok(typeof u.bytes === 'number' && u.bytes >= 0);
+  assert.ok(typeof u.suggestArchive === 'boolean');
+  // A suggestion carries its reason, so the prompt can say WHY rather than
+  // demanding the user trust a threshold they cannot see.
+  if (u.suggestArchive) assert.ok(u.reason, 'a suggestion must name its reason');
+  else assert.strictEqual(u.reason, null);
 });
 test('every agent engine the Doctor can AUTH-check, it can also BIN-check', () => {
   // Two lists that must name the same engines: agentStatus() answers "is there a

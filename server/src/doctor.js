@@ -1,6 +1,7 @@
 import { exec, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { agentBinaries, agentStatus } from './agents.js';
+import { chatUsage } from './chatlog.js';
 import { existsSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -63,6 +64,23 @@ export async function runDoctor() {
     // installed-but-logged-out and one that was never installed produced the
     // same thing on screen — nothing — so this asks both questions by RUNNING
     // the binary rather than reading a flag, and names which half is missing.
+    // CHAT STORAGE. Reported, never enforced. Nothing here deletes anything —
+    // it exists so the store is visible long before it is a problem, and so the
+    // decision to archive is made by the person whose conversations they are.
+    check('chat-store', 'Chat transcripts', async () => {
+      const u = chatUsage();
+      const gb = (n) => (n == null ? 'unknown' : n >= 1024 ** 3 ? `${(n / 1024 ** 3).toFixed(1)} GB` : `${Math.max(1, Math.round(n / 1024 ** 2))} MB`);
+      const base = `${u.count} conversation${u.count === 1 ? '' : 's'}, ${gb(u.bytes)}`
+        + (u.freeDisk != null ? ` · ${gb(u.freeDisk)} free` : '')
+        + (u.memAvailable != null ? ` · ${gb(u.memAvailable)} RAM available` : '');
+      return {
+        ok: !u.suggestArchive,
+        warn: u.suggestArchive,
+        detail: u.suggestArchive
+          ? `${base} — ${u.reason}. Archiving keeps every conversation readable in History and only compresses the older ones; nothing is deleted.`
+          : base,
+      };
+    }),
     check('cli-connections', 'Agent CLI connections', async () => {
       const auth = new Map(agentStatus().map((a) => [a.id, a]));
       // CLAUDE IS ON THIS PANE TOO, even though it is not an agentTurn CLI.

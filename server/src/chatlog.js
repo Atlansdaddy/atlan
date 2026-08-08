@@ -21,18 +21,39 @@
 // `readChat` drops unparseable lines instead of throwing, because a transcript
 // that refuses to open is worse than one missing its last turn.
 
-import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, rmSync, statSync, statfsSync, writeFileSync } from 'node:fs';
+import { gunzipSync, gzipSync } from 'node:zlib';
 import { join } from 'node:path';
 import { FLEET_DIR } from './config.js';
 
 const DIR = join(FLEET_DIR, 'chats');
+// Archives sit BESIDE the live store, not inside it, so a listing of
+// conversations can never accidentally walk into one.
+const ARCHIVE_DIR = join(FLEET_DIR, 'chats-archive');
+const ARCHIVE_INDEX = join(ARCHIVE_DIR, 'index.jsonl');
 
 /** Longest single message we will store. Beyond this a paste is a file, not a chat turn. */
 export const MAX_TEXT = 32_000;
-/** Messages kept per conversation. Older ones are dropped on read, never silently on write. */
+/** Messages returned per conversation on read. Nothing is dropped on disk. */
 export const MAX_MESSAGES = 4000;
-/** Conversations kept. Oldest are pruned when a new one is created. */
-export const MAX_CHATS = 200;
+
+/**
+ * NOTHING IS EVER DELETED TO MAKE ROOM. An earlier version of this file pruned
+ * the oldest conversations whenever a new one started, which is silent data loss
+ * dressed up as housekeeping — a cap that quietly eats your history is worse
+ * than a full disk, because a full disk tells you.
+ *
+ * So the store is unbounded on disk and BOUNDED BY ATTENTION instead: usage is
+ * measured, surfaced in the Doctor, and when it crosses a threshold or the
+ * DEVICE itself is under pressure, the user is asked whether to archive. The
+ * answer is theirs. Archiving writes a single gzipped file and only then removes
+ * the originals.
+ */
+export const ARCHIVE_SUGGEST_BYTES = Number(process.env.ATLAN_CHAT_ARCHIVE_BYTES ?? 15 * 1024 ** 3);
+/** Below this much free disk, size stops being the question and space does. */
+export const LOW_DISK_BYTES = 2 * 1024 ** 3;
+/** Below this fraction of RAM available, the phone is the constraint, not the store. */
+export const LOW_MEM_FRACTION = 0.10;
 
 /**
  * THE ID IS UNTRUSTED. It arrives from the client, and it is about to become a
@@ -61,8 +82,6 @@ export function appendChat(id, { role, text, engine = null, at = Date.now() } = 
   if (!body.trim()) return false;
   try {
     ensureDir();
-    const fresh = !existsSync(fileFor(key));
-    if (fresh) pruneChats();
     appendFileSync(fileFor(key), JSON.stringify({
       at,
       role: String(role ?? 'claude').slice(0, 16),
@@ -78,7 +97,14 @@ export function appendChat(id, { role, text, engine = null, at = Date.now() } = 
 /** Messages for one conversation, oldest first. Unparseable lines are skipped, not fatal. */
 export function readChat(id, { limit = MAX_MESSAGES } = {}) {
   const key = validId(id);
-  if (!key || !existsSync(fileFor(key))) return [];
+  if (!key) return [];
+  // An archived conversation opens exactly like a live one. The caller does not
+  // have to know which it is, which is the whole point of archiving rather than
+  // deleting: from the app, nothing moved.
+  if (!existsSync(fileFor(key))) {
+    const arch = readArchived(key);
+    return arch.length ? arch.slice(-limit) : [];
+  }
   let raw;
   try { raw = readFileSync(fileFor(key), 'utf8'); } catch { return []; }
   const out = [];
@@ -173,7 +199,12 @@ export function listChats() {
       engines: [...engines].slice(0, 4),
     });
   }
-  return rows.sort((a, b) => b.updatedAt - a.updatedAt);
+  // Archived conversations are part of the SAME list. They render with a badge
+  // and open on tap like anything else; a user should never have to know that
+  // one of these rows lives in a gzip.
+  const live = new Set(rows.map((r) => r.id));
+  for (const a of listArchived()) if (!live.has(a.id)) rows.push(a);
+  return rows.sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
 }
 
 export function deleteChat(id) {
@@ -182,15 +213,153 @@ export function deleteChat(id) {
   try { rmSync(fileFor(key), { force: true }); return true; } catch { return false; }
 }
 
-/** Keep the store bounded. Called only when a NEW conversation starts, so an active chat is never pruned mid-turn. */
-function pruneChats() {
+/**
+ * What the store costs, and whether the DEVICE is the reason to care.
+ *
+ * Deliberately measures the machine rather than assuming which machine it is:
+ * the same code answers on a phone, a tablet and a PC because it reads free
+ * space and available memory instead of branching on a platform name.
+ */
+export function chatUsage() {
+  let bytes = 0, count = 0;
   try {
-    const files = readdirSync(DIR)
-      .filter((f) => f.endsWith('.jsonl'))
-      .map((f) => ({ f, m: statSync(join(DIR, f)).mtimeMs }))
-      .sort((a, b) => b.m - a.m);
-    for (const { f } of files.slice(MAX_CHATS - 1)) rmSync(join(DIR, f), { force: true });
-  } catch { /* pruning is housekeeping; never let it break a turn */ }
+    for (const f of readdirSync(DIR)) {
+      if (!f.endsWith('.jsonl')) continue;
+      bytes += statSync(join(DIR, f)).size;
+      count++;
+    }
+  } catch { /* no store yet */ }
+
+  let freeDisk = null;
+  try { const s = statfsSync(existsSync(DIR) ? DIR : FLEET_DIR); freeDisk = s.bavail * s.bsize; } catch { /* unsupported fs */ }
+
+  // MemAvailable, not MemFree: free memory on Linux is a meaningless number
+  // because the kernel spends it on cache on purpose. MemAvailable is the one
+  // that answers "can this device do more work".
+  let memAvailable = null, memTotal = null;
+  try {
+    const mi = readFileSync('/proc/meminfo', 'utf8');
+    const kb = (k) => Number(new RegExp(`^${k}:\\s+(\\d+) kB`, 'm').exec(mi)?.[1] ?? 0) * 1024;
+    memAvailable = kb('MemAvailable') || null;
+    memTotal = kb('MemTotal') || null;
+  } catch { /* not Linux, or a kernel without it */ }
+
+  const lowDisk = freeDisk != null && freeDisk < LOW_DISK_BYTES;
+  const lowMem = memAvailable != null && memTotal != null && memAvailable / memTotal < LOW_MEM_FRACTION;
+  const big = bytes >= ARCHIVE_SUGGEST_BYTES;
+  return {
+    bytes, count, freeDisk, memAvailable, memTotal,
+    lowDisk, lowMem, big,
+    // The ONLY thing this function decides. It never acts on it.
+    suggestArchive: big || lowDisk || lowMem,
+    reason: big ? 'transcripts are large'
+      : lowDisk ? 'the disk is nearly full'
+        : lowMem ? 'this device is low on memory'
+          : null,
+  };
 }
 
-export const _testInternals = { DIR, fileFor };
+/**
+ * Archive conversations into ONE gzipped JSONL file, then remove the originals.
+ *
+ * WRITE FIRST, VERIFY, THEN DELETE — in that order, with no shortcut. The whole
+ * point of archiving rather than pruning is that nothing is lost, so a failed or
+ * partial write must leave every original exactly where it was.
+ *
+ * The archive is gzipped JSONL and not a tar, so it needs no external binary
+ * (Termux may not have one) and stays readable with `zcat`. Each line carries
+ * its conversation id, which is what makes it restorable by hand.
+ *
+ * @param {object} o
+ * @param {number} [o.keepNewest]   conversations to leave in place
+ * @param {number} [o.olderThanMs]  archive anything untouched since this epoch ms
+ */
+export function archiveChats({ keepNewest = 20, olderThanMs = null } = {}) {
+  if (!existsSync(DIR)) return { archived: 0, file: null, bytes: 0 };
+  let files;
+  try {
+    files = readdirSync(DIR)
+      .filter((f) => f.endsWith('.jsonl') && validId(f.slice(0, -6)))
+      .map((f) => ({ f, id: f.slice(0, -6), m: statSync(join(DIR, f)).mtimeMs }))
+      .sort((a, b) => b.m - a.m);
+  } catch { return { archived: 0, file: null, bytes: 0, error: 'could not read the store' }; }
+
+  const doomed = olderThanMs != null
+    ? files.filter((x) => x.m < olderThanMs)
+    : files.slice(Math.max(0, keepNewest));
+  if (!doomed.length) return { archived: 0, file: null, bytes: 0 };
+
+  mkdirSync(ARCHIVE_DIR, { recursive: true, mode: 0o700 });
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const out = join(ARCHIVE_DIR, `atlan-chats-${stamp}.jsonl.gz`);
+
+  // The index is what keeps an archived conversation VISIBLE. Archiving must not
+  // remove anything from the product — only from the hot path. A user who
+  // archives should see the same list they saw before, with older rows marked,
+  // and be able to open any of them. If the only way back were `zcat`, this
+  // would be deletion with extra steps.
+  let blob = '';
+  const indexRows = [];
+  for (const { id } of doomed) {
+    const msgs = readChat(id, { limit: Number.MAX_SAFE_INTEGER });
+    if (!msgs.length) continue;
+    for (const m of msgs) blob += JSON.stringify({ id, ...m }) + '\n';
+    const firstUser = msgs.find((m) => m.role === 'user');
+    indexRows.push({
+      id,
+      title: (firstUser?.text ?? msgs[0].text ?? '').replace(/\s+/g, ' ').trim().slice(0, 90) || 'untitled',
+      startedAt: msgs[0].at ?? null,
+      updatedAt: msgs[msgs.length - 1].at ?? null,
+      engines: [...new Set(msgs.map((m) => m.engine).filter(Boolean))].slice(0, 4),
+      file: `atlan-chats-${stamp}.jsonl.gz`,
+    });
+  }
+  if (!indexRows.length) return { archived: 0, file: null, bytes: 0 };
+
+  try {
+    writeFileSync(out, gzipSync(Buffer.from(blob, 'utf8')), { mode: 0o600 });
+    // Verify the bytes are really on disk BEFORE anything is removed. This
+    // ordering is the difference between archiving and losing.
+    if (!existsSync(out) || statSync(out).size === 0) throw new Error('archive is empty');
+    appendFileSync(ARCHIVE_INDEX, indexRows.map((r) => JSON.stringify(r)).join('\n') + '\n', { mode: 0o600 });
+  } catch (err) {
+    try { rmSync(out, { force: true }); } catch { /* nothing written */ }
+    return { archived: 0, file: null, bytes: 0, error: `archive not written, nothing removed: ${err.message}` };
+  }
+
+  let removed = 0;
+  for (const r of indexRows) { try { rmSync(fileFor(r.id), { force: true }); removed++; } catch { /* leave it */ } }
+  return { archived: removed, file: out, bytes: statSync(out).size };
+}
+
+/** Every archived conversation, as list rows — same shape live ones use. */
+export function listArchived() {
+  if (!existsSync(ARCHIVE_INDEX)) return [];
+  const rows = [];
+  try {
+    for (const line of readFileSync(ARCHIVE_INDEX, 'utf8').split('\n')) {
+      if (!line.trim()) continue;
+      try { rows.push({ ...JSON.parse(line), archived: true, bytes: 0 }); } catch { /* torn line */ }
+    }
+  } catch { return []; }
+  return rows;
+}
+
+/** Pull one archived conversation back out of its gzip. */
+export function readArchived(id) {
+  const key = validId(id);
+  if (!key) return [];
+  const row = listArchived().find((r) => r.id === key);
+  if (!row) return [];
+  try {
+    const raw = gunzipSync(readFileSync(join(ARCHIVE_DIR, row.file))).toString('utf8');
+    const out = [];
+    for (const line of raw.split('\n')) {
+      if (!line.trim()) continue;
+      try { const m = JSON.parse(line); if (m.id === key) out.push(m); } catch { /* torn line */ }
+    }
+    return out;
+  } catch { return []; }
+}
+
+export const _testInternals = { DIR, ARCHIVE_DIR, fileFor };

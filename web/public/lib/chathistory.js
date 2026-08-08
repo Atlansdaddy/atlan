@@ -72,15 +72,29 @@ export async function openHistory({ panel, onOpen }) {
   if (!panel) return;
   panel.hidden = false;
   panel.textContent = '';
+
   const head = document.createElement('div');
   head.className = 'hist-head';
-  head.textContent = 'Conversations';
+  const title = document.createElement('span');
+  title.textContent = 'Conversations';
   const close = document.createElement('button');
   close.className = 'btn ghost';
   close.textContent = 'close';
   close.addEventListener('click', () => { panel.hidden = true; });
-  head.append(close);
-  panel.append(head);
+  head.append(title, close);
+
+  // A list you have to scroll is a list you stop using. Filtering is on titles
+  // only — searching message BODIES would mean reading every conversation on
+  // every keystroke, which is the one thing this store is not shaped for.
+  const search = document.createElement('input');
+  search.className = 'hist-search';
+  search.type = 'search';
+  search.placeholder = 'Search conversations…';
+  search.setAttribute('aria-label', 'search conversations');
+
+  const list = document.createElement('div');
+  list.className = 'hist-list';
+  panel.append(head, search, list);
 
   let chats = [];
   try {
@@ -91,33 +105,50 @@ export async function openHistory({ panel, onOpen }) {
   if (!chats.length) {
     const p = document.createElement('div');
     p.className = 'hint';
-    p.textContent = 'No saved conversations yet. This one is being saved as you talk.';
-    panel.append(p);
+    p.textContent = 'No saved conversations yet — this one is being saved as you talk.';
+    list.append(p);
     return;
   }
 
   const active = convId();
-  for (const c of chats) {
-    const row = document.createElement('button');
-    row.className = 'hist-row' + (c.id === active ? ' active' : '');
-    const t = document.createElement('div');
-    t.className = 'hist-title';
-    t.textContent = c.title;                     // textContent, never innerHTML: a title is user text
-    const meta = document.createElement('div');
-    meta.className = 'hist-meta';
-    // Size, not a message count: the server cannot know a count without reading
-    // every conversation end to end, and a list should not cost that.
-    const kb = Math.max(1, Math.round((c.bytes ?? 0) / 1024));
-    meta.textContent = `${when(c.updatedAt)} · ${kb} KB`
-      + (c.engines?.length ? ` · ${c.engines.join(', ')}` : '')
-      + (c.id === active ? ' · current' : '');
-    row.append(t, meta);
-    row.addEventListener('click', () => {
-      try { localStorage.setItem(KEY, c.id); } catch { /* private mode */ }
-      cached = c.id;
-      panel.hidden = true;
-      onOpen?.(c.id);
-    });
-    panel.append(row);
-  }
+  const paint = (q = '') => {
+    list.textContent = '';
+    const needle = q.trim().toLowerCase();
+    const shown = needle ? chats.filter((c) => c.title.toLowerCase().includes(needle)) : chats;
+    if (!shown.length) {
+      const p = document.createElement('div');
+      p.className = 'hint';
+      p.textContent = `Nothing matching “${q}”.`;
+      list.append(p);
+      return;
+    }
+    for (const c of shown) {
+      const row = document.createElement('button');
+      row.className = 'hist-row' + (c.id === active ? ' active' : '');
+      const t = document.createElement('div');
+      t.className = 'hist-title';
+      t.textContent = c.title;                   // textContent, never innerHTML: a title is user text
+      const meta = document.createElement('div');
+      meta.className = 'hist-meta';
+      const bits = [when(c.updatedAt)];
+      // An archived conversation opens exactly like any other. It says so, and
+      // then it behaves that way — the gzip it came out of is our problem.
+      if (c.archived) bits.push('archived');
+      else if (c.bytes) bits.push(`${Math.max(1, Math.round(c.bytes / 1024))} KB`);
+      if (c.engines?.length) bits.push(c.engines.join(', '));
+      if (c.id === active) bits.push('current');
+      meta.textContent = bits.join(' · ');
+      row.append(t, meta);
+      row.addEventListener('click', () => {
+        try { localStorage.setItem(KEY, c.id); } catch { /* private mode */ }
+        cached = c.id;
+        panel.hidden = true;
+        onOpen?.(c.id);
+      });
+      list.append(row);
+    }
+  };
+
+  search.addEventListener('input', () => paint(search.value));
+  paint();
 }
