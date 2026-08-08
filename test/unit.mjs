@@ -14,6 +14,10 @@ import { runBuild } from '../server/src/build.js';
 import { appendChat, readChat, listChats, deleteChat, validId, MAX_TEXT, chatUsage, archiveChats, resolveTarget, listProjects, _testInternals as CHATLOG } from '../server/src/chatlog.js';
 import { agentStatus, agentBinaries } from '../server/src/agents.js';
 import { draftPrompt, normaliseDraft, previewCompiled } from '../server/src/personaDraft.js';
+import {
+  checkPeerMessage, recordPeerMessage, clearBacklog, resetPeerLimits, peerLimitState,
+  RATE_MAX, RATE_WINDOW_MS, DEDUP_WINDOW_MS, MAX_BACKLOG, MAX_HOPS,
+} from '../server/src/peerlimit.js';
 
 let pass = 0, fail = 0;
 function test(name, fn) {
@@ -157,6 +161,99 @@ test('nothing is archived when nothing matches, and nothing is removed', () => {
   assert.strictEqual(r.archived, 0);
   assert.strictEqual(listChats().length, before, 'a no-op archive must not touch the store');
 });
+// ── runaway control on chat-to-chat messages ──
+// A person sends one message. Two agents given the same ability answer each
+// other, and every answer is a real turn: tokens, a spawned CLI, a phone kept
+// awake. These four limits each stop a different runaway, and the clock is
+// injected so none of these tests sleep.
+test('rate limit: the same sender cannot hammer one conversation', () => {
+  resetPeerLimits();
+  const now = 1_000_000;
+  for (let i = 0; i < RATE_MAX; i++) {
+    const g = checkPeerMessage({ from: 'a', to: 'b', text: `m${i}`, now });
+    assert.strictEqual(g.ok, true, `message ${i} should pass`);
+    recordPeerMessage({ from: 'a', to: 'b', text: `m${i}`, now });
+  }
+  const over = checkPeerMessage({ from: 'a', to: 'b', text: 'one too many', now });
+  assert.strictEqual(over.ok, false);
+  assert.match(over.reason, /a minute to the same conversation/);
+});
+test('rate limit is PER PAIR — a different recipient is unaffected', () => {
+  resetPeerLimits();
+  const now = 2_000_000;
+  for (let i = 0; i < RATE_MAX; i++) recordPeerMessage({ from: 'a', to: 'b', text: `m${i}`, now });
+  assert.strictEqual(checkPeerMessage({ from: 'a', to: 'c', text: 'hello', now }).ok, true,
+    'throttling a->b must not throttle a->c');
+  assert.strictEqual(checkPeerMessage({ from: 'z', to: 'b', text: 'hello', now }).ok, true,
+    'throttling a->b must not throttle z->b');
+});
+test('rate limit expires — the window slides, it is not a permanent ban', () => {
+  resetPeerLimits();
+  const now = 3_000_000;
+  for (let i = 0; i < RATE_MAX; i++) recordPeerMessage({ from: 'a', to: 'b', text: `m${i}`, now });
+  assert.strictEqual(checkPeerMessage({ from: 'a', to: 'b', text: 'x', now }).ok, false);
+  assert.strictEqual(checkPeerMessage({ from: 'a', to: 'b', text: 'x', now: now + RATE_WINDOW_MS + 1 }).ok, true);
+});
+test('dedup: identical text is dropped, and says so specifically', () => {
+  resetPeerLimits();
+  const now = 4_000_000;
+  recordPeerMessage({ from: 'a', to: 'b', text: 'are you done yet', now });
+  const again = checkPeerMessage({ from: 'a', to: 'b', text: 'are you done yet', now: now + 1000 });
+  assert.strictEqual(again.ok, false);
+  assert.match(again.reason, /identical/, 'a stuck agent must get the accurate reason, not a generic "too many"');
+  // Different text from the same sender is fine.
+  assert.strictEqual(checkPeerMessage({ from: 'a', to: 'b', text: 'something else', now: now + 1000 }).ok, true);
+  // And the same text is allowed again once the window passes.
+  assert.strictEqual(checkPeerMessage({ from: 'a', to: 'b', text: 'are you done yet', now: now + DEDUP_WINDOW_MS + 1 }).ok, true);
+});
+test('backlog: messages stop piling into a conversation nobody is reading', () => {
+  resetPeerLimits();
+  let now = 5_000_000;
+  // Spread across senders so the per-pair rate limit is not what trips.
+  for (let i = 0; i < MAX_BACKLOG; i++) {
+    recordPeerMessage({ from: `sender${i}`, to: 'dormant', text: `m${i}`, live: false, now: now + i });
+  }
+  const over = checkPeerMessage({ from: 'someone-new', to: 'dormant', text: 'hello', live: false, now });
+  assert.strictEqual(over.ok, false);
+  assert.match(over.reason, /unread messages are already waiting/);
+});
+test('backlog does NOT apply to a conversation someone is reading', () => {
+  resetPeerLimits();
+  const now = 6_000_000;
+  for (let i = 0; i < MAX_BACKLOG + 10; i++) {
+    recordPeerMessage({ from: `s${i}`, to: 'watched', text: `m${i}`, live: true, now: now + i });
+  }
+  assert.strictEqual(checkPeerMessage({ from: 'new', to: 'watched', text: 'hi', live: true, now }).ok, true,
+    'throttling mail a human can see on screen is breakage, not safety');
+});
+test('opening a conversation clears its backlog', () => {
+  resetPeerLimits();
+  const now = 7_000_000;
+  for (let i = 0; i < MAX_BACKLOG; i++) recordPeerMessage({ from: `s${i}`, to: 'inbox', text: `m${i}`, live: false, now });
+  assert.strictEqual(checkPeerMessage({ from: 'x', to: 'inbox', text: 'hi', live: false, now }).ok, false);
+  clearBacklog('inbox');
+  assert.strictEqual(checkPeerMessage({ from: 'x', to: 'inbox', text: 'hi', live: false, now }).ok, true);
+});
+test('hop limit stops a RING, which the per-pair limits cannot', () => {
+  // A->B, B->C, C->A defeats every per-pair limit: no pair repeats. Depth is
+  // the only thing that catches it, and it is why the counter exists before
+  // anything relays automatically.
+  resetPeerLimits();
+  assert.strictEqual(checkPeerMessage({ from: 'a', to: 'b', text: 'x', hops: 0 }).ok, true);
+  assert.strictEqual(checkPeerMessage({ from: 'b', to: 'c', text: 'x', hops: MAX_HOPS - 1 }).ok, true);
+  const ring = checkPeerMessage({ from: 'c', to: 'a', text: 'x', hops: MAX_HOPS });
+  assert.strictEqual(ring.ok, false);
+  assert.match(ring.reason, /looks like a loop/);
+});
+test('a REFUSED message never counts against the sender', () => {
+  // check and record are separate on purpose: if a refusal incremented the
+  // counter, one blocked message would extend its own ban.
+  resetPeerLimits();
+  const now = 8_000_000;
+  for (let i = 0; i < 3; i++) checkPeerMessage({ from: 'a', to: 'b', text: `m${i}`, now });
+  assert.strictEqual(peerLimitState().pairs, 0, 'checking must not record');
+});
+
 test('a conversation can be addressed by its PROJECT, not just its id', () => {
   // Nobody thinks in conversation ids. "Tell whoever is working on auth" is the
   // thing people actually mean, so a project resolves to a conversation.

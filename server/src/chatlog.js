@@ -238,7 +238,14 @@ export function listChats() {
  */
 export function resolveTarget({ to = null, project = null, isLive = () => false } = {}) {
   const exact = validId(to);
-  if (exact) return { id: exact, why: 'named conversation' };
+  if (exact) {
+    // A well-SHAPED id is not an existing conversation. Without this check,
+    // messaging any syntactically valid id CREATED one on first append — so the
+    // endpoint invented conversations instead of refusing to find them. Caught
+    // by the endpoint tests; the shape check alone had looked sufficient.
+    if (!chatExists(exact)) return { id: null, why: `no conversation ${exact} — it has never been used` };
+    return { id: exact, why: 'named conversation' };
+  }
   if (!project) return { id: null, why: 'no conversation or project given' };
 
   const want = String(project);
@@ -260,6 +267,17 @@ export function listProjects() {
   }
   for (const c of listChats()) if (c.project && seen.has(c.project)) seen.get(c.project).chats++;
   return [...seen.values()];
+}
+
+/** Does this conversation exist — live on disk, or in an archive? */
+export function chatExists(id) {
+  const key = validId(id);
+  if (!key) return false;
+  if (existsSync(fileFor(key))) return true;
+  // Archived counts. Archiving is not deletion, so a conversation that has been
+  // compressed must still be addressable — otherwise archiving would silently
+  // break every reference to it.
+  return listArchived().some((r) => r.id === key);
 }
 
 export function deleteChat(id) {

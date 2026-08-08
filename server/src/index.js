@@ -33,6 +33,7 @@ import { listRoutines, upsertRoutine, deleteRoutine, setPaused, fireRoutine, sta
 import { appendChat, listChats, readChat, deleteChat, validId, chatUsage, archiveChats, resolveTarget, listProjects } from './chatlog.js';
 import { DEFAULT_ENGINE, defaultModel, engineRuntime, usesSdk } from './enginePolicy.js';
 import { draftPrompt, normaliseDraft, previewCompiled } from './personaDraft.js';
+import { checkPeerMessage, recordPeerMessage, clearBacklog } from './peerlimit.js';
 import { initHierarchy, listJobs, upsertJob, deleteJob, startJob, listRuns as listHierarchyRuns, getRun as getHierarchyRun, resolveGate, tierList } from './hierarchy.js';
 import { ladderRungs, CHAT_LADDER, MIN_USEFUL_CHARS } from './ladder.js';
 import { saveUpload, saveRef, turnContext } from './attachments.js';
@@ -210,16 +211,26 @@ app.post('/api/fleet/kill', (req, res) => {
 // exactly as protected as the cockpit itself — these are the most personal
 // bytes in the product and must never be the one surface that forgot.
 app.get('/api/chats', (_req, res) => res.json({ chats: listChats() }));
+
+// EVERY LITERAL /api/chats/* ROUTE MUST BE REGISTERED BEFORE /api/chats/:id.
+// Express matches in registration order, so with `:id` first, /api/chats/usage
+// arrived as id="usage" (refused, 400) and /api/chats/projects as
+// id="projects" — which is a VALID conversation-id shape, so it answered 200
+// with an empty transcript and looked like it worked. Both were caught by the
+// endpoint tests and neither was visible from unit-testing the handlers.
+//
+// Usage is REPORTED, never acted on. Archiving happens only when asked, because
+// silently removing someone's conversations to save space is data loss with a
+// tidy name on it.
+app.get('/api/chats/usage', (_req, res) => res.json(chatUsage()));
+app.get('/api/chats/projects', (_req, res) => res.json({ projects: listProjects() }));
+
 app.get('/api/chats/:id', (req, res) => {
   const id = validId(req.params.id);
   if (!id) return res.status(400).json({ error: 'bad conversation id' });
   res.json({ id, messages: readChat(id) });
 });
 app.post('/api/chats/delete', (req, res) => res.json({ deleted: deleteChat(String(req.body?.id ?? '')) }));
-// Usage is REPORTED, never acted on. Archiving happens only when asked, because
-// silently removing someone's conversations to save space is data loss with a
-// tidy name on it.
-app.get('/api/chats/usage', (_req, res) => res.json(chatUsage()));
 
 // ── chat-to-chat messages ───────────────────────────────────────────────────
 // Which conversations have a socket attached right now. A message to a LIVE
@@ -228,8 +239,6 @@ app.get('/api/chats/usage', (_req, res) => res.json(chatUsage()));
 // Claude Code's version cannot do, and it only works because transcripts are
 // durable — an inbox needs somewhere to put the letter.
 const liveChats = new Map();   // convId -> send()
-
-app.get('/api/chats/projects', (_req, res) => res.json({ projects: listProjects() }));
 
 app.post('/api/chats/message', (req, res) => {
   const text = String(req.body?.text ?? '').trim();
@@ -247,6 +256,14 @@ app.post('/api/chats/message', (req, res) => {
   const to = target.id;
   if (!to) return res.status(404).json({ error: target.why });
 
+  // Runaway control BEFORE anything is stored. Two agents given this ability
+  // answer each other, and every answer is a real turn — tokens, a spawned CLI,
+  // a phone kept awake. 429 rather than a silent drop, with the reason, because
+  // a message that vanishes is indistinguishable from a broken feature.
+  const hops = Math.max(0, Math.min(99, Number(req.body?.hops ?? 0)));
+  const gate = checkPeerMessage({ from, to, text, hops, live: liveChats.has(to) });
+  if (!gate.ok) return res.status(429).json({ error: gate.reason, to, from });
+
   // ATTRIBUTED, ALWAYS. A peer message is third-party text arriving in someone
   // else's conversation, and the single thing that keeps that from being a
   // prompt-injection channel between agents is that it can never be mistaken
@@ -255,7 +272,11 @@ app.post('/api/chats/message', (req, res) => {
   if (!stored) return res.status(400).json({ error: 'could not store the message' });
 
   const live = liveChats.get(to);
-  if (live) live({ t: 'chat.msg', role: 'peer', engine: from, text });
+  recordPeerMessage({ from, to, text, live: !!live });
+  // hops+1 travels with it so a relayed reply carries its depth. Nothing relays
+  // automatically today; the counter exists so that when something does, the
+  // ring-of-three case is already bounded rather than discovered.
+  if (live) live({ t: 'chat.msg', role: 'peer', engine: from, text, hops: hops + 1 });
   // `resolvedBy` so the caller can say WHICH conversation a project address
   // landed on — "sent to the project" without naming the recipient is the kind
   // of vagueness that makes people distrust the feature.
@@ -653,6 +674,7 @@ wss.on('connection', (ws, req) => {
         if (cid) {
           convId = cid;
           liveChats.set(cid, send);   // reachable by name while this socket is open
+          clearBacklog(cid);          // someone is reading it now, so the queue is not a backlog
           appendChat(convId, { role: 'user', text: m.text, cwd: m.cwd || PROJECTS_DIR });
         }
         let text = m.text;

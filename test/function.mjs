@@ -186,5 +186,77 @@ await test('DELETE paths remove what we created', async () => {
   assert.equal((await j(await api('/api/routines/delete', { method: 'POST', body: JSON.stringify({ id: routineId }) }))).body.deleted, true);
 });
 
+// ── chat transcripts + chat-to-chat messages, over HTTP ────────────────────
+// The endpoint had no tests at all: resolveTarget was unit-tested in isolation
+// and that got mistaken for coverage of the route that calls it.
+const CONV_A = 'functest-convaaaa1';
+
+await test('POST /api/chats/message REFUSES an unknown conversation, and says why', async () => {
+  const { status, body } = await j(await api('/api/chats/message', {
+    method: 'POST', body: JSON.stringify({ to: 'functest-nosuchconv', text: 'hello' }),
+  }));
+  assert.equal(status, 404);
+  assert.match(body.error, /no conversation/i);
+});
+await test('POST /api/chats/message REFUSES a traversal id rather than pathing on it', async () => {
+  const { status } = await j(await api('/api/chats/message', {
+    method: 'POST', body: JSON.stringify({ to: '../../.keys.enc', text: 'hello' }),
+  }));
+  assert.ok(status === 404 || status === 400, `expected a refusal, got ${status}`);
+});
+await test('POST /api/chats/message REFUSES an empty message', async () => {
+  const { status, body } = await j(await api('/api/chats/message', {
+    method: 'POST', body: JSON.stringify({ to: CONV_A, text: '   ' }),
+  }));
+  assert.equal(status, 400);
+  assert.match(body.error, /empty/i);
+});
+// A conversation is only created by a real chat turn over the WebSocket, which
+// this HTTP suite cannot do. So the two tests below run against an EXISTING
+// conversation if the instance has one and say so plainly if it does not —
+// rather than early-returning green, which would read as coverage that never
+// happened. The limiter's own behaviour is covered exhaustively in test/unit.mjs.
+const existing = (await j(await api('/api/chats'))).body?.chats?.[0]?.id ?? null;
+
+await test('a delivered message is stored under the PEER role and reads back', async () => {
+  if (!existing) { console.log('      ⊘ no conversation on this instance — peer-storage path not exercised here'); return; }
+  const r = await j(await api('/api/chats/message', {
+    method: 'POST', body: JSON.stringify({ to: existing, text: 'functest peer message', from: 'functest' }),
+  }));
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  const read = await j(await api(`/api/chats/${existing}`));
+  assert.ok(read.body.messages.some((m) => m.role === 'peer' && m.text === 'functest peer message'),
+    'stored under peer — never as the user, never as the agent');
+});
+await test('the rate limit fires over HTTP, with 429 and a reason', async () => {
+  if (!existing) { console.log('      ⊘ no conversation on this instance — limiter wiring not exercised here'); return; }
+  let refused = null;
+  for (let i = 0; i < 12 && !refused; i++) {
+    const r = await j(await api('/api/chats/message', {
+      method: 'POST', body: JSON.stringify({ to: existing, text: `burst ${i}`, from: 'flooder' }),
+    }));
+    if (r.status === 429) refused = r;
+  }
+  assert.ok(refused, 'twelve messages in a row must trip the limiter');
+  assert.ok(refused.body.error, 'a refusal must carry a reason — a silent drop is indistinguishable from a broken feature');
+});
+await test('GET /api/chats/usage reports and suggests, without acting', async () => {
+  const { status, body } = await j(await api('/api/chats/usage'));
+  assert.equal(status, 200);
+  assert.equal(typeof body.bytes, 'number');
+  assert.equal(typeof body.suggestArchive, 'boolean');
+  if (body.suggestArchive) assert.ok(body.reason, 'a suggestion must name its reason');
+});
+await test('GET /api/chats/projects returns the project list', async () => {
+  const { status, body } = await j(await api('/api/chats/projects'));
+  assert.equal(status, 200);
+  assert.ok(Array.isArray(body.projects));
+});
+await test('cleanup: the suite leaves no conversations behind', async () => {
+  await j(await api('/api/chats/delete', { method: 'POST', body: JSON.stringify({ id: CONV_A }) }));
+  const { body } = await j(await api('/api/chats'));
+  assert.ok(!body.chats.some((c) => c.id === CONV_A));
+});
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
