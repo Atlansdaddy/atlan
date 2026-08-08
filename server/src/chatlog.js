@@ -75,7 +75,7 @@ function ensureDir() {
 }
 
 /** Append one message. Returns false rather than throwing — a failed transcript write must never take a live turn down with it. */
-export function appendChat(id, { role, text, engine = null, at = Date.now() } = {}) {
+export function appendChat(id, { role, text, engine = null, cwd = null, at = Date.now() } = {}) {
   const key = validId(id);
   if (!key) return false;
   const body = String(text ?? '');
@@ -91,6 +91,11 @@ export function appendChat(id, { role, text, engine = null, at = Date.now() } = 
       // exist and must keep opening.
       role: String(role ?? 'assistant').slice(0, 16),
       engine: engine ? String(engine).slice(0, 40) : null,
+      // The PROJECT this turn happened in. Recorded because a conversation that
+      // does not know where it lives cannot be addressed by anything except its
+      // id — and nobody thinks in ids. It is also the first half of what waking
+      // a dormant conversation needs (project, engine, model).
+      cwd: cwd ? String(cwd).slice(0, 400) : null,
       text: body.slice(0, MAX_TEXT),
     }) + '\n', { mode: 0o600 });
     return true;
@@ -171,6 +176,7 @@ export function listChats() {
 
     let title = '';
     let fallback = '';
+    let project = null;
     let startedAt = st.birthtimeMs;
     const engines = new Set();
     const head = readHead(join(DIR, f));
@@ -184,6 +190,7 @@ export function listChats() {
       let m;
       try { m = JSON.parse(line); } catch { continue; }
       if (first) { startedAt = m.at ?? startedAt; first = false; }
+      if (!project && m.cwd) project = m.cwd;
       if (m.engine) engines.add(m.engine);
       if (!title && m.role === 'user' && m.text) title = m.text;
       if (!fallback && m.text) fallback = m.text;
@@ -202,6 +209,8 @@ export function listChats() {
       startedAt,
       updatedAt: st.mtimeMs,
       engines: [...engines].slice(0, 4),
+      project,
+      projectName: project ? project.split('/').filter(Boolean).pop() : null,
     });
   }
   // Archived conversations are part of the SAME list. They render with a badge
@@ -210,6 +219,47 @@ export function listChats() {
   const live = new Set(rows.map((r) => r.id));
   for (const a of listArchived()) if (!live.has(a.id)) rows.push(a);
   return rows.sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
+}
+
+/**
+ * Turn "who do you mean" into one conversation id.
+ *
+ * Nobody addresses a conversation by its id. They mean "that chat" or "whatever
+ * is working in the auth project", so both are accepted:
+ *
+ *   { to: 'c1a2b3...' }        an exact conversation
+ *   { project: '/path/to/x' }  the conversation working there
+ *
+ * A project can hold several conversations, so the choice is: a LIVE one first
+ * (a message to a project means "tell whoever is working on this", and someone
+ * with the tab open is that person), then the most recently touched. `isLive`
+ * is injected because liveness is the server's socket registry, not something a
+ * transcript store should know about.
+ */
+export function resolveTarget({ to = null, project = null, isLive = () => false } = {}) {
+  const exact = validId(to);
+  if (exact) return { id: exact, why: 'named conversation' };
+  if (!project) return { id: null, why: 'no conversation or project given' };
+
+  const want = String(project);
+  const inProject = listChats().filter((c) => c.project === want);
+  if (!inProject.length) return { id: null, why: `no conversation has run in ${want} yet` };
+
+  const live = inProject.find((c) => isLive(c.id));
+  if (live) return { id: live.id, why: `live conversation in ${want}` };
+  // listChats is already sorted newest-first.
+  return { id: inProject[0].id, why: `most recent conversation in ${want}` };
+}
+
+/** Distinct projects that have conversations, newest activity first. */
+export function listProjects() {
+  const seen = new Map();
+  for (const c of listChats()) {
+    if (!c.project || seen.has(c.project)) continue;
+    seen.set(c.project, { project: c.project, name: c.projectName, updatedAt: c.updatedAt, chats: 0 });
+  }
+  for (const c of listChats()) if (c.project && seen.has(c.project)) seen.get(c.project).chats++;
+  return [...seen.values()];
 }
 
 export function deleteChat(id) {

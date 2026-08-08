@@ -3,7 +3,7 @@
 // evaluator, the checker engine, the Persona+ compilers, the schema builders,
 // scheduler due/grace math, and the timing-safe token compare.
 import assert from 'node:assert';
-import { appendFileSync } from 'node:fs';
+import { appendFileSync, utimesSync } from 'node:fs';
 import {
   safeArith, runCheckers, upsertPersona, upsertCommand, compilePersona,
   compileCommand, templateSchema, toolSchema, listPersonas, deletePersona, unsafeRegex,
@@ -11,7 +11,7 @@ import {
 import { _testInternals as ROUT } from '../server/src/routines.js';
 import { _testInternals as AUTH } from '../server/src/auth.js';
 import { runBuild } from '../server/src/build.js';
-import { appendChat, readChat, listChats, deleteChat, validId, MAX_TEXT, chatUsage, archiveChats, _testInternals as CHATLOG } from '../server/src/chatlog.js';
+import { appendChat, readChat, listChats, deleteChat, validId, MAX_TEXT, chatUsage, archiveChats, resolveTarget, listProjects, _testInternals as CHATLOG } from '../server/src/chatlog.js';
 import { agentStatus, agentBinaries } from '../server/src/agents.js';
 import { draftPrompt, normaliseDraft, previewCompiled } from '../server/src/personaDraft.js';
 
@@ -156,6 +156,48 @@ test('nothing is archived when nothing matches, and nothing is removed', () => {
   const r = archiveChats({ olderThanMs: 0 });
   assert.strictEqual(r.archived, 0);
   assert.strictEqual(listChats().length, before, 'a no-op archive must not touch the store');
+});
+test('a conversation can be addressed by its PROJECT, not just its id', () => {
+  // Nobody thinks in conversation ids. "Tell whoever is working on auth" is the
+  // thing people actually mean, so a project resolves to a conversation.
+  const a = 'unittest-projaddr01';
+  const b = 'unittest-projaddr02';
+  deleteChat(a); deleteChat(b);
+  appendChat(a, { role: 'user', text: 'older one here', cwd: '/projects/auth' });
+  appendChat(b, { role: 'user', text: 'newer one here', cwd: '/projects/auth' });
+  // Recency is mtime, and two appends land in the same millisecond — so the
+  // times are set explicitly rather than hoping the filesystem separates them.
+  // Hoping is how a test passes on a slow machine and fails on a fast one.
+  const t = Date.now() / 1000;
+  utimesSync(CHATLOG.fileFor(a), t - 60, t - 60);
+  utimesSync(CHATLOG.fileFor(b), t, t);
+
+  const newest = resolveTarget({ project: '/projects/auth' });
+  assert.strictEqual(newest.id, b, 'with nobody live, the most recent conversation wins');
+  assert.match(newest.why, /most recent/);
+
+  // A LIVE conversation outranks a newer dormant one: a message to a project
+  // means "tell whoever is working on this", and that is the person with it open.
+  const live = resolveTarget({ project: '/projects/auth', isLive: (id) => id === a });
+  assert.strictEqual(live.id, a, 'a live conversation outranks a more recent dormant one');
+  assert.match(live.why, /live/);
+
+  // An explicit id always wins over a project.
+  assert.strictEqual(resolveTarget({ to: a, project: '/projects/auth' }).id, a);
+  // And an unknown project resolves to nothing, with a reason worth showing.
+  const none = resolveTarget({ project: '/projects/nope' });
+  assert.strictEqual(none.id, null);
+  assert.match(none.why, /no conversation has run in/);
+  deleteChat(a); deleteChat(b);
+});
+test('listProjects groups conversations by where they ran', () => {
+  const id = 'unittest-projlist01';
+  deleteChat(id);
+  appendChat(id, { role: 'user', text: 'in a project', cwd: '/projects/widget' });
+  const row = listProjects().find((p) => p.project === '/projects/widget');
+  assert.ok(row, 'the project must appear');
+  assert.strictEqual(row.name, 'widget', 'the display name is the last path segment');
+  deleteChat(id);
 });
 test('chatUsage REPORTS and never acts', () => {
   const u = chatUsage();

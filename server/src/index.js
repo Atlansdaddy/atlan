@@ -30,7 +30,7 @@ import {
 } from './auth.js';
 import { tailnetHost, tailnetOrigin } from './tailnet.js';
 import { listRoutines, upsertRoutine, deleteRoutine, setPaused, fireRoutine, startScheduler } from './routines.js';
-import { appendChat, listChats, readChat, deleteChat, validId, chatUsage, archiveChats } from './chatlog.js';
+import { appendChat, listChats, readChat, deleteChat, validId, chatUsage, archiveChats, resolveTarget, listProjects } from './chatlog.js';
 import { DEFAULT_ENGINE, defaultModel, engineRuntime, usesSdk } from './enginePolicy.js';
 import { draftPrompt, normaliseDraft, previewCompiled } from './personaDraft.js';
 import { initHierarchy, listJobs, upsertJob, deleteJob, startJob, listRuns as listHierarchyRuns, getRun as getHierarchyRun, resolveGate, tierList } from './hierarchy.js';
@@ -229,12 +229,23 @@ app.get('/api/chats/usage', (_req, res) => res.json(chatUsage()));
 // durable — an inbox needs somewhere to put the letter.
 const liveChats = new Map();   // convId -> send()
 
+app.get('/api/chats/projects', (_req, res) => res.json({ projects: listProjects() }));
+
 app.post('/api/chats/message', (req, res) => {
-  const to = validId(req.body?.to);
   const text = String(req.body?.text ?? '').trim();
   const from = String(req.body?.from ?? 'another chat').slice(0, 60);
-  if (!to) return res.status(400).json({ error: 'bad conversation id' });
   if (!text) return res.status(400).json({ error: 'empty message' });
+  // Address a conversation OR a project. Nobody thinks in conversation ids, and
+  // "tell whoever is working on the auth project" is the thing people actually
+  // mean. Liveness is injected here because the socket registry lives in this
+  // file, not in the transcript store.
+  const target = resolveTarget({
+    to: req.body?.to,
+    project: req.body?.project ? String(req.body.project) : null,
+    isLive: (id) => liveChats.has(id),
+  });
+  const to = target.id;
+  if (!to) return res.status(404).json({ error: target.why });
 
   // ATTRIBUTED, ALWAYS. A peer message is third-party text arriving in someone
   // else's conversation, and the single thing that keeps that from being a
@@ -245,7 +256,10 @@ app.post('/api/chats/message', (req, res) => {
 
   const live = liveChats.get(to);
   if (live) live({ t: 'chat.msg', role: 'peer', engine: from, text });
-  res.json({ delivered: !!live, queued: !live, to, from });
+  // `resolvedBy` so the caller can say WHICH conversation a project address
+  // landed on — "sent to the project" without naming the recipient is the kind
+  // of vagueness that makes people distrust the feature.
+  res.json({ delivered: !!live, queued: !live, to, from, resolvedBy: target.why });
 });
 app.post('/api/chats/archive', (req, res) => {
   const keepNewest = Math.max(0, Math.min(1000, Number(req.body?.keepNewest ?? 20)));
@@ -639,7 +653,7 @@ wss.on('connection', (ws, req) => {
         if (cid) {
           convId = cid;
           liveChats.set(cid, send);   // reachable by name while this socket is open
-          appendChat(convId, { role: 'user', text: m.text });
+          appendChat(convId, { role: 'user', text: m.text, cwd: m.cwd || PROJECTS_DIR });
         }
         let text = m.text;
         // Attachments this turn: images/files/folders as path refs the agent
