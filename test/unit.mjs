@@ -13,6 +13,7 @@ import { _testInternals as AUTH } from '../server/src/auth.js';
 import { runBuild } from '../server/src/build.js';
 import { appendChat, readChat, listChats, deleteChat, validId, MAX_TEXT, chatUsage, archiveChats, _testInternals as CHATLOG } from '../server/src/chatlog.js';
 import { agentStatus, agentBinaries } from '../server/src/agents.js';
+import { draftPrompt, normaliseDraft, previewCompiled } from '../server/src/personaDraft.js';
 
 let pass = 0, fail = 0;
 function test(name, fn) {
@@ -88,6 +89,47 @@ test('a torn final line costs one message, never the file', () => {
   assert.strictEqual(msgs[0].text, 'survivor');
   deleteChat(id);
 });
+// ── Persona+ drafting: models return JSON that is ALMOST right ──
+test('a draft survives fences and prose around the JSON', () => {
+  // Every engine does this differently and none of them is wrong. Refusing a
+  // fenced reply would make the feature feel broken for a reason the user can
+  // neither see nor fix.
+  const r = normaliseDraft('Sure!\n```json\n{"name":"X","focus":"y"}\n```');
+  assert.strictEqual(r.ok, true);
+  assert.strictEqual(r.draft.name, 'X');
+});
+test('a draft coerces the shape instead of throwing', () => {
+  const r = normaliseDraft({ name: 'Hawk', focus: 'errors', skills: 'try/catch, retries', profile: 'nonsense' });
+  assert.deepStrictEqual(r.draft.skills, ['try/catch', 'retries'], 'a string list becomes a list');
+  assert.strictEqual(r.draft.profile, 'scout', 'an unknown profile falls back to the LEAST powerful one');
+});
+test('a draft REPORTS what upsertPersona would refuse, rather than throwing it', () => {
+  // name and focus are the two the store rejects on. Reporting them lets the UI
+  // show a filled form with the gaps marked — throwing would show an error and
+  // lose the rest of the draft the user could have kept.
+  const r = normaliseDraft({ name: 'NoFocus' });
+  assert.strictEqual(r.ok, true);
+  assert.deepStrictEqual(r.missing, ['focus']);
+});
+test('prose with no object is refused, not guessed at', () => {
+  const r = normaliseDraft('I think a good persona would review code.');
+  assert.strictEqual(r.ok, false);
+  assert.match(r.error, /did not return a JSON object/);
+});
+test('the drafting prompt names FOCUS as the field that matters', () => {
+  // Scope is the moat — upsertPersona refuses without it, and a vague focus is
+  // what makes a persona useless rather than merely imperfect.
+  const p = draftPrompt('a reviewer that is brutal about error handling');
+  assert.match(p, /FOCUS is the scope limit/);
+  assert.match(p, /brutal about error handling/, 'the request must reach the engine verbatim');
+  assert.match(p, /ONLY a JSON object/);
+});
+test('a draft can be compiled without being saved', () => {
+  const { draft } = normaliseDraft({ name: 'Hawk', focus: 'errors only', bio: 'b', instructions: 'i' });
+  assert.match(previewCompiled(draft), /PERSONA: Hawk/);
+  assert.ok(!listPersonas().some((p) => p.name === 'Hawk'), 'drafting must never write to the store');
+});
+
 test('an ARCHIVED conversation is still listed and still opens', () => {
   // The whole difference between archiving and deleting. If archiving removed a
   // row from the list, or made it unopenable without a shell, it would be

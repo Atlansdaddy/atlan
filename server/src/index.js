@@ -32,6 +32,7 @@ import { tailnetHost, tailnetOrigin } from './tailnet.js';
 import { listRoutines, upsertRoutine, deleteRoutine, setPaused, fireRoutine, startScheduler } from './routines.js';
 import { appendChat, listChats, readChat, deleteChat, validId, chatUsage, archiveChats } from './chatlog.js';
 import { DEFAULT_ENGINE, defaultModel, engineRuntime, usesSdk } from './enginePolicy.js';
+import { draftPrompt, normaliseDraft, previewCompiled } from './personaDraft.js';
 import { initHierarchy, listJobs, upsertJob, deleteJob, startJob, listRuns as listHierarchyRuns, getRun as getHierarchyRun, resolveGate, tierList } from './hierarchy.js';
 import { ladderRungs, CHAT_LADDER, MIN_USEFUL_CHARS } from './ladder.js';
 import { saveUpload, saveRef, turnContext } from './attachments.js';
@@ -262,6 +263,36 @@ app.post('/api/routines/fire', (req, res) => {
 });
 
 // ── Persona+ builder: personas, structured commands, test harness ──
+// Draft a persona (or a structured command) from a plain-language description.
+// It RETURNS the draft and saves nothing: the user reviews a filled form, edits
+// it, and presses save themselves. An AI that quietly writes into your persona
+// list is the kind of help nobody asked for.
+app.post('/api/personas/draft', async (req, res) => {
+  const intent = String(req.body?.intent ?? '').trim().slice(0, 4000);
+  const kind = req.body?.kind === 'command' ? 'command' : 'persona';
+  if (!intent) return res.status(400).json({ error: 'describe what you want it to do' });
+  try {
+    // Whichever brain the user has. The drafting engine is not special and is
+    // never assumed to be a particular vendor.
+    const roster = await engineRoster();
+    const brain = roster.find((e) => e.ready) ?? roster[0];
+    if (!brain) return res.status(400).json({ error: 'no engine is ready to draft with — add a key in Doctor → Engine keys' });
+
+    let text = '';
+    await brainChat({
+      provider: brain.id,
+      model: brain.model,
+      history: [{ role: 'user', content: draftPrompt(intent, { kind }) }],
+      send: (m) => { if (m.t === 'chat.msg' && m.role === 'brain') text = m.text; },
+    });
+    const out = normaliseDraft(text, { kind });
+    if (!out.ok) return res.status(422).json({ error: out.error, raw: text.slice(0, 800) });
+    res.json({ ...out, kind, engine: brain.id, compiled: kind === 'persona' ? previewCompiled(out.draft) : '' });
+  } catch (err) {
+    res.status(500).json({ error: String(err?.message ?? err).slice(0, 200) });
+  }
+});
+
 app.get('/api/personas', (_req, res) => res.json({ personas: listPersonas(), commands: listCommands() }));
 app.post('/api/personas', (req, res) => {
   try { res.json(upsertPersona(req.body ?? {})); } catch (err) { res.status(400).json({ error: err.message }); }
