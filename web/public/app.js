@@ -407,11 +407,11 @@ import { convId, newConversation, restoreChat, openHistory } from './lib/chathis
 
   function addMsg(role, text, engineLabel) {
     const div = document.createElement('div');
-    div.className = 'msg ' + (role === 'user' ? 'user' : role === 'err' ? 'err' : 'claude');
-    if (role === 'claude' || role === 'brain') {
+    div.className = 'msg ' + (role === 'user' ? 'user' : role === 'err' ? 'err' : role === 'peer' ? 'peer' : 'claude'); // peer = another conversation; it must never render as the agent speaking
+    if (role === 'claude' || role === 'brain' || role === 'peer') {
       const who = document.createElement('div');
       who.className = 'who';
-      who.textContent = role === 'brain' ? (engineLabel || 'brain') + ' · chat only' : (engineLabel || 'Claude');
+      who.textContent = role === 'peer' ? `✉ from ${engineLabel || 'another chat'}` : role === 'brain' ? (engineLabel || 'brain') + ' · chat only' : (engineLabel || 'Claude');
       div.append(who);
     }
     // Only CHAT brains get the propose-into-canvas treatment: they have no

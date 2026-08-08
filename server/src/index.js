@@ -218,6 +218,33 @@ app.post('/api/chats/delete', (req, res) => res.json({ deleted: deleteChat(Strin
 // silently removing someone's conversations to save space is data loss with a
 // tidy name on it.
 app.get('/api/chats/usage', (_req, res) => res.json(chatUsage()));
+
+// ── chat-to-chat messages ───────────────────────────────────────────────────
+// Which conversations have a socket attached right now. A message to a LIVE
+// conversation arrives on screen; a message to a dormant one lands in its
+// transcript and is waiting when it is opened. That second case is the one
+// Claude Code's version cannot do, and it only works because transcripts are
+// durable — an inbox needs somewhere to put the letter.
+const liveChats = new Map();   // convId -> send()
+
+app.post('/api/chats/message', (req, res) => {
+  const to = validId(req.body?.to);
+  const text = String(req.body?.text ?? '').trim();
+  const from = String(req.body?.from ?? 'another chat').slice(0, 60);
+  if (!to) return res.status(400).json({ error: 'bad conversation id' });
+  if (!text) return res.status(400).json({ error: 'empty message' });
+
+  // ATTRIBUTED, ALWAYS. A peer message is third-party text arriving in someone
+  // else's conversation, and the single thing that keeps that from being a
+  // prompt-injection channel between agents is that it can never be mistaken
+  // for the user talking. It is stored under its own role and rendered as such.
+  const stored = appendChat(to, { role: 'peer', text, engine: from });
+  if (!stored) return res.status(400).json({ error: 'could not store the message' });
+
+  const live = liveChats.get(to);
+  if (live) live({ t: 'chat.msg', role: 'peer', engine: from, text });
+  res.json({ delivered: !!live, queued: !live, to, from });
+});
 app.post('/api/chats/archive', (req, res) => {
   const keepNewest = Math.max(0, Math.min(1000, Number(req.body?.keepNewest ?? 20)));
   res.json(archiveChats({ keepNewest }));
@@ -555,6 +582,10 @@ wss.on('connection', (ws, req) => {
   // go the same way, via the registry in agents.js.
   // (Cross-vendor adversarial review, 2026-08-06.)
   ws.on('close', () => {
+    // Only drop the registration if it is still OURS: a refresh can attach a new
+    // socket to the same conversation before the old one finishes closing, and
+    // deleting blindly would unhook the live session that just replaced us.
+    if (convId && liveChats.get(convId) === send) liveChats.delete(convId);
     claude?.dispose().catch(() => {});
     claude = null;
     killAgentTurns((t) => t.owner === connId);
@@ -573,7 +604,11 @@ wss.on('connection', (ws, req) => {
         // cockpit context are appended below: a transcript full of injected
         // machinery is not a transcript of a conversation.
         const cid = validId(m.conv);
-        if (cid) { convId = cid; appendChat(convId, { role: 'user', text: m.text }); }
+        if (cid) {
+          convId = cid;
+          liveChats.set(cid, send);   // reachable by name while this socket is open
+          appendChat(convId, { role: 'user', text: m.text });
+        }
         let text = m.text;
         // Attachments this turn: images/files/folders as path refs the agent
         // Reads; audio/video already turned to text by a multimodal model.

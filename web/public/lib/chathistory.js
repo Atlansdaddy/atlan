@@ -145,10 +145,86 @@ export async function openHistory({ panel, onOpen }) {
         panel.hidden = true;
         onOpen?.(c.id);
       });
-      list.append(row);
+
+      // Talking to another conversation without leaving this one. Two verbs on
+      // purpose: "Message" is for a chat that is open somewhere and will see it
+      // now; "Leave note" is for one that is not, and says so rather than
+      // pretending it was delivered.
+      const wrap = document.createElement('div');
+      wrap.className = 'hist-item';
+      const actions = document.createElement('div');
+      actions.className = 'hist-actions';
+      if (c.id !== active) {
+        actions.append(
+          msgButton('✉ Message', c, 'now'),
+          msgButton('📝 Leave note', c, 'leave'),
+        );
+      }
+      wrap.append(row, actions);
+      list.append(wrap);
     }
   };
 
   search.addEventListener('input', () => paint(search.value));
   paint();
+}
+
+/**
+ * One row's send control. Opens an inline composer rather than a prompt(): a
+ * browser prompt is a modal that blocks the page, and on a phone it hides the
+ * conversation you are trying to write ABOUT.
+ */
+function msgButton(label, chat, mode) {
+  const b = document.createElement('button');
+  b.className = 'btn ghost hist-act';
+  b.textContent = label;
+  b.title = mode === 'now'
+    ? 'Send to that conversation — it appears there immediately if it is open'
+    : 'Leave it in that conversation for when you next open it';
+  b.addEventListener('click', (e) => {
+    e.stopPropagation();                       // the row itself opens the chat
+    const holder = b.closest('.hist-item');
+    if (holder.querySelector('.hist-compose')) return;   // already open
+
+    const box = document.createElement('div');
+    box.className = 'hist-compose';
+    const input = document.createElement('input');
+    input.placeholder = `Message “${chat.title.slice(0, 32)}”…`;
+    input.setAttribute('aria-label', 'message to another conversation');
+    const go = document.createElement('button');
+    go.className = 'btn hot';
+    go.textContent = 'Send';
+    const status = document.createElement('div');
+    status.className = 'hist-meta';
+
+    const send = async () => {
+      const text = input.value.trim();
+      if (!text) return;
+      go.disabled = true;
+      status.textContent = 'sending…';
+      try {
+        const r = await fetch('/api/chats/message', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ to: chat.id, text, from: 'this chat', mode }),
+        });
+        const j = await r.json();
+        // Say which of the two actually happened. "Sent" for something that is
+        // sitting unread is the kind of small lie that costs trust later.
+        status.textContent = j.error ? `failed: ${j.error}`
+          : j.delivered ? 'delivered — it is on screen there now'
+            : 'left in that conversation — it will be there when you open it';
+        if (!j.error) { input.value = ''; setTimeout(() => box.remove(), 2600); }
+      } catch {
+        status.textContent = 'failed to reach the cockpit';
+      } finally { go.disabled = false; }
+    };
+    go.addEventListener('click', send);
+    input.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') send(); });
+
+    box.append(input, go, status);
+    holder.append(box);
+    input.focus();
+  });
+  return b;
 }
