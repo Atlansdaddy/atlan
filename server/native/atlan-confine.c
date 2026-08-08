@@ -567,6 +567,47 @@ static void emit_allow_set(void) {
   for (unsigned i = 0; i < sizeof(allow) / sizeof(allow[0]); i++) rule(allow[i], SECCOMP_RET_ALLOW);
 }
 
+/* A syscall number the kernel CANNOT DISPATCH is not the same thing as a syscall
+ * we failed to anticipate, and conflating them is what made the phone tier T0.
+ *
+ * A ptrace supervisor voids a syscall by rewriting nr to a sentinel. PRoot does
+ * this for unshare, setns, mount and others — its own source says why: "sandbox
+ * helpers like bubblewrap only check the return value". Measured here, from the
+ * kernel's audit ring, running our own launcher under proot:
+ *
+ *     type=1326 ... comm="atlan-confine" sig=31 arch=c000003e syscall=-2
+ *                   code=0x80000000        (SECCOMP_RET_KILL_PROCESS)
+ *
+ * -2 read as unsigned is 0xFFFFFFFE, far above any real syscall number, so
+ * do_syscall_64's `unr < NR_syscalls` bound check fails and the kernel returns
+ * ENOSYS without reaching a handler. It cannot dispatch, therefore it cannot be
+ * a capability. But our default tail KILLED it — and since proot voids syscalls
+ * on the way past, every proot-hosted process died. Atlan runs inside proot on
+ * the phone, so that was the whole platform.
+ *
+ * So the tail splits in two, by what the number can actually DO:
+ *   out of range   -> ENOSYS, quietly. There is nothing to refuse loudly; the
+ *                     kernel's own answer is ENOSYS and we give the same one
+ *                     without letting the call through at all.
+ *   in range, unlisted -> KILL_PROCESS, unchanged. That is a hole in our model
+ *                     and quiet is still the wrong answer there.
+ *
+ * The ceiling is deliberately far above any current ABI (x86_64 and arm64 are
+ * both under 500) and far below any sentinel. It is a range test, not a list of
+ * one supervisor's magic numbers, so it composes with any supervisor that voids
+ * this way rather than only with the one we happened to measure.
+ *
+ * This does NOT relax rule()'s `if (nr < 0) return`. That guard stops an
+ * undefined __NR_foo — which the preprocessor makes -1 — from silently emitting
+ * an ALLOW that matches every unknown syscall. It is right and it stays. This is
+ * a separate, deliberate, single rule with its own reasoning. */
+#define SYSCALL_NR_CEILING 1024u
+static void emit_undispatchable_enosys(void) {
+  /* nr is already loaded in A by emit_arch_guard(). */
+  emit((struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JGE | BPF_K, SYSCALL_NR_CEILING, 0, 1));
+  emit((struct sock_filter)BPF_STMT(BPF_RET | BPF_K, ERRNO(ENOSYS)));
+}
+
 /* Default-deny tail. KILL_PROCESS, not EPERM: a syscall we did not anticipate is
  * a hole in our model, and the acceptable failure direction for a too-tight
  * allow-list is LOUD — the engine dies at startup, in CI, on the smoke corpus,
@@ -574,6 +615,10 @@ static void emit_allow_set(void) {
  * KILL_THREAD, which is also fatal, so this never degrades to "allow". */
 static int build_filter(int deny_egress) {
   emit_arch_guard();
+  /* Before the deny set on purpose: every deny-set entry is a real, in-range
+   * syscall, so this cannot shadow one — and putting it first means the cheapest
+   * test runs first on the hot path. */
+  emit_undispatchable_enosys();
   emit_deny_set();
   if (deny_egress) emit_egress_deny();
   emit_allow_set();

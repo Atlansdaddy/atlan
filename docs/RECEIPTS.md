@@ -309,9 +309,9 @@ PROOT LADDER SUITE
   ✓ the launcher builds on this host
   ✓ bare-kernel ladder is measurable (the control)
   ✓ a ptrace supervisor is DETECTED, never silently tolerated
-      rungs lost under proot: ptrace-arbitration, selftest-denyset, selftest-allowsanity
+      rungs lost under proot: ptrace-arbitration, selftest-denyset
   ✓ the supervisor measurably costs tiers, and the loss is visible
-      T1 rungs missing under proot: selftest-denyset, selftest-allowsanity
+      T1 rungs missing under proot: selftest-denyset
   ✓ T1 is NOT establishable under proot on this host (why the default is T0)
   ✓ PROOT_NO_SECCOMP does not rescue it (so it is the stacking, not the acceleration)
 
