@@ -119,16 +119,33 @@ export function confineMode() {
 // platform off is a design the operator disables, which is the same outcome as
 // no boundary with extra steps.
 //
-// DEFAULT IS T0 EVERYWHERE UNTIL THE ON-DEVICE LADDER IS MEASURED. T0 is not a
-// silent degrade: its UI string says "This run was explicitly allowed to start
-// ungated" in so many words. The ladder is green on the WSL2 accessory node
-// (2026-08-05, 15/15); the PHONE numbers are unmeasured, and the default moves
-// to T1 on the commit that attaches a phone transcript — not before. Raising it
-// on a device that cannot hold it would refuse every run, which is the correct
-// failure and still a bad default to ship blind.
+// DEFAULT IS T1 — capability removal, kernel-enforced, asked for by default.
+//
+// It was T0 pending an on-device measurement. T0 means "no OS confinement" and
+// is honest about it, but a security layer whose default is off protects nobody:
+// the 2026-08-04 incident happened on a cockpit where every control that would
+// have stopped it existed and was switched off.
+//
+// T1 needs ten rungs, and the load-bearing ones are seccomp reachability and
+// filter inheritance across execve. Those are exactly the properties that DO
+// survive on an unrooted Android device — seccomp(2) is explicitly allowlisted
+// for app processes in bionic's own list ("# Needed for a CTS test of seccomp"),
+// PRoot does not intercept it, and no_new_privs is already set by PRoot's
+// launcher. T1 asks for nothing that needs namespaces, root, or Landlock.
+//
+// IF A DEVICE CANNOT HOLD IT, RUNS REFUSE. That is the fail-closed behaviour
+// working, and it is loud rather than silent: the refusal names the rung that
+// said no, and `ATLAN_CONFINE_TIER=T0` reverses it in one line. Measure any
+// device with `node test/phone-ladder.mjs` — it prints which tiers that device
+// can serve and why.
+//
+// Established 15/15 on the WSL2 accessory node (2026-08-05). Physical-device
+// numbers still pending; T2 and T3 stay opt-in until they exist, because T2
+// closes egress and T3 needs Landlock, which Android's app seccomp filter
+// currently kills with SIGSYS.
 export function declaredTier() {
-  const t = process.env.ATLAN_CONFINE_TIER ?? file.confineTier ?? 'T0';
-  return /^T[0-3]$/.test(String(t)) ? String(t) : 'T0';
+  const t = process.env.ATLAN_CONFINE_TIER ?? file.confineTier ?? 'T1';
+  return /^T[0-3]$/.test(String(t)) ? String(t) : 'T1';
 }
 
 // Branding / identity — neutral defaults; a fork sets its own (logo stays a file)
