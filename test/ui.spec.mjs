@@ -177,6 +177,88 @@ await test('inline-AI whole-file rewrite becomes a PROPOSAL — Save is inert un
   await page.unroute('**/api/editor/ai-edit');
 });
 
+// ── the surfaces added this session, driven for the first time ─────────────
+await test('preview MAXIMISES and comes back', async () => {
+  // The failure mode this guards is nasty: a pane that fills the screen with no
+  // visible way out. Escape and the button must BOTH work, because the
+  // Fullscreen API is refused on some platforms and the class does the work.
+  await page.locator('nav button:has-text("Preview")').click();
+  await page.waitForTimeout(200);
+  const section = page.locator('#s-preview');
+  assert.ok(!(await section.evaluate((el) => el.classList.contains('maxed'))), 'should not start maximised');
+
+  await page.locator('#previewMax').click();
+  await page.waitForTimeout(250);
+  assert.ok(await section.evaluate((el) => el.classList.contains('maxed')), 'the pane did not maximise');
+  assert.ok(await page.evaluate(() => document.body.classList.contains('preview-maxed')), 'the tab bar was not hidden');
+
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(250);
+  assert.ok(!(await section.evaluate((el) => el.classList.contains('maxed'))), 'Escape must restore the pane');
+  assert.ok(!(await page.evaluate(() => document.body.classList.contains('preview-maxed'))), 'the tab bar must come back');
+
+  await page.locator('#previewMax').click();
+  await page.waitForTimeout(200);
+  await page.locator('#previewMax').click();
+  await page.waitForTimeout(200);
+  assert.ok(!(await section.evaluate((el) => el.classList.contains('maxed'))), 'the button must toggle back, not be a one-way door');
+});
+
+await test('chat history opens, searches, and closes', async () => {
+  await page.locator('nav button:has-text("Chat")').click();
+  await page.waitForTimeout(200);
+  assert.ok(await page.locator('#histPanel').isHidden(), 'the panel starts closed');
+
+  await page.locator('#histBtn').click();
+  await page.waitForTimeout(400);
+  assert.ok(await page.locator('#histPanel').isVisible(), 'History did not open');
+  assert.ok(await page.locator('.hist-search').isVisible(), 'a list you scroll is a list you stop using — the search box must be there');
+
+  // Filtering must not throw on an EMPTY store, which is the state a new
+  // install is in and therefore the one most likely to ship broken.
+  await page.locator('.hist-search').fill('zzz-nothing-matches-this');
+  await page.waitForTimeout(250);
+
+  await page.locator('.hist-head button:has-text("close")').click();
+  await page.waitForTimeout(250);
+  assert.ok(await page.locator('#histPanel').isHidden(), 'close did not close it');
+});
+
+await test('the composer names the engine you selected', async () => {
+  // Regression guard for the copy fix: it said "Message Claude Code…" with Grok
+  // selected, then said nothing useful at all, and now follows the picker.
+  const ph = await page.locator('#chatInput').getAttribute('placeholder');
+  assert.match(ph, /^Message .+…$/, `the placeholder should name a target, got ${JSON.stringify(ph)}`);
+});
+
+await test('a PEER message renders attributed, never as the user', async () => {
+  await page.evaluate(() => {
+    const log = document.getElementById('chatlog');
+    const div = document.createElement('div');
+    div.className = 'msg peer';
+    const who = document.createElement('div');
+    who.className = 'who';
+    who.textContent = '✉ from auth chat';
+    div.append(who, document.createTextNode('peer test message'));
+    log.append(div);
+  });
+  const peer = page.locator('.msg.peer').last();
+  assert.ok(await peer.isVisible(), 'the peer bubble must render');
+  assert.ok(!/\buser\b/.test(await peer.getAttribute('class')), 'a peer message must never carry the user class');
+  assert.match(await peer.locator('.who').innerText(), /from/, 'it must say where it came from');
+});
+
+await test('doctor renders GROUPED, containment findable by name', async () => {
+  // The point of the restructure: someone looking for "how contained is an agent
+  // here" should find it by reading, not by scrolling seventeen rows.
+  await page.locator('nav button:has-text("Doctor")').click();
+  await page.waitForTimeout(3000);   // the checks actually run
+  assert.ok(await page.locator('.docgroup').count() >= 3, 'expected grouped checks');
+  const text = await page.locator('#doctorList').innerText();
+  assert.match(text, /Containment/i, 'the containment group must be named');
+  assert.ok(await page.locator('#doctorCopy').isVisible(), 'the copy-report button must be there');
+});
+
 await test('no uncaught page errors during the run', async () => {
   assert.equal(consoleErrors.length, 0, 'page errors: ' + consoleErrors.join('; '));
 });

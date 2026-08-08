@@ -89,5 +89,82 @@ await test('reconnection after a drop re-subscribes to broadcasts', async () => 
   ws.close();
 });
 
+// ── live chat-to-chat delivery ──────────────────────────────────────────────
+// The liveChats registry had no coverage: written, reasoned about in a comment,
+// never exercised. Everything below drives it over a real socket.
+//
+// A conversation becomes addressable by SENDING a chat turn, because that is
+// what registers the socket — so each test opens a WS, sends one, then messages
+// it from outside over HTTP.
+const CONV_LIVE = 'conntest-livechat01';
+const say = (ws, conv, text) => ws.send(JSON.stringify({ t: 'chat.send', conv, text, engine: 'no-such-engine' }));
+const settle = (ms = 400) => new Promise((r) => setTimeout(r, ms));
+
+await test('a message to a LIVE conversation arrives on its socket', async () => {
+  const ws = await openWs();
+  say(ws, CONV_LIVE, 'register me');
+  await settle();
+
+  const arrival = nextMsg(ws, (m) => m.t === 'chat.msg' && m.role === 'peer');
+  const r = await (await authed('/api/chats/message', {
+    method: 'POST', body: JSON.stringify({ to: CONV_LIVE, text: 'hello from outside', from: 'conntest' }),
+  })).json();
+  assert.equal(r.delivered, true, `expected live delivery, got ${JSON.stringify(r)}`);
+
+  const m = await arrival;
+  assert.equal(m.text, 'hello from outside');
+  assert.equal(m.role, 'peer', 'it must arrive as peer — never as the user or the agent');
+  assert.equal(m.engine, 'conntest', 'the sender must travel with it');
+  ws.close();
+});
+
+await test('once the socket closes, the same message QUEUES instead of vanishing', async () => {
+  const ws = await openWs();
+  say(ws, CONV_LIVE, 'register again');
+  await settle();
+  ws.close();
+  await settle();
+
+  const r = await (await authed('/api/chats/message', {
+    method: 'POST', body: JSON.stringify({ to: CONV_LIVE, text: 'sent while away', from: 'conntest' }),
+  })).json();
+  assert.equal(r.delivered, false, 'nothing is listening, so it must not claim delivery');
+  assert.equal(r.queued, true);
+
+  const read = await (await authed(`/api/chats/${CONV_LIVE}`)).json();
+  assert.ok(read.messages.some((m) => m.text === 'sent while away'), 'a queued message must be in the transcript');
+});
+
+await test('a refresh does not unhook the conversation (the close-race)', async () => {
+  // THE BUG THIS GUARDS: app.js reconnects ~1.5s after every close, so a new
+  // socket attaches to the same conversation before the old one finishes
+  // closing. An unconditional delete on close would unhook the LIVE session
+  // that had just replaced it, and messages would silently stop arriving until
+  // the next reload. The registry only clears an entry that is still its own.
+  const first = await openWs();
+  say(first, CONV_LIVE, 'first socket');
+  await settle(300);
+
+  const second = await openWs();          // the "refresh"
+  say(second, CONV_LIVE, 'second socket');
+  await settle(300);
+  first.close();                          // the OLD socket closes after the new one registered
+  await settle();
+
+  const arrival = nextMsg(second, (m) => m.t === 'chat.msg' && m.role === 'peer');
+  const r = await (await authed('/api/chats/message', {
+    method: 'POST', body: JSON.stringify({ to: CONV_LIVE, text: 'after the refresh', from: 'conntest' }),
+  })).json();
+  assert.equal(r.delivered, true, 'the surviving socket must still be registered');
+  assert.equal((await arrival).text, 'after the refresh');
+  second.close();
+});
+
+await test('cleanup: the connection suite leaves no conversation behind', async () => {
+  await authed('/api/chats/delete', { method: 'POST', body: JSON.stringify({ id: CONV_LIVE }) });
+  const { chats } = await (await authed('/api/chats')).json();
+  assert.ok(!chats.some((c) => c.id === CONV_LIVE));
+});
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

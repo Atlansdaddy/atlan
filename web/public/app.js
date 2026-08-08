@@ -25,6 +25,7 @@ import { appendConsoleLine } from './lib/previewconsole.js';
 import { renderRichMessage, rungChip } from './lib/richmsg.js';
 import { initDoctorReport } from './lib/doctorreport.js';
 import { renderDoctor } from './lib/doctorview.js';
+import { msgClass, whoLabel } from './lib/msgstyle.js';
 import { initPreviewMax } from './lib/previewmax.js';
 import { convId, newConversation, restoreChat, openHistory } from './lib/chathistory.js';
 
@@ -409,13 +410,9 @@ import { convId, newConversation, restoreChat, openHistory } from './lib/chathis
 
   function addMsg(role, text, engineLabel) {
     const div = document.createElement('div');
-    div.className = 'msg ' + (role === 'user' ? 'user' : role === 'err' ? 'err' : role === 'peer' ? 'peer' : 'claude'); // peer = another conversation; it must never render as the agent speaking
-    if (role === 'claude' || role === 'brain' || role === 'peer') {
-      const who = document.createElement('div');
-      who.className = 'who';
-      who.textContent = role === 'peer' ? `✉ from ${engineLabel || 'another chat'}` : role === 'brain' ? (engineLabel || 'brain') + ' · chat only' : (engineLabel || 'Claude');
-      div.append(who);
-    }
+    div.className = 'msg ' + msgClass(role);
+    const whoText = whoLabel(role, engineLabel);
+    if (whoText) { const who = document.createElement('div'); who.className = 'who'; who.textContent = whoText; div.append(who); }
     // Only CHAT brains get the propose-into-canvas treatment: they have no
     // hands, so their code needs a destination (the review editor). The
     // autonomous coding agents (Claude / Codex / Antigravity / Grok) already

@@ -138,6 +138,14 @@ header{display:flex;align-items:center;gap:10px;padding:12px 14px 10px;border-bo
 .btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .btn:disabled{opacity:.4}
 
+/* HIDDEN MUST WIN. Any `display:flex` rule beats the user-agent's
+   `[hidden]{display:none}`, because a class selector outranks it — so an
+   element written as `<div class="projbar" hidden>` renders anyway. The history
+   panel shipped permanently open for exactly this reason and the Playwright
+   spec caught it on its first run; `#lmBar` and `#lmNote` are written the same
+   way and would have been next. One rule, everywhere, rather than remembering
+   it per element. */
+[hidden]{display:none !important}
 .projbar{display:flex;gap:8px;flex-shrink:0;flex-wrap:wrap}
 .projbar select{flex:1 1 46%;min-width:0;font-family:var(--mono);font-size:11.5px;background:var(--surface);color:var(--ink);
   border:1px solid var(--line);border-radius:10px;padding:9px 10px}

@@ -10,6 +10,7 @@
 
 import assert from 'node:assert';
 
+import { msgClass, whoLabel, isThirdParty } from '../web/public/lib/msgstyle.js';
 import {
   escapeHtml, parseMessageParts, langToExt, LANG_EXT, colorDiffHtml,
   urlBase64ToUint8Array,
@@ -443,6 +444,50 @@ test('editor skin follows the axis', () => {
 test('theme button shows the DESTINATION, not the state', () => {
   assert.equal(themeButtonGlyph('light'), '🌙');
   assert.equal(themeButtonGlyph('dark'), '☀️');
+});
+
+// ── message attribution ────────────────────────────────────────────────────
+// Not cosmetics. Agents here run full-auto, so an unattributed channel between
+// them is an agent-to-agent prompt-injection path and the byline IS the control.
+// These assert that a message from elsewhere can never be dressed as the user
+// or as the agent.
+test('a PEER message gets its own class and a "from" byline', () => {
+  assert.equal(msgClass('peer'), 'peer');
+  assert.match(whoLabel('peer', 'auth chat'), /^✉ from auth chat$/);
+  assert.equal(isThirdParty('peer'), true);
+});
+test('a peer message with no sender still says it came from elsewhere', () => {
+  // The worst case is an unlabelled bubble, so the fallback names the CLASS of
+  // sender rather than dropping the byline.
+  assert.match(whoLabel('peer', ''), /from another chat/);
+  assert.match(whoLabel('peer', undefined), /from another chat/);
+});
+test('a peer message is NEVER styled as the user or as the agent', () => {
+  assert.notEqual(msgClass('peer'), 'user');
+  assert.notEqual(msgClass('peer'), 'claude');
+});
+test('the USER is the only role with no byline', () => {
+  assert.equal(whoLabel('user', 'anything'), null);
+  for (const role of ['assistant', 'claude', 'brain', 'peer']) {
+    assert.ok(whoLabel(role, 'X'), `${role} must carry a byline`);
+  }
+});
+test('assistant carries a byline — the role rename dropped it once', () => {
+  // The wire role went from 'claude' to 'assistant', and app.js still listed
+  // only the old name in its byline test, so every agent-CLI message silently
+  // lost its "Codex · full-auto" label. Extracting this is what surfaced it.
+  assert.equal(whoLabel('assistant', 'Codex · full-auto'), 'Codex · full-auto');
+  assert.equal(msgClass('assistant'), 'claude', 'assistant styles as an assistant bubble');
+});
+test('the OLD claude role still renders — stored transcripts must keep opening', () => {
+  assert.equal(msgClass('claude'), 'claude');
+  assert.equal(whoLabel('claude', 'Claude'), 'Claude');
+});
+test('an unknown role styles as an assistant, never as the user', () => {
+  // Fail-safe direction: a role we do not recognise must not be able to
+  // impersonate the person typing.
+  assert.equal(msgClass('something-new'), 'claude');
+  assert.notEqual(msgClass('something-new'), 'user');
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);

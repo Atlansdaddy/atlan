@@ -12,12 +12,12 @@ _Free suites only. The E2E suite (real Claude runs) is opt-in — `RUN_PAID=1 no
 | Suite | What it proves | Result |
 |---|---|---|
 | Unit | Pure functions in isolation: safe-arith evaluator, checker engine, Persona+ compilers, schema builders, scheduler math, token compare. | ✅ 81/81 |
-| Web Lib | The front-end's pure logic, extracted from app.js so Node can reach it: fenced-code parsing (incl. streaming and boundary cases), HTML escaping, diff colouring, base64url, day/night and greeting bands. Previously untestable — the only front-end coverage was Playwright driving the UI. | ✅ 60/60 |
+| Web Lib | The front-end's pure logic, extracted from app.js so Node can reach it: fenced-code parsing (incl. streaming and boundary cases), HTML escaping, diff colouring, base64url, day/night and greeting bands. Previously untestable — the only front-end coverage was Playwright driving the UI. | ✅ 67/67 |
 | Editor Guards | The two irreversible things the editor can do to you: opening another file over unsaved work, and saving the current buffer onto a DIFFERENT existing file (the path box is also the navigate box, and writeFile has no existence check). Asserts the guards fire — and, just as hard, that they stay quiet on ordinary saves, because a dialog on every save is one people dismiss unread. | ✅ 14/14 |
 | Preview URL | Where the preview iframe points. Three hardcoded literals in app.js made the preview pane structurally impossible on a phone — an http frame inside an https page is blocked as mixed content, and the workaround baked one operator's tailscale port and hostname into shared code. Asserts the ports come from the server, the origin always derives from the url (postMessage is pinned both ways), and that https with no TLS front door refuses to guess and says which setting fixes it. | ✅ 7/7 |
 | Fleet Actions | The fleet buttons that spend money or stop work. Top-up disarms BEFORE the request, so a second tap cannot land in the gap and resume the same session on a second budget; it re-arms only when nothing was spent. Kill — per-run and fleet-wide — reports every way it can fail, because a kill that did not land must never look like one that did. | ✅ 13/13 |
 | Function | Every HTTP endpoint contract + shape, plus data-store durability (corrupt/truncated JSON fails soft). (Spawns 1 tiny killed run.) | ✅ 33/33 |
-| Connection | Live WebSocket + PTY: authed connect, 4001 on bad token, malformed-frame survival, multi-client broadcast, tmux round-trip, reconnection. (Spawns 2 tiny killed runs.) | ✅ 6/6 |
+| Connection | Live WebSocket + PTY: authed connect, 4001 on bad token, malformed-frame survival, multi-client broadcast, tmux round-trip, reconnection. (Spawns 2 tiny killed runs.) | ✅ 10/10 |
 | Proot ladder | The confinement ladder measured THROUGH a ptrace supervisor — the context Atlan actually runs in on a phone. Exists because the default tier was once raised to T1 on a bare-kernel measurement that was true and was not this environment: under proot the same binary loses two T1 rungs to SIGSYS, so a T1 default would have refused every agent run on the primary platform. Pins the rule that a tier measured without the supervisor is not a measurement of this product. | ✅ 8/8 |
 | Confinement tier | The homebuilt confinement layer, attacked rather than described: the 15-rung behavioural ladder run on THIS device, the full (declared, established) refusal matrix, the credential grant list, and per-control escapes — relative and symlink path escapes, TOCTOU grant swaps, static binaries, direct syscalls, unlisted syscalls, inherited descriptors, AF_UNIX and loopback egress. Compiles the real launcher and runs real processes under it; skips (counted, printed) on a device with no toolchain. | ✅ 114/114 |
 | Security/Penetration | Auth bypass, SSRF (preview + harness), secret exfiltration, path traversal, stored-XSS, oversized-body DoS, profile privilege-escalation. | ✅ 47/47 |
@@ -33,11 +33,11 @@ _Free suites only. The E2E suite (real Claude runs) is opt-in — `RUN_PAID=1 no
 | Fleet engines | The fleet is configurable across engines, and the run record cannot lie about it: per-engine capability roster (which profiles each can actually enforce HERE, mid-run vs pre-flight budget, resumable or not), refusal BEFORE a run exists when an engine cannot honestly enforce a profile, ungated runs reachable only by explicit acknowledgement, budget/concurrency/daily caps ahead of the engine branch, and KILL ALL working on both handle shapes. | ✅ 47/47 |
 | Vision / multimodal | Chat-only brains can receive image BYTES (OpenAI-compat image_url parts) instead of a filesystem path they cannot open, and a text-only provider REFUSES the turn rather than silently sending it text-only — the failure mode that let this bug hide for a week. Data-URL construction, size/format/empty guards, last-user-turn targeting, no-mutation-of-caller-history, and per-file error reporting. | ✅ 27/27 |
 | Cross-engine orchestration | Profile→native-flag projection per CLI, refusal when an engine cannot enforce a profile, credential scrubbing from the child env, and Atlan-side containment (disposable git worktree + diff gate) proving the real project stays untouchable — including a simulated proot host where no kernel sandbox exists. Live engine calls are opt-in via RUN_LIVE=1. | ✅ 8/8 |
-| UI/UX | Headless Chromium drives the real cockpit: tabs, engine roster, doctor/preflight render, key entry no-leak, XSS-safe render. | ✅ 13/13 |
+| UI/UX | Headless Chromium drives the real cockpit: tabs, engine roster, doctor/preflight render, key entry no-leak, XSS-safe render. | ✅ 18/18 |
 | Tour/Onboarding | Drives all tour steps live — every step spotlights a real visible element; handbook opens/searches/relaunches. | ✅ 10/10 |
 | UI · Fleet | Every Fleet control driven at 412x900: top-up cannot be double-tapped into a double-spend, a kill that fails is reported, the header burn gauge moves while a run burns, Hierarchy job links come with a command selected, and Builder rows stay wide enough to type into. First of the five per-surface specs to reach zero — the rest join as their surfaces are fixed (docs/UI-AUDIT.md). | ✅ 29/29 |
 
-**Total: 812 passed, 0 failed across 25 suites.**
+**Total: 828 passed, 0 failed across 25 suites.**
 
 ## Unit
 
@@ -198,8 +198,15 @@ WEB LIB SUITE
   ✓ nextTheme is a strict two-state flip, whatever the input
   ✓ editor skin follows the axis
   ✓ theme button shows the DESTINATION, not the state
+  ✓ a PEER message gets its own class and a "from" byline
+  ✓ a peer message with no sender still says it came from elsewhere
+  ✓ a peer message is NEVER styled as the user or as the agent
+  ✓ the USER is the only role with no byline
+  ✓ assistant carries a byline — the role rename dropped it once
+  ✓ the OLD claude role still renders — stored transcripts must keep opening
+  ✓ an unknown role styles as an assistant, never as the user
 
-60 passed, 0 failed
+67 passed, 0 failed
 ```
 
 ## Editor Guards
@@ -333,8 +340,12 @@ CONNECTION SUITE
   ✓ fleet events broadcast to ALL connected clients
   ✓ PTY round-trip: open a tmux pty, echo, receive output
   ✓ reconnection after a drop re-subscribes to broadcasts
+  ✓ a message to a LIVE conversation arrives on its socket
+  ✓ once the socket closes, the same message QUEUES instead of vanishing
+  ✓ a refresh does not unhook the conversation (the close-race)
+  ✓ cleanup: the connection suite leaves no conversation behind
 
-6 passed, 0 failed
+10 passed, 0 failed
 ```
 
 ## Proot ladder
@@ -1139,9 +1150,14 @@ PLAYWRIGHT UI SUITE
   ✓ key entry field posts and refreshes without leaking
   ✓ rendered chat message is XSS-safe
   ✓ inline-AI whole-file rewrite becomes a PROPOSAL — Save is inert until a path is chosen
+  ✓ preview MAXIMISES and comes back
+  ✓ chat history opens, searches, and closes
+  ✓ the composer names the engine you selected
+  ✓ a PEER message renders attributed, never as the user
+  ✓ doctor renders GROUPED, containment findable by name
   ✓ no uncaught page errors during the run
 
-13 passed, 0 failed
+18 passed, 0 failed
 ```
 
 ## Tour/Onboarding
