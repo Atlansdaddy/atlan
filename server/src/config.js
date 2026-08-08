@@ -93,6 +93,44 @@ export function confineMode() {
   return v === 'strict' ? 'strict' : v === '1' ? 'on' : 'off';
 }
 
+// ── the second layer, and the only one a phone can hold ────────────────────
+//
+// These two are NOT alternatives. confineMode() above builds NAMESPACES
+// (unshare + setpriv): a real filesystem and PID boundary, and impossible on an
+// unrooted Android device — no GKI arm64 defconfig ships CONFIG_USER_NS, and
+// Android's own zygote seccomp filter blocks mount(2) and chroot(2) outright.
+//
+// declaredTier() below drives a SECCOMP-BPF filter instead, which is the one
+// kernel-enforced control that survives on a phone: seccomp(2) is explicitly
+// allowlisted for app processes, PRoot does not intercept it, and no_new_privs
+// is already set by PRoot's own launcher. Filters cannot be removed, are
+// inherited across fork and preserved across execve.
+//
+// They COMPOSE. Seccomp installs inside a namespace perfectly well, so a host
+// with both gets both; a phone gets the seccomp half alone. What seccomp cannot
+// do is paths — a filter sees a userspace pointer it must not dereference — so
+// it does not replace the namespace layer, it sits beside it.
+
+// Homebuilt confinement tier the run DECLARES (server/src/sandbox/*). This is a
+// DECLARATION, not a request: if the device establishes less, the run refuses to
+// start and the Doctor names the rung that said no. Fail-closed is measured
+// against the declaration and never against an absolute — an absolute rule ("no
+// isolation, no run") turns the phone off, and a design that turns the primary
+// platform off is a design the operator disables, which is the same outcome as
+// no boundary with extra steps.
+//
+// DEFAULT IS T0 EVERYWHERE UNTIL THE ON-DEVICE LADDER IS MEASURED. T0 is not a
+// silent degrade: its UI string says "This run was explicitly allowed to start
+// ungated" in so many words. The ladder is green on the WSL2 accessory node
+// (2026-08-05, 15/15); the PHONE numbers are unmeasured, and the default moves
+// to T1 on the commit that attaches a phone transcript — not before. Raising it
+// on a device that cannot hold it would refuse every run, which is the correct
+// failure and still a bad default to ship blind.
+export function declaredTier() {
+  const t = process.env.ATLAN_CONFINE_TIER ?? file.confineTier ?? 'T0';
+  return /^T[0-3]$/.test(String(t)) ? String(t) : 'T0';
+}
+
 // Branding / identity — neutral defaults; a fork sets its own (logo stays a file)
 export const BRAND = {
   name: file.brand?.name ?? 'Atlan',

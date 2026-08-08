@@ -18,6 +18,7 @@ _Free suites only. The E2E suite (real Claude runs) is opt-in — `RUN_PAID=1 no
 | Fleet Actions | The fleet buttons that spend money or stop work. Top-up disarms BEFORE the request, so a second tap cannot land in the gap and resume the same session on a second budget; it re-arms only when nothing was spent. Kill — per-run and fleet-wide — reports every way it can fail, because a kill that did not land must never look like one that did. | ✅ 13/13 |
 | Function | Every HTTP endpoint contract + shape, plus data-store durability (corrupt/truncated JSON fails soft). (Spawns 1 tiny killed run.) | ✅ 25/25 |
 | Connection | Live WebSocket + PTY: authed connect, 4001 on bad token, malformed-frame survival, multi-client broadcast, tmux round-trip, reconnection. (Spawns 2 tiny killed runs.) | ✅ 6/6 |
+| Confinement tier | The homebuilt confinement layer, attacked rather than described: the 15-rung behavioural ladder run on THIS device, the full (declared, established) refusal matrix, the credential grant list, and per-control escapes — relative and symlink path escapes, TOCTOU grant swaps, static binaries, direct syscalls, unlisted syscalls, inherited descriptors, AF_UNIX and loopback egress. Compiles the real launcher and runs real processes under it; skips (counted, printed) on a device with no toolchain. | ✅ 99/99 |
 | Security/Penetration | Auth bypass, SSRF (preview + harness), secret exfiltration, path traversal, stored-XSS, oversized-body DoS, profile privilege-escalation. | ✅ 47/47 |
 | Walls | Every wall SECURITY.md claims, exercised by BEHAVIOUR rather than by grepping the source. A mutation pass found that the daily token cap, the concurrency cap, the budget clamp, the in-flight reservation, scout's canUseTool, the preview proxy's WS-upgrade gate, atomicWrite's 0600 and temp+rename, the failed-login throttle, session revocation, the session store's freedom from replayable tokens and scrubbedEnv's explicit DROP list could all be neutered with the whole gate still green — because the assertions read the source text instead of making the thing happen. Boots its OWN cockpit (it changes the password and SIGKILLs the process), and covers the orphaned-child, corrupt-store, silent-exit and scheduler classes the same way. | ✅ 51/51 |
 | Security Spine | The OS sandbox and credential blindness, attacked with the real kernel: 24 filesystem-escape spellings, 22 ways of reading a masked credential, /proc scrape of parent and siblings, egress + the cockpit's own loopback port, fail-closed refusal, and the honest limits (hardlink bypass, re-encoded secrets) asserted so they cannot change silently. | ✅ 122/122 |
@@ -27,7 +28,7 @@ _Free suites only. The E2E suite (real Claude runs) is opt-in — `RUN_PAID=1 no
 | Code Editor | File read/write/tree scoped to the project, folders-first listing, noise-dir hiding, secrets + traversal + folder-as-file guards. | ✅ 16/16 |
 | Voice & Providers | TTS roster honesty (readiness tracks keys, roadmap items never claim ready), TTS input validation + clean degradation, SSML XML-escaping (no injection), Polly SigV4 signer, and the 12-provider AI-model spread. | ✅ 15/15 |
 | Escalation ladder | The chat escalation ladder: cheapest-rung-first with DETERMINISTIC escalation triggers (error, empty, truncated, stated incapacity) and no model grading itself. Includes the honest-limit test — a confidently wrong answer must NOT escalate, asserted so nobody later replaces the trigger with a self-critique wall — plus the rule that the hands-having agentic rung is never reachable silently from chat. | ✅ 30/30 |
-| Doc drift | Two ratchets in one file. (1) The docs' factual claims asserted against the CODE: tab count and names from index.html, engine roster from agents.js and fleet.js, template list from the UI, plus the status-convention requirements — a full sweep on 2026-08-02 found drift in BOTH directions across three docs, so the commit that changes a count now fails instead of the next reader. (2) The STRUCTURAL ratchet: web/public/app.js must not grow — new surfaces go to lib/ modules, and the ceiling only ever moves down. Both exist because prose and debt cannot be made to stop rotting by asking people to be careful. | ✅ 13/13 |
+| Doc drift | Two ratchets in one file. (1) The docs' factual claims asserted against the CODE: tab count and names from index.html, engine roster from agents.js and fleet.js, template list from the UI, plus the status-convention requirements — a full sweep on 2026-08-02 found drift in BOTH directions across three docs, so the commit that changes a count now fails instead of the next reader. (2) The STRUCTURAL ratchet: web/public/app.js must not grow — new surfaces go to lib/ modules, and the ceiling only ever moves down. Both exist because prose and debt cannot be made to stop rotting by asking people to be careful. | ✅ 15/15 |
 | Fleet engines | The fleet is configurable across engines, and the run record cannot lie about it: per-engine capability roster (which profiles each can actually enforce HERE, mid-run vs pre-flight budget, resumable or not), refusal BEFORE a run exists when an engine cannot honestly enforce a profile, ungated runs reachable only by explicit acknowledgement, budget/concurrency/daily caps ahead of the engine branch, and KILL ALL working on both handle shapes. | ✅ 47/47 |
 | Vision / multimodal | Chat-only brains can receive image BYTES (OpenAI-compat image_url parts) instead of a filesystem path they cannot open, and a text-only provider REFUSES the turn rather than silently sending it text-only — the failure mode that let this bug hide for a week. Data-URL construction, size/format/empty guards, last-user-turn targeting, no-mutation-of-caller-history, and per-file error reporting. | ✅ 27/27 |
 | Cross-engine orchestration | Profile→native-flag projection per CLI, refusal when an engine cannot enforce a profile, credential scrubbing from the child env, and Atlan-side containment (disposable git worktree + diff gate) proving the real project stays untouchable — including a simulated proot host where no kernel sandbox exists. Live engine calls are opt-in via RUN_LIVE=1. | ✅ 8/8 |
@@ -35,7 +36,7 @@ _Free suites only. The E2E suite (real Claude runs) is opt-in — `RUN_PAID=1 no
 | Tour/Onboarding | Drives all tour steps live — every step spotlights a real visible element; handbook opens/searches/relaunches. | ✅ 10/10 |
 | UI · Fleet | Every Fleet control driven at 412x900: top-up cannot be double-tapped into a double-spend, a kill that fails is reported, the header burn gauge moves while a run burns, Hierarchy job links come with a command selected, and Builder rows stay wide enough to type into. First of the five per-surface specs to reach zero — the rest join as their surfaces are fixed (docs/UI-AUDIT.md). | ✅ 29/29 |
 
-**Total: 650 passed, 0 failed across 23 suites.**
+**Total: 751 passed, 0 failed across 24 suites.**
 
 ## Unit
 
@@ -295,6 +296,128 @@ CONNECTION SUITE
   ✓ reconnection after a drop re-subscribes to broadcasts
 
 6 passed, 0 failed
+```
+
+## Confinement tier
+
+The homebuilt confinement layer, attacked rather than described: the 15-rung behavioural ladder run on THIS device, the full (declared, established) refusal matrix, the credential grant list, and per-control escapes — relative and symlink path escapes, TOCTOU grant swaps, static binaries, direct syscalls, unlisted syscalls, inherited descriptors, AF_UNIX and loopback egress. Compiles the real launcher and runs real processes under it; skips (counted, printed) on a device with no toolchain.
+
+```
+$ node test/phone-sandbox.mjs
+SANDBOX / CONFINEMENT SUITE
+
+· tier algebra and the refusal matrix
+  ✓ tierFromRungs climbs to T3 when every rung is green
+  ✓ the ladder cannot be climbed from the middle — a broken floor collapses to T0
+  ✓ egress works but the floor is broken → still T0, not T2
+  ✓ landlock alone does not grant T3 without egress
+  ✓ an empty ladder is T0 — not-measured is not a capability
+  ✓ every (declared, established) pair: lower-or-equal passes, higher refuses
+  ✓ the refusal names the rung that said no, with its detail verbatim
+  ✓ the refusal names the FIRST blocking rung, not the last
+  ✓ a rung that never ran refuses too — absence is not a pass
+  ✓ an unknown tier string refuses rather than sorting as -1
+
+· the honest strings (the one regression that would discredit everything else)
+  ✓ the phone tier never says "sandbox" except in "is not a sandbox"
+  ✓ no tier statement claims a sandbox anywhere
+  ✓ T1 states the filesystem is NOT confined, in words
+  ✓ T2 refuses to call IP-1 egress gated and says whose connection stays open
+  ✓ T3 carries its honest limits rather than only its claim
+  ✓ T0 says out loud that it was explicitly allowed to start ungated
+  ✓ the no-Landlock sentence distinguishes unavailable from disabled
+  ✓ every tier has a label and a statement
+
+· the credential grant list
+  ✓ every engine store we name is ALSO matched by guards.js SENSITIVE (no second list)
+  ✓ the deny list holds every OTHER engine store, and never the running one
+  ✓ Atlan's own key store and state are never grantable
+  ✓ a grant that would make another engine store reachable is refused
+  ✓ a grant of the running engine's own store is allowed — the product needs it
+  ✓ a grant of ANOTHER engine's store is refused even named directly
+  ✓ a grant reaching ~/.ssh is refused
+  ✓ a grant into Atlan's own tree is refused
+  ✓ a writable WORKSPACE outside PROJECTS_DIR is refused by the EXISTING guard, not a second one
+  ✓ toolchain grants are derived from this process, never hardcoded
+  ✓ /etc is granted PER FILE — a directory grant would hand over /etc/shadow
+  ✓ /proc is granted PER FILE — a directory grant would expose /proc/<pid>/environ
+  ✓ /dev is granted PER DEVICE — a directory grant would include /dev/tty (TIOCSTI)
+
+· policy emission
+  ✓ IP-1 never denies egress, at ANY tier — the agent CLI is the model client
+  ✓ IP-2 denies egress from T2 up, and never calls it "gated"
+  ✓ fs=landlock only from T3 — no tier silently implies a boundary it lacks
+  ✓ a newline in a grant path is refused, never escaped
+  ✓ the confinement record never redefines `boundary` — it is a separate object
+
+· the real launcher, on this device
+  ✓ a compiler that emits an UNRUNNABLE binary does not qualify (`which` would say yes)
+  ✓ the built binary is not in the repo and its name carries the source hash
+  ✓ every rung ran and reported a detail, not a bare boolean
+  ✓ the ladder is green on this device (attach this transcript to the PR)
+  ✓ a WRONG SENTINEL is T0 — a cached binary is never trusted from its filename
+  ✓ a probe with NO RUNGS is T0 — not-measured is not a capability
+  ✓ unparseable probe output is T0, never a partial answer
+  ✓ a probe that exits non-zero is T0, never "assume last time's answer"
+  ✓ the verdict is never cached to disk — nothing under FLEET_DIR holds a tier
+  ✓ T1: ordinary work still runs (a too-tight allow-list must fail LOUD, and does not here)
+  ✓ T1: node itself runs under the filter (the engines are node)
+  ✓ T1: a DIRECT syscall bypasses no layer — ptrace via raw syscall is EPERM
+  ✓ T1: an unlisted syscall is FATAL, not quietly EPERM (the tail is default-deny)
+  ✓ T1: the filter survives execve and every fork after it
+  ✓ T2: a shell cannot open a socket — internet
+  ✓ T2: a shell cannot reach Atlan itself on loopback (the confused deputy)
+  ✓ T2: AF_UNIX is denied too — not just AF_INET
+  ✓ T1 egress stays OPEN — closing it at IP-1 would stop the agent thinking
+  ✓ T3: a file inside the grant reads
+  ✓ T3: an absolute path outside the grant does not resolve
+  ✓ T3: a RELATIVE ../ escape does not resolve either
+  ✓ T3: a deeply nested relative escape does not resolve
+  ✓ T3: /etc/shadow is unreachable even though the loader needs /etc files
+  ✓ T3: another process's /proc environ is unreachable (the cockpit's own token)
+  ✓ T3: /tmp is NOT granted — TMPDIR lands inside the workspace instead
+  ✓ T3: git still works — a boundary that breaks the toolchain gets turned off
+  ✓ T3: a SYMLINK out of the grant does not resolve (Landlock resolves the target)
+  ✓ T3: a symlinked DIRECTORY out of the grant does not resolve
+  ✓ T3: a credential store outside the grant is unreachable
+  ✓ T3: a WRITE outside the grant is refused
+  ✓ T3: a write INSIDE the grant works — denying everything is not enforcing something
+  ✓ T3: a STATIC binary is confined identically — this is not LD_PRELOAD
+  ✓ T3: a case-variant path is not a bypass (Landlock is inode-attached, not string-matched)
+  ✓ T3: unicode and encoded path forms are not a bypass either
+  ✓ T3: a partial read of a denied file yields nothing — the refusal is at open()
+  ✓ T3: /proc/self/cwd does not walk out of the grant
+  ✓ T3: a TOCTOU swap of the grant target does not widen it (grants are fd-attached at O_PATH)
+  ✓ an unknown policy directive refuses rather than ignoring it
+  ✓ fs=landlock with no grants refuses — denying everything is not enforcement
+  ✓ a grant path that cannot be opened refuses rather than silently dropping the rule
+  ✓ an egress value that is neither deny nor open refuses
+  ✓ a policy PATH is refused — only an argv literal or a file descriptor
+  ✓ a missing `--` refuses rather than guessing where the command starts
+  ✓ an INHERITED DESCRIPTOR handed to the child does not survive L1
+  ✓ NO_NEW_PRIVS is actually set in the confined process (asked by syscall)
+  ✓ a tty on stdout is REFUSED (TIOCSTI keystroke injection into the parent shell)
+  ✓ the ladder REPORTS FAILURE honestly — probing under denied egress turns rung 8 red
+  ✓ --probe never needs, and never claims, elevated privilege
+  ✓ the probe reads no flag file — the source contains no /proc/sys or lsm read
+  ✓ the arch guard is the FIRST thing in the filter and it KILLS
+  ✓ the default tail is the LAST instruction and it KILLS
+  ✓ deny rules are emitted BEFORE allow rules — deny wins by position, not by review
+  ✓ egress denial changes the emitted filter, and only when asked
+  ✓ the launcher refuses to build for an ABI it cannot name
+
+· insertion points
+  ✓ T0 wraps nothing — today's behaviour is preserved verbatim
+  ✓ IP-2 rewrites the Bash command through the launcher and quotes it totally
+  ✓ IP-2: a command containing a single quote survives quoting unchanged
+  ✓ IP-2: a command that tries to break out of the quoting cannot
+  ✓ IP-1 passes the policy on a FILE DESCRIPTOR, never a path
+  ✓ IP-1 never denies egress and the ledger says open-to-provider, not gated
+  ✓ IP-2 at T2 produces a shell that ACTUALLY cannot open a socket (end to end)
+  ✓ IP-1 at T1 produces a process that ACTUALLY runs under the filter (end to end)
+  ✓ establish() surfaces the rung that certified the top tier
+
+99 passed, 0 failed
 ```
 
 ## Security/Penetration
@@ -794,8 +917,10 @@ DOC DRIFT SUITE
   ✓ DOC-STATUS-CONVENTION.md exists and defines all four statuses
   ✓ the docs that make security claims carry a verification stamp
   ✓ SECURITY.md distinguishes PARTIAL from OPEN
+  ✓ SECURITY.md quotes every tier statement VERBATIM from tiers.js
+  ✓ the phone tier never claims a sandbox (the one regression that discredits everything else)
 
-13 passed, 0 failed
+15 passed, 0 failed
 ```
 
 ## Fleet engines

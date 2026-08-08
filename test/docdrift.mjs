@@ -16,6 +16,7 @@
 import assert from 'node:assert';
 import { readFileSync } from 'node:fs';
 import { FLEET_ENGINES } from '../server/src/fleet.js';
+import { STATEMENT, NO_FS_ON_THIS_DEVICE, TIERS } from '../server/src/sandbox/tiers.js';
 
 const read = (rel) => readFileSync(new URL(rel, import.meta.url), 'utf8');
 
@@ -151,6 +152,29 @@ test('SECURITY.md distinguishes PARTIAL from OPEN', () => {
   const sec = read('../docs/SECURITY.md');
   assert.ok(/PARTIAL/.test(sec), 'a gap with one vector closed and one open must be able to say so');
   assert.ok(/OPEN/.test(sec), 'and fully-open gaps must still be marked');
+});
+
+// ── the confinement statements ──────────────────────────────────────────────
+// An honest sentence about a security boundary has to have exactly ONE home and
+// a test that fails the commit which changes it. server/src/sandbox/tiers.js is
+// that home; docs/SECURITY.md quotes it; these assert the quote byte-for-byte.
+// This repo has a documented two-week drift recurrence and a recorded case where
+// two docs diverged from each other on the same finding — that is what this is
+// for, and it is why the check is `includes`, not a fuzzy match.
+
+test('SECURITY.md quotes every tier statement VERBATIM from tiers.js', () => {
+  const doc = read('../docs/SECURITY.md');
+  for (const t of TIERS) {
+    assert.ok(doc.includes(STATEMENT[t]),
+      `docs/SECURITY.md does not contain the ${t} statement byte-for-byte — edit server/src/sandbox/tiers.js and re-paste, never the other way round`);
+  }
+  assert.ok(doc.includes(NO_FS_ON_THIS_DEVICE), 'SECURITY.md is missing the no-Landlock-on-this-device sentence');
+});
+
+test('the phone tier never claims a sandbox (the one regression that discredits everything else)', () => {
+  const hits = [...STATEMENT.T1.matchAll(/sandbox/gi)];
+  assert.strictEqual(hits.length, 1, `the T1 statement says "sandbox" ${hits.length} times; the only permitted use is "is not a sandbox"`);
+  assert.match(STATEMENT.T1, /It is not a sandbox\./);
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);

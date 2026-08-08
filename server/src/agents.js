@@ -4,9 +4,10 @@ import { join } from 'node:path';
 import { getStoredKey } from './keys.js';
 import { killTree } from './procTree.js';
 import { interactiveGate } from './enginePolicy.js';
-import { confineMode, APP_ROOT } from './config.js';
+import { confineMode, declaredTier, APP_ROOT } from './config.js';
 import { confinedSpawn, unconfinedSpawn } from './lib/sandbox.js';
 import { childEnv, credentialTargets, credentialPreflight, homeReadable, VENDOR_STORES } from './lib/credblind.js';
+import { confineSpawn } from './sandbox/confine.js';
 
 // ── live chat-path agent CLIs ─────────────────────────────────────────────
 // Every child spawned here is REGISTERED, because every child spawned here runs
@@ -159,7 +160,7 @@ function agyAuthed() {
 // The vendor store is also the only writable path besides the project: codex
 // records threads under ~/.codex, and Studio collects generated images from
 // there after the run.
-export function spawnAgentCli(engine, cmd, args, { cwd, grant = {} } = {}) {
+export function spawnAgentCli(engine, cmd, args, { cwd, grant = {}, stdio } = {}) {
   const home = homedir();
   const env = childEnv(process.env, { grant });
   const mask = credentialTargets({ appRoot: APP_ROOT, home, keepFor: engine });
@@ -188,7 +189,12 @@ export function spawnAgentCli(engine, cmd, args, { cwd, grant = {} } = {}) {
   // spawned directly rather than through here. It exists only because the merge
   // put it back, and test/walls.mjs's orphaned-child assertion is what would
   // have caught its absence.
-  const opts = { cwd, env, writable, readable, mask, net: 'shared', home, detached: true };
+  // stdio is forwarded because the seccomp launcher nested inside receives its
+  // policy on an extra file descriptor. Dropping it here silently disarmed the
+  // inner layer: the launcher would find nothing on the fd and the namespace
+  // layer would still report enforced:true. Two layers, one descriptor — the
+  // outer one has to carry the inner one's channel.
+  const opts = { cwd, env, writable, readable, mask, net: 'shared', home, detached: true, ...(stdio ? { stdio } : {}) };
   const mode = confineMode();
 
   // The one bypass a path mask cannot cover: a hardlink planted earlier is a
@@ -288,20 +294,59 @@ export function agentTurn({ engine, cwd, text, send, state, model = null, owner 
     return send({ t: 'chat.err', msg: `unknown agent: ${engine}` });
   }
 
+  // ── the two layers, nested ────────────────────────────────────────────────
+  //
+  // They are not alternatives and the ORDER is the design. confineSpawn rewrites
+  // (cmd, args) into (atlan-confine, [policy…, cmd, …args]) — a small launcher
+  // that installs a seccomp filter and then execs. spawnAgentCli then runs THAT
+  // under unshare + setpriv. Final argv:
+  //
+  //     unshare <ns> -- setpriv --bounding-set=-all -- atlan-confine <policy> -- cmd
+  //
+  // Outermost is the namespace layer: a real filesystem and PID boundary, and
+  // unavailable on an unrooted phone (no GKI arm64 config ships CONFIG_USER_NS,
+  // and Android's zygote filter blocks mount and chroot outright). Innermost is
+  // seccomp, which is the one kernel control that DOES survive there — allowlisted
+  // for app processes, not intercepted by PRoot, irrevocable once no_new_privs is
+  // set, inherited across fork and preserved across execve.
+  //
+  // So a desktop gets both. A phone gets the inner one alone, and says so.
+  let conf = null;
+  try {
+    conf = confineSpawn({ declared: declaredTier(), cmd, args, cwd, engine });
+  } catch (err) {
+    // Refusal, not degradation: the run declared a tier this device does not
+    // establish, and the message names the rung that said no.
+    state.running = false;
+    send({ t: 'chat.err', msg: `${engine}: ${String(err?.message ?? err)}` });
+    send({ t: 'atlan.mood', mood: 'alarmed' });
+    return;
+  }
+
   let child;
   try {
-    child = spawnAgentCli(engine, cmd, args, { cwd, grant });
+    child = conf
+      ? spawnAgentCli(engine, conf.file, conf.args, { cwd, grant, stdio: conf.stdio })
+      : spawnAgentCli(engine, cmd, args, { cwd, grant });
   } catch (err) {
     // ATLAN_CONFINE=strict on a host that cannot confine. Nothing was spawned;
     // say why in the same words the kernel used.
     state.running = false;
     return send({ t: 'chat.err', msg: `refused to launch ${engine}: ${err.message}` });
   }
+  // The policy travels on a file descriptor, never a path — a path is a TOCTOU
+  // surface, and the launcher's own configuration is the last thing that should
+  // be swappable between resolution and read.
+  if (conf) conf.writePolicy(child);
   // Registered because it runs with its own approval system switched off. Both
   // halves of this line arrived from different branches and neither works alone:
   // confinement decides what the child may touch, registration decides whether
   // we can still reach it. Before registration existed the child outlived the
   // WebSocket that started it, Fleet showed no run, and KILL ALL answered 0.
+  // Registered because it runs with its own approval system switched off.
+  // Confinement decides what the child may touch; registration decides whether
+  // we can still reach it. Before this existed the child outlived the WebSocket
+  // that started it, Fleet showed no run, and KILL ALL answered 0.
   const seq = ++turnSeq;
   liveTurns.set(seq, { child, engine, cwd, owner, startedAt: Date.now() });
   const unregister = () => liveTurns.delete(seq);
