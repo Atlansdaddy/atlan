@@ -4,7 +4,7 @@
 // degradation only (no key → honest note, no crash).
 import assert from 'node:assert';
 import { readFileSync } from 'node:fs';
-import { REPO, repo, scratch } from './lib/paths.mjs';
+import { repo } from './lib/paths.mjs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 const BASE = process.env.ATLAN_BASE ?? 'http://127.0.0.1:4589';

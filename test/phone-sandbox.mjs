@@ -36,7 +36,7 @@ process.env.ATLAN_PROJECTS = tmpdir();
 const { TIERS, dominates, isTier, STATEMENT, LABEL, NO_FS_ON_THIS_DEVICE, SUPERVISOR_ON_THIS_DEVICE,
   REQUIRES, FLOOR_RUNG, tierFromRungs, blockingRung, assertTier, TierRefusal } = await import('../server/src/sandbox/tiers.js');
 const { ensureBinary, workingCompiler, sourceHash, SOURCE } = await import('../server/src/sandbox/build.js');
-const { probe, clearProbeCache, ladderLines } = await import('../server/src/sandbox/probe.js');
+const { probe, clearProbeCache } = await import('../server/src/sandbox/probe.js');
 const planMod = await import('../server/src/sandbox/plan.js');
 const { plan, assertGrantsSafe, denyList, toolchainGrants, ENGINE_STORE, PolicyRefusal } = planMod;
 const { confineBash, confineSpawn, establish } = await import('../server/src/sandbox/confine.js');

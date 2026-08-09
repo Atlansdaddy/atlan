@@ -16,7 +16,7 @@ const j = async (r) => ({ status: r.status, body: await r.json().catch(() => ({}
 // prove the preview-proxy anti-rebinding gate.
 import http from 'node:http';
 import { homedir } from 'node:os'; // used at the $HOME credential-store test; was never imported
-import { REPO, repo, projectScratch as mkScratch, credPath } from './lib/paths.mjs';
+import { projectScratch as mkScratch, credPath } from './lib/paths.mjs';
 const PREVIEW_PORT = Number(process.env.ATLAN_PREVIEW_PORT ?? 4590);
 const rawStatus = (port, headers) => new Promise((resolve) => {
   const req = http.request({ host: '127.0.0.1', port, path: '/', method: 'GET', headers }, (res) => { res.resume(); resolve(res.statusCode); });
@@ -188,7 +188,10 @@ await test('GET /api/keys never returns key material, only last-4', async () => 
   for (const k of body) assert.ok(!('value' in k) && !('key' in k), 'a key object carried its value');
 });
 await test('compiled-command view does not echo stored secrets', async () => {
-  const { body } = await j(await authed('/api/personas'));
+  // (a GET of /api/personas stood here whose result nothing read — the assertion
+  // it once supported is gone. Whether /api/personas can itself echo a stored
+  // secret is a real question and a DIFFERENT test; it is not quietly folded in
+  // here, because a test that grows its claims silently is one nobody can audit.)
   // create a command, fetch compiled, ensure no token/secret substrings
   const c = await j(await authed('/api/commands', { method: 'POST', body: JSON.stringify({ name: 'SEC', fields: [{ name: 'x', type: 'string' }] }) }));
   const comp = await j(await authed(`/api/commands/${c.body.id}/compiled`));
@@ -265,7 +268,7 @@ await test('fleet run rejects an unknown profile (no privilege escalation via ty
 // A throwaway repo under PROJECTS_DIR; every case asserts a refusal, so no
 // credential file is ever actually opened by the suite.
 const { execFileSync } = await import('node:child_process');
-const { mkdtempSync, writeFileSync: wf, symlinkSync, rmSync, mkdirSync } = await import('node:fs');
+const { writeFileSync: wf, symlinkSync, rmSync, mkdirSync } = await import('node:fs');
 const { join: pjoin } = await import('node:path');
 const REPO_ROOT = new URL('../', import.meta.url).pathname.replace(/\/$/, '');
 const scratch = mkScratch('atlan-git-test-');

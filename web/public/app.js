@@ -10,9 +10,9 @@
    The extraction rule: a *decision* goes to lib/ and gets tests; DOM wiring
    stays here. See test/weblib.mjs. */
 import {
-  escapeHtml, parseMessageParts, langToExt, colorDiffHtml, urlBase64ToUint8Array,
+  escapeHtml, langToExt, colorDiffHtml, urlBase64ToUint8Array,
 } from './lib/text.js';
-import { isNight, greetingFor, hueFor, MOOD_HUE } from './lib/ambient.js';
+import { isNight, greetingFor, hueFor } from './lib/ambient.js';
 import {
   engineOptionLabel, engineOptionValue, ladderOptionLabel, ladderOptionTitle, rungLineText, initComposerHint,
 } from './lib/enginepicker.js';
@@ -458,7 +458,6 @@ import { convId, newConversation, restoreChat, openHistory } from './lib/chathis
         // agent engines expose model tiers — one option per tier so hard tasks
         // can pick a heavier model and quick ones a lighter, per turn
         const models = Array.isArray(e.models) && e.models.length ? e.models : [e.model];
-        const short = e.label.split(' — ')[0];
         for (const m of models) {
           const o = document.createElement('option');
           o.value = engineOptionValue(e.id, m);

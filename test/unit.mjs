@@ -7,7 +7,7 @@ import assert from 'node:assert';
 import { appendFileSync, utimesSync } from 'node:fs';
 import {
   safeArith, runCheckers, upsertPersona, upsertCommand, compilePersona,
-  compileCommand, templateSchema, toolSchema, listPersonas, deletePersona, unsafeRegex,
+  compileCommand, templateSchema, toolSchema, listPersonas, unsafeRegex,
 } from '../server/src/personas.js';
 import { _testInternals as ROUT } from '../server/src/routines.js';
 import { _testInternals as AUTH } from '../server/src/auth.js';

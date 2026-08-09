@@ -1,8 +1,8 @@
 // Function suite — every HTTP endpoint's contract, happy path + shape. Plus
 // data-store durability ("db"): the JSON stores survive corruption and tamper.
 import assert from 'node:assert';
-import { readFileSync, writeFileSync, existsSync, copyFileSync, unlinkSync, readdirSync } from 'node:fs';
-import { REPO, repo, scratch } from './lib/paths.mjs';
+import { readFileSync, writeFileSync, existsSync, unlinkSync, readdirSync } from 'node:fs';
+import { REPO } from './lib/paths.mjs';
 
 const BASE = process.env.ATLAN_BASE ?? 'http://127.0.0.1:4589';
 const TOKEN = (process.env.ATLAN_TOKEN ?? readFileSync(new URL('../.auth-token', import.meta.url), 'utf8')).trim();

@@ -1,4 +1,4 @@
-import { statSync, existsSync } from 'node:fs';
+import { statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 

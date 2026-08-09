@@ -12,7 +12,7 @@
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync, mkdirSync, cpSync, readFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, resolve, relative, join } from 'node:path';
+import { dirname, resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -23,7 +23,14 @@ const LOCK_FILE = join(ATLAN_ROOT, 'server/src/preflight/preflight.lock');
 const args = process.argv.slice(2);
 const REF = args[args.indexOf('--ref') + 1] || 'main';
 const REPO = args[args.indexOf('--repo') + 1] || 'https://github.com/midatlanticAI/PreFlight.git';
+// The stable seam, in ONE place. This constant used to sit unused while the same
+// path was spelled twice more by hand — the lock file's `entry` and the smoke
+// test's import — so upstream moving its entry point would have meant three edits
+// and a constant that quietly lied about which file was verified. ENTRY_VENDORED
+// is the same file after vendoring, which copies src/lib and src/data to the
+// engine root and therefore drops the leading `src/`.
 const ENTRY_REL = 'src/lib/cockpit-scan.js';
+const ENTRY_VENDORED = ENTRY_REL.replace(/^src\//, '');
 const ENGINE_DEPS = ['acorn', 'acorn-loose', 'acorn-jsx'];
 // Fixtures are scan INPUTS, not engine code — deliberately-vulnerable samples
 // the probes parse to prove a rule fires. They are still vendored (the smoke
@@ -97,7 +104,7 @@ try {
     syncedAt: new Date().toISOString(),
     fileCount,
     engineDeps: installDeps.sort(),
-    entry: 'server/src/preflight/engine/lib/cockpit-scan.js',
+    entry: `server/src/preflight/engine/${ENTRY_VENDORED}`,
   };
   writeFileSync(LOCK_FILE, JSON.stringify(lock, null, 2) + '\n');
 
@@ -113,7 +120,7 @@ try {
 
   // ── 5. smoke test: the vendored engine must run in THIS Node and catch planted vulns ──
   log('smoke test: importing vendored engine + scanning planted fixture ...');
-  const { scan, engineInfo } = await import('file://' + join(ENGINE_DIR, 'lib/cockpit-scan.js'));
+  const { scan, engineInfo } = await import('file://' + join(ENGINE_DIR, ENTRY_VENDORED));
   const fixture = [
     { path: 'src/leak.js', content: 'const AWS_SECRET_ACCESS_KEY = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY";\n' },
     { path: 'src/inj.js', content: 'export const q = (id) => `SELECT * FROM t WHERE id = ${id}`;\nconst x = eval(userInput);\n' },

@@ -25,7 +25,7 @@ import { initFleet, spawnRun, listRuns, killRun, killAll, todayBurn, profileList
 import { pushPublicKey, addSub, subCount, notifyAll } from './push.js';
 import {
   authMiddleware, wsAuthed, isConfigured, setPassword, checkPassword,
-  newSession, dropSession, cookieHeader, COOKIE, originOk, setupAllowed, revokeAllSessions,
+  newSession, dropSession, cookieHeader, originOk, setupAllowed, revokeAllSessions,
   loginThrottled, recordLoginFail, clearLoginFails, allowOrigin,
 } from './auth.js';
 import { tailnetHost, tailnetOrigin } from './tailnet.js';

@@ -173,7 +173,10 @@ await test('scan STILL reads .env inside the project — it is the secret scanne
 
 // ══════════════════════════════════════════════════════════════════════════
 console.log('\n── fleet write scope ──');
-const fleetEnv = { ATLAN_FLEET_DIR: scratch('fleet-prof'), ATLAN_PROJECTS: PROJECTS };
+// (a `fleetEnv` built here was read by nothing, and building it called
+// scratch() — mkdtempSync — so every run of this suite left an orphan temp
+// directory behind for a variable no test used. The cases below each pass their
+// own env to node().)
 const { PROFILES_FOR_TEST } = await import(new URL('../server/src/fleet.js', import.meta.url));
 
 await test('builder REFUSES a write to Atlan\'s own source even when cwd is the app root', () => {
@@ -668,7 +671,9 @@ registerHooks({
 });
 `);
   writeFileSync(log, '');
-  const p2 = execFileSync('node', ['--input-type=module', '-e', `
+  // Binding dropped, CALL KEPT: this spawns a real cockpit and the test asserts
+  // on what it writes to `log`, not on its stdout.
+  execFileSync('node', ['--input-type=module', '-e', `
     const { spawn } = await import('node:child_process');
     const { createServer } = await import('node:net');
     const freePort = () => new Promise(r => { const s = createServer(); s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => r(p)); }); });

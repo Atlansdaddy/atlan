@@ -4,7 +4,7 @@
 import assert from 'node:assert';
 import { readFileSync } from 'node:fs';
 import { WebSocket } from 'ws'; // the ws client sets real headers; no token in the URL
-import { REPO, repo, scratch } from './lib/paths.mjs';
+import { REPO } from './lib/paths.mjs';
 
 const BASE = process.env.ATLAN_BASE ?? 'http://127.0.0.1:4589';
 const WS = BASE.replace('http', 'ws') + '/ws';

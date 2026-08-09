@@ -16,7 +16,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:net';
 import {
   mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync,
-  symlinkSync, linkSync, statSync,
+  symlinkSync, linkSync,
 } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';

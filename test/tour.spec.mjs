@@ -4,10 +4,11 @@
 // tour step, this suite goes red.
 import pw from './lib/pw.mjs';
 import assert from 'node:assert';
-import { readFileSync } from 'node:fs';
 
 const BASE = process.env.ATLAN_BASE ?? 'http://127.0.0.1:4589';
-const TOKEN = (process.env.ATLAN_TOKEN ?? readFileSync(new URL('../.auth-token', import.meta.url), 'utf8')).trim();
+// No bearer here on purpose: this spec logs in the real way, password → session
+// cookie, a few lines below. A TOKEN read from .auth-token was left over from
+// when it used the header, and it read a credential file this spec never needed.
 
 let pass = 0, fail = 0;
 async function test(name, fn) {

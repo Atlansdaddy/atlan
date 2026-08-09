@@ -1,8 +1,8 @@
 // End-to-end test of the cross-engine path. Real codex calls — small prompts.
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs';
+import { writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { REPO, repo, scratch } from './lib/paths.mjs';
+import { scratch } from './lib/paths.mjs';
 import { homedir } from 'node:os';
 process.env.PATH += ':/root/.local/bin';
 

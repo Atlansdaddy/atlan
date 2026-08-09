@@ -4,7 +4,7 @@
 import assert from 'node:assert';
 import { readFileSync, existsSync } from 'node:fs';
 import WebSocket from '../node_modules/ws/index.js';
-import { REPO, repo, scratch } from './lib/paths.mjs';
+import { REPO } from './lib/paths.mjs';
 import { homedir } from 'node:os';
 
 const BASE = process.env.ATLAN_BASE ?? 'http://127.0.0.1:4589';

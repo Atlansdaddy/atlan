@@ -1,6 +1,6 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, readFileSync } from 'node:fs';
+import { mkdirSync } from 'node:fs';
 import { atomicWrite, readJsonState } from './fsutil.js';
 import { join } from 'node:path';
 import { FLEET_DIR, PROJECTS_DIR, LOCAL_LLM_BASE } from './config.js';
@@ -243,7 +243,7 @@ function resolveInputs(link, blackboard, jobInput) {
   const vars = {};
   for (const ref of link.inputsFrom) {
     const [head, ...rest] = ref.split('.');
-    if (head === 'job') { const key = rest.slice(1).join('.') || rest[0]; vars[rest[rest.length - 1] || 'input'] = dig(jobInput, rest.slice(1)); } else {
+    if (head === 'job') { vars[rest[rest.length - 1] || 'input'] = dig(jobInput, rest.slice(1)); } else {
       const src = blackboard[head];
       const field = rest.join('.');
       vars[field || head] = field ? dig(src, rest) : src;
