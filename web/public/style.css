@@ -598,3 +598,12 @@ a{color:var(--accent)}
 @media (prefers-reduced-motion:reduce){
   *{animation-duration:.001ms !important;animation-iteration-count:1 !important;transition-duration:.001ms !important}
 }
+
+/* Auto-approve. Deliberately plain when off and unmistakable when armed — the
+   whole point is that you can tell at a glance whether the next tool will ask. */
+.autoapprove{display:flex;align-items:center;gap:8px;padding:4px 2px;font-size:11px;color:var(--dim)}
+.autoapprove label{letter-spacing:.12em;text-transform:uppercase;font-weight:700}
+.autoapprove select{flex:1;min-width:0;background:var(--surface);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:5px 8px;font-size:12px}
+.autoapprove.armed label{color:var(--accent)}
+.autoapprove.armed select{border-color:var(--accent)}
+.sessline.permdenied{color:var(--bad,#ff6723)}

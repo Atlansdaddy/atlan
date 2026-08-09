@@ -10,7 +10,8 @@
 
 import assert from 'node:assert';
 
-import { msgClass, whoLabel, isThirdParty, sessionLine } from '../web/public/lib/msgstyle.js';
+import { msgClass, whoLabel, isThirdParty, sessionLine, autoPermLine } from '../web/public/lib/msgstyle.js';
+import { normalizeProfile, CHAT_PROFILES, armedLabel, autoKey } from '../web/public/lib/autoapprove.js';
 import {
   escapeHtml, parseMessageParts, langToExt, LANG_EXT, colorDiffHtml,
   urlBase64ToUint8Array,
@@ -521,6 +522,46 @@ test('a turn with no reported cost still renders a line', () => {
   const s = sessionLine({ cost: null, resume: null });
   assert.equal(s.text, '— turn done —');
   assert.doesNotMatch(s.text, /\$/, 'a missing cost must not render as $0.0000');
+});
+
+
+// ── chat auto-approve ────────────────────────────────────────────────────────
+// Atlan asks before every tool on the Claude path because claudeEngine sets
+// settingSources:[], which stops the SDK loading ~/.claude and
+// settings.local.json — whose accumulated "always allow" rules let tools run
+// without ever reaching canUseTool. Pre-approving a CLASS of work is the answer.
+// Re-opening that door is not, because those rules are invisible and cumulative.
+// These pin the direction the gate fails in.
+test('an unknown profile means OFF, never "armed with something"', () => {
+  for (const junk of ['', 'admin', 'root', 'ALL', 'builder ', null, undefined, '../builder']) {
+    assert.equal(normalizeProfile(junk), null, `${JSON.stringify(junk)} must fall back to off`);
+  }
+});
+test('only the three real profiles arm the gate', () => {
+  for (const p of ['scout', 'verifier', 'builder']) assert.equal(normalizeProfile(p), p);
+  assert.deepEqual(CHAT_PROFILES, ['scout', 'verifier', 'builder']);
+});
+test('the armed label says refusals are refusals, not more prompts', () => {
+  // If arming reads as "it will ask less", people arm it expecting a safety net
+  // that is not there. A forbidden tool is DENIED, never escalated to a card.
+  assert.match(armedLabel('builder'), /armed: builder/);
+  assert.match(armedLabel('builder'), /refused/);
+  assert.match(armedLabel(null), /every tool asks first/);
+});
+test('auto-approve is remembered per CONVERSATION, not globally', () => {
+  // Arming one chat to build must not silently arm the next one opened.
+  assert.notEqual(autoKey('conv-a'), autoKey('conv-b'));
+  assert.match(autoKey('conv-a'), /conv-a/);
+});
+test('an auto-approved tool still leaves a visible line', () => {
+  // Auto-approve removes the prompt, NOT the evidence. Running tools silently
+  // trades prompt fatigue for a blind spot, which is the worse of the two.
+  assert.match(autoPermLine({ tool: 'Read', profile: 'scout', allowed: true }), /scout allowed Read/);
+});
+test('an auto-DENIED tool says which profile refused it and why', () => {
+  const l = autoPermLine({ tool: 'Bash', profile: 'scout', allowed: false, why: 'scout is read-only' });
+  assert.match(l, /scout refused Bash/);
+  assert.match(l, /read-only/, 'the reason must survive to the user');
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);

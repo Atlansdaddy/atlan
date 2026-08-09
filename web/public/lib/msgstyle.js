@@ -59,6 +59,20 @@ export function isThirdParty(role) {
  * putting a command that does not work into someone's clipboard is worse than
  * offering none.
  */
+/**
+ * The one-line record of a tool that was auto-approved (or auto-denied).
+ *
+ * Auto-approve removes the prompt, NOT the evidence. Silently running tools
+ * would trade prompt fatigue for a blind spot, which is the worse of the two —
+ * a card you tap through at least crosses your eyes. Every decision the profile
+ * makes leaves a line saying which tool, and on a denial, why.
+ */
+export function autoPermLine({ tool, profile, allowed, why }) {
+  return allowed
+    ? `⚡ ${profile} allowed ${tool}`
+    : `⛔ ${profile} refused ${tool}${why ? ` — ${why}` : ''}`;
+}
+
 export function sessionLine({ cost, resume }) {
   const spend = typeof cost === 'number' ? ` · $${cost.toFixed(4)}` : '';
   if (!resume) return { text: `— turn done${spend} —`, copy: null };

@@ -2,6 +2,7 @@ import { query } from '@anthropic-ai/claude-agent-sdk';
 import { randomUUID } from 'node:crypto';
 import { PROJECTS_DIR } from './config.js';
 import { defaultModel, resumeCommand } from './enginePolicy.js';
+import { PROFILES_FOR_TEST } from './fleet.js';
 
 // Atlan's identity — APPENDED to the Claude Code preset (never a bare string,
 // which would strip the default tools + permission model = the hands). We only
@@ -27,10 +28,15 @@ Be warm, concise, and honest. You are your user's, and you know it.
 // first token vs ≈6s cold. Session id still flows to `chat.session`, so
 // `claude --resume <id>` from Termux picks up the exact same conversation.
 export class ClaudeSession {
-  constructor({ cwd = PROJECTS_DIR, model = defaultModel('claude', 'chat'), send }) {
+  constructor({ cwd = PROJECTS_DIR, model = defaultModel('claude', 'chat'), send, profile = null }) {
     this.cwd = cwd;
     this.model = model;
     this.send = send;
+    // Auto-approve profile, or null for "ask me every time" (the default, and
+    // what every existing conversation keeps). This is the SAME profile object
+    // the fleet runs behind — not a second permission model — so a rule proven
+    // by walls.mjs on the autonomous path is the rule that applies here.
+    this.profile = profile;
     this.sessionId = null;
     this.pendingPerms = new Map();
     this.busy = false;
@@ -98,7 +104,30 @@ export class ClaudeSession {
         // Crash-recovery continuity: if the pump died mid-conversation, a fresh
         // warm start resumes the SAME session rather than losing history.
         ...(this.sessionId ? { resume: this.sessionId } : {}),
+        // BOTH BELTS, always. disallowedTools is the one that actually holds:
+        // canUseTool alone is NOT a gate, because the CLI auto-approves "safe"
+        // sandboxed Bash without ever calling it (learned live 2026-07-17, and
+        // the reason every fleet profile carries a `disallowed` list). Auto-
+        // approve would be the worst possible place to forget that, so an armed
+        // profile hard-blocks its forbidden tools at the SDK level and the check
+        // below is the second belt, not the only one.
+        ...(this.profile ? { disallowedTools: PROFILES_FOR_TEST[this.profile].disallowed } : {}),
         canUseTool: async (toolName, input) => {
+          const prof = this.profile ? PROFILES_FOR_TEST[this.profile] : null;
+          if (prof) {
+            // Pre-approved CLASS of work, not pre-approved everything. A tool the
+            // profile forbids is DENIED here rather than escalated to a card —
+            // arming auto-approve must never turn into a prompt you learn to tap
+            // through, which is how a gate becomes a formality.
+            const v = prof.check(toolName, input, this.cwd);
+            this.send({
+              t: 'perm.auto', tool: toolName, input: preview(input),
+              profile: this.profile, allowed: v.ok, why: v.why ?? null,
+            });
+            return v.ok
+              ? { behavior: 'allow', updatedInput: input }
+              : { behavior: 'deny', message: `Denied by the ${this.profile} profile — ${v.why}` };
+          }
           const id = randomUUID();
           this.send({ t: 'perm.req', id, tool: toolName, input: preview(input) });
           const approved = await new Promise((res) => this.pendingPerms.set(id, res));

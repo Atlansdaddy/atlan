@@ -25,13 +25,26 @@ import { appendConsoleLine } from './lib/previewconsole.js';
 import { renderRichMessage, rungChip } from './lib/richmsg.js';
 import { initDoctorReport } from './lib/doctorreport.js';
 import { renderDoctor } from './lib/doctorview.js';
-import { msgClass, whoLabel, sessionLine } from './lib/msgstyle.js';
+import { msgClass, whoLabel, sessionLine, autoPermLine } from './lib/msgstyle.js';
+import { normalizeProfile, initAutoApprove } from './lib/autoapprove.js';
+import { permCard } from './lib/permcard.js';
+let autoApprove = null; // set at init; .refresh() re-reads after + New switches conversation
 import { initPreviewMax } from './lib/previewmax.js';
 import { convId, newConversation, restoreChat, openHistory } from './lib/chathistory.js';
 
 (() => {
   const $ = (id) => document.getElementById(id);
   const chatlog = $('chatlog');
+  // One appender for the thin status lines between bubbles — the turn summary,
+  // the brain footer, and every auto-approved tool. Three hand-rolled copies of
+  // create/class/append is how they drift apart.
+  const sessLine = (text, extra = '') => {
+    const el = document.createElement('div');
+    el.className = 'sessline' + extra;
+    el.textContent = text;
+    chatlog.append(el); scroll();
+    return el;
+  };
 
   // ── watermark / provenance signature ──
   // A distinctive marker + the waffle easter egg act as a "trap street": if
@@ -274,30 +287,26 @@ import { convId, newConversation, restoreChat, openHistory } from './lib/chathis
         lastReplyText = (turnText || '').trim();
         if (voiceMode && lastReplyText) speak(lastReplyText);
         if (m.brain) {
-          const bl = document.createElement('div');
-          bl.className = 'sessline';
-          bl.textContent = `— ${m.brain}${m.tokens ? ` · ${m.tokens} tok` : ''} —`;
-          chatlog.append(bl); scroll();
+          sessLine(`— ${m.brain}${m.tokens ? ` · ${m.tokens} tok` : ''} —`);
           $('sendBtn').disabled = false;
           break;
         }
         sessionId = m.session ?? sessionId;
-        const line = document.createElement('div');
-        line.className = 'sessline';
         const sess = sessionLine({ cost: m.cost, resume: m.resume }); // engine-supplied, never built here
-        line.textContent = sess.text;
+        const line = sessLine(sess.text);
         if (sess.copy) line.addEventListener('click', () => {
           navigator.clipboard?.writeText(sess.copy);
           line.textContent = '— copied · paste it in the Term tab —';
         });
-        chatlog.append(line); scroll();
         $('sendBtn').disabled = false;
         break;
       }
       case 'perm.req': addPerm(m); break;
+      // Auto-approve removes the prompt, not the evidence.
+      case 'perm.auto': sessLine(autoPermLine(m), m.allowed ? '' : ' permdenied'); break;
       case 'atlan.mood': setMood(m.mood, m.agents); break;
       case 'preview.snapped':
-        $('snapBtn').textContent = '📸 Snapshot → Claude';
+        $('snapBtn').textContent = '📸 Snapshot → agent';
         updateSeen(m.count);
         addMsg('assistant', `Snapshot taken — I'll see it with your next message.`);
         break;
@@ -480,20 +489,8 @@ import { convId, newConversation, restoreChat, openHistory } from './lib/chathis
     chatlog.append(div); scroll();
   }
   function addPerm(m) {
-    const div = document.createElement('div');
-    div.className = 'perm';
-    div.innerHTML = `<div class="plabel">Permission — ${escapeHtml(m.tool)}</div><code></code>
-      <div class="row"><button class="btn hot">Allow</button><button class="btn ghost">Deny</button></div>`;
-    div.querySelector('code').textContent = m.input;
-    const [allow, deny] = div.querySelectorAll('button');
-    const answer = (ok) => {
-      send({ t: 'perm.reply', id: m.id, approved: ok });
-      div.classList.add('answered');
-      allow.disabled = deny.disabled = true;
-    };
-    allow.addEventListener('click', () => answer(true));
-    deny.addEventListener('click', () => answer(false));
-    chatlog.append(div); scroll();
+    chatlog.append(permCard(m, (ok) => send({ t: 'perm.reply', id: m.id, approved: ok })));
+    scroll();
   }
   function scroll() { chatlog.scrollTop = chatlog.scrollHeight; }
 
@@ -654,7 +651,7 @@ import { convId, newConversation, restoreChat, openHistory } from './lib/chathis
     const ready = attachments.filter((a) => a.path || a.note); // drop still-uploading
     addMsg('user', text + (ready.length ? `  ·  📎 ${ready.length}` : ''));
     const [engine, model] = $('modelSel').value.split('|');
-    send({ t: 'chat.send', text, cwd: $('projSel').value, engine, model, attachments: ready, conv: convId() });
+    send({ t: 'chat.send', text, cwd: $('projSel').value, engine, model, attachments: ready, conv: convId(), profile: normalizeProfile($('autoSel').value) });
     input.value = '';
     attachments = []; renderChips();
     $('sendBtn').disabled = true; startWorking(); // locally, not on a server frame: only Claude emits chat.turnstart, so every other engine showed NOTHING while it worked
@@ -1974,6 +1971,8 @@ import { convId, newConversation, restoreChat, openHistory } from './lib/chathis
   };
   restoreChat(addMsg).then((n) => { if (n) { chatlog.firstElementChild?.remove(); scroll(); } });
   $('histBtn').addEventListener('click', () => openHistory({ panel: $('histPanel'), onOpen: replay }));
-  $('newChatBtn').addEventListener('click', () => { newConversation(); replay(); });
+  $('newChatBtn').addEventListener('click', () => { newConversation(); replay(); autoApprove?.refresh(); });
   initPreviewMax({ section: $('s-preview'), button: $('previewMax') }); initComposerHint({ select: $('modelSel'), input: $('chatInput') });
+  // Remembered PER CONVERSATION, so arming one chat to build never arms the next.
+  autoApprove = initAutoApprove({ select: $('autoSel'), conv: convId });
 })();

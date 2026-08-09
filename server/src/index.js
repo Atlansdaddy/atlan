@@ -22,6 +22,13 @@ import {
   getGitStatus, getGitDiff, gitStage, gitUnstage, gitCommit, gitPush, gitPull, gitAiCommitMsg,
 } from './git.js';
 import { initFleet, spawnRun, listRuns, killRun, killAll, todayBurn, profileList, historyTail, topUpRun, engineCapabilities, recoverInflight } from './fleet.js';
+
+// Chat auto-approve accepts only a profile that actually exists. `m.profile`
+// arrives as raw client JSON on an authenticated socket, and an unknown string
+// would reach PROFILES[...] as undefined — a crash at best, and at worst a
+// session that armed "auto-approve" against no profile at all. Anything not on
+// this list falls back to null, which is ask-every-time.
+const VALID_CHAT_PROFILES = new Set(profileList.map((p) => p.id));
 import { pushPublicKey, addSub, subCount, notifyAll } from './push.js';
 import {
   authMiddleware, wsAuthed, isConfigured, setPassword, checkPassword,
@@ -704,9 +711,23 @@ wss.on('connection', (ws, req) => {
           // `owner` ties the child to THIS socket so closing it reaps the child.
           agentTurn({ engine: m.engine, cwd: m.cwd || PROJECTS_DIR, text, send, state, model: m.model, owner: connId });
         } else if (isSdkEngine) {
-          if (!claude || (m.cwd && claude.cwd !== m.cwd)) {
-            claude?.dispose(); // end the old warm session before replacing it (cwd changed)
-            claude = new ClaudeSession({ cwd: m.cwd || PROJECTS_DIR, model: m.model || defaultModel(engineId, 'chat'), send });
+          // An auto-approve profile can only be applied at session CREATION,
+          // because disallowedTools is fixed when query() opens — and that is
+          // the belt that actually holds. So changing the profile respawns.
+          // Cheaper than it reads: _start() passes `resume: sessionId`, so the
+          // new session picks the same conversation back up and only the cold
+          // start is paid.
+          const wantProfile = VALID_CHAT_PROFILES.has(m.profile) ? m.profile : null;
+          const profileChanged = claude && claude.profile !== wantProfile;
+          if (!claude || (m.cwd && claude.cwd !== m.cwd) || profileChanged) {
+            const carryOver = profileChanged ? claude.sessionId : null;
+            claude?.dispose(); // end the old warm session before replacing it
+            claude = new ClaudeSession({
+              cwd: m.cwd || PROJECTS_DIR,
+              model: m.model || defaultModel(engineId, 'chat'),
+              send, profile: wantProfile,
+            });
+            if (carryOver) claude.sessionId = carryOver; // same conversation, new gate
           } else if (m.model) {
             claude.setModel(m.model); // warm-session model switch — no respawn, keeps context
           }

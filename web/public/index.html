@@ -97,6 +97,19 @@
         </select>
       </div>
       <div id="attachChips" class="attachchips"></div>
+      <!-- Auto-approve. OFF by default, and it stays off until someone chooses:
+           an approval gate that arms itself is not a gate. The armed state shows
+           on the composer for the same reason — you should never have to wonder
+           whether the next tool call will ask. -->
+      <div class="autoapprove">
+        <label for="autoSel">auto-approve</label>
+        <select id="autoSel" aria-label="auto-approve profile">
+          <option value="">off — ask me every tool</option>
+          <option value="scout">scout — reads only</option>
+          <option value="verifier">verifier — reads + runs checks</option>
+          <option value="builder">builder — files + bash in this project</option>
+        </select>
+      </div>
       <div class="composer">
         <button class="btn iconbtn" id="micBtn" title="speak (voice input)" aria-label="voice input">🎤</button>
         <button class="btn iconbtn" id="attachBtn" title="attach image / audio / video / file" aria-label="attach a file">📎</button>
