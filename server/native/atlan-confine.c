@@ -680,6 +680,50 @@ static uint64_t ll_handled(int abi) {
 }
 static int ll_abi(void) { return (int)syscall(__NR_landlock_create_ruleset, NULL, 0, LL_CREATE_RULESET_VERSION); }
 
+/* The same question, asked in a CHILD, because on some platforms asking it is
+ * fatal to the asker.
+ *
+ * Landlock is syscall 444. An Android whose app seccomp policy predates Landlock
+ * does not have 444 in its allowlist, and the platform's filter does not answer
+ * ENOSYS — it KILLS the caller. SIGSYS, uncatchable, from Android's filter rather
+ * than from ours, so no handler and no allow-rule of ours can change it.
+ *
+ * ll_abi() was called inline as a printf argument in do_probe, in the main
+ * process, after all sixteen rungs had already run and their results were
+ * collected. On a Galaxy S9 (Android 10, kernel 4.9.186) the probe therefore died
+ * while formatting its output line and printed NOTHING — every rung measured,
+ * the whole report lost on the last statement, and the device read as "no output"
+ * rather than as the T0 it actually is.
+ *
+ * rung() already survives exactly this, and says so in its own message: "SIGSYS —
+ * this platform's own seccomp filter denies the call outright". This asks the
+ * same way. A device that kills on 444 costs one child and reports abi 0, which
+ * is the truth there: no Landlock. */
+static int ll_abi_safe(void) {
+  int pfd[2];
+  if (pipe(pfd)) return 0;
+  pid_t c = fork();
+  if (c < 0) { close(pfd[0]); close(pfd[1]); return 0; }
+  if (c == 0) {
+    close(pfd[0]);
+    int a = ll_abi();
+    ssize_t w = write(pfd[1], &a, sizeof(a));
+    (void)w;
+    _exit(0);
+  }
+  close(pfd[1]);
+  int a = 0;
+  ssize_t got = read(pfd[0], &a, sizeof(a));
+  close(pfd[0]);
+  int st = 0;
+  waitpid(c, &st, 0);
+  /* Killed by the platform's filter, short read, or a non-zero exit: no ABI.
+   * Reporting 0 rather than a negative errno keeps "landlockAbi" meaning the
+   * same thing on every host — the number of the ABI, or none. */
+  if (got != (ssize_t)sizeof(a) || WIFSIGNALED(st) || a < 0) return 0;
+  return a;
+}
+
 /* File-applicable rights only. Landlock rejects a rule with EINVAL when the mask
  * carries a directory-only right and parent_fd names a regular file — which is
  * how a single-FILE grant (one auth store, one ld.so.cache) fails closed rather
@@ -774,6 +818,14 @@ static int confine_and_exec(struct policy *p, char **argv) {
   /* L3 BEFORE L4 — the allow-list denies landlock_* only after we are done with
    * them, and inverting these two lines is a silent total loss of the FS tier. */
   if (p->want_fs) {
+    /* ll_abi(), NOT ll_abi_safe(): a ruleset belongs to the process that will be
+     * restricted by it, so this question must be asked here and cannot be handed
+     * to a child. The honest limit — on an Android whose app seccomp policy
+     * predates Landlock, syscall 444 is not refused with ENOSYS, it KILLS the
+     * caller, so on those devices the die() below is unreachable and the process
+     * dies of SIGSYS without explaining itself. Getting here at all means a policy
+     * asked for a filesystem boundary on a host the probe reports as landlockAbi
+     * 0, which plan.js does not do. */
     int abi = ll_abi();
     if (abi < 1) die("L3 Landlock unavailable (landlock_create_ruleset: %s) — this device cannot establish a filesystem boundary, and the run declared one", strerror(errno));
     uint64_t handled = ll_handled(abi);
@@ -1387,7 +1439,7 @@ static int do_probe(void) {
   if (have_ll_fixture) { unlink(g_llcanary); unlink(g_llinside); rmdir(g_llscratch); rmdir(g_lldir); }
 
   printf("{\"sentinel\":\"atlan-confine/1\",\"arch\":\"%s\",\"auditArch\":%u,\"marker\":\"%s\",\"pageSize\":%ld,\"landlockAbi\":%d,\"rungs\":[",
-         ATLAN_ARCH_NAME, (unsigned)ATLAN_ARCH, MARKER_NAME, sysconf(_SC_PAGESIZE), ll_abi());
+         ATLAN_ARCH_NAME, (unsigned)ATLAN_ARCH, MARKER_NAME, sysconf(_SC_PAGESIZE), ll_abi_safe());
   for (int i = 0; i < VN; i++) {
     printf("%s{\"n\":%d,\"id\":", i ? "," : "", i + 1);
     jstr(VID[i]);
