@@ -132,11 +132,28 @@ export const ENGINE_RUNTIME = {
     runner: 'sdk',
     budget: 'mid-run',
     models: { chat: 'claude-fable-5', fleet: 'claude-haiku-4-5-20251001', frontier: 'claude-opus-5' },
+    // How you pick this conversation back up in a terminal. It belongs HERE,
+    // beside the engine's other capabilities, because app.js was building the
+    // string itself — `claude --resume ${id}`, written into the client and
+    // rendered under a composer that might be set to any engine. The last vendor
+    // name left in the wire protocol.
+    //
+    // null is a real answer, not a gap. An engine earns an entry here only once
+    // its resume command is VERIFIED; inventing plausible flags for the CLIs
+    // would put a command in the operator's clipboard that silently does not
+    // work, which is worse than offering none. The client shows no hint for null.
+    resume: 'claude --resume {session}',
   },
-  codex: { label: 'Codex', runner: 'cli', budget: 'pre-flight', models: {} },
-  antigravity: { label: 'Antigravity', runner: 'cli', budget: 'pre-flight', models: {} },
-  grok: { label: 'Grok', runner: 'cli', budget: 'pre-flight', models: {} },
-  copilot: { label: 'Copilot', runner: 'cli', budget: 'pre-flight', models: {} },
+  codex: { label: 'Codex', runner: 'cli', budget: 'pre-flight', models: {}, resume: null },
+  antigravity: { label: 'Antigravity', runner: 'cli', budget: 'pre-flight', models: {}, resume: null },
+  grok: { label: 'Grok', runner: 'cli', budget: 'pre-flight', models: {}, resume: null },
+  copilot: { label: 'Copilot', runner: 'cli', budget: 'pre-flight', models: {}, resume: null },
+};
+
+/** The terminal command that resumes `session` on `engine`, or null if it has none. */
+export const resumeCommand = (engine, session) => {
+  const tpl = ENGINE_RUNTIME[engine]?.resume;
+  return tpl && session ? tpl.replace('{session}', String(session)) : null;
 };
 
 /**

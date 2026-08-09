@@ -14,12 +14,20 @@
 
 const ASSISTANT = new Set(['assistant', 'claude']);
 
-/** The bubble class. Anything unrecognised styles as an assistant, never as the user. */
+/**
+ * The bubble class. Anything unrecognised styles as an assistant, never as the user.
+ *
+ * Returns 'assistant', not 'claude'. The CSS hook was named after one vendor, so
+ * every reply from every engine — and every message Atlan spoke itself — wore a
+ * class called `claude`. 'claude' stays ACCEPTED as an input role because
+ * transcripts written before the rename are on disk and have to keep rendering;
+ * it is simply no longer produced.
+ */
 export function msgClass(role) {
   if (role === 'user') return 'user';
   if (role === 'err') return 'err';
   if (role === 'peer') return 'peer';
-  return 'claude';
+  return 'assistant';
 }
 
 /**
@@ -39,4 +47,20 @@ export function whoLabel(role, engineLabel) {
 /** True when this bubble came from somewhere other than the person typing. */
 export function isThirdParty(role) {
   return role === 'peer';
+}
+
+/**
+ * The line under a finished turn: what it cost, and how to pick it back up.
+ *
+ * `resume` arrives from the ENGINE on chat.result. app.js used to assemble
+ * `claude --resume ${id}` itself, so one vendor's CLI syntax was a property of
+ * the front end, rendered under a composer that might be set to any engine. An
+ * engine with no VERIFIED resume command sends null and no hint appears —
+ * putting a command that does not work into someone's clipboard is worse than
+ * offering none.
+ */
+export function sessionLine({ cost, resume }) {
+  const spend = typeof cost === 'number' ? ` · $${cost.toFixed(4)}` : '';
+  if (!resume) return { text: `— turn done${spend} —`, copy: null };
+  return { text: `— turn done${spend} · tap to copy: ${resume.slice(0, 40)}… —`, copy: resume };
 }

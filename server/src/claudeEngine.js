@@ -1,7 +1,7 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { randomUUID } from 'node:crypto';
 import { PROJECTS_DIR } from './config.js';
-import { defaultModel } from './enginePolicy.js';
+import { defaultModel, resumeCommand } from './enginePolicy.js';
 
 // Atlan's identity — APPENDED to the Claude Code preset (never a bare string,
 // which would strip the default tools + permission model = the hands). We only
@@ -147,6 +147,11 @@ export class ClaudeSession {
             subtype: m.subtype,
             cost: m.total_cost_usd ?? null,
             session: this.sessionId,
+            // The resume hint travels WITH the result instead of being assembled
+            // by the client. app.js had `claude --resume ${id}` written into it,
+            // so the string was a property of the front end rather than of the
+            // engine that produced the session.
+            resume: resumeCommand('claude', this.sessionId),
           });
           this.send({ t: 'atlan.mood', mood: m.subtype === 'success' ? 'proud' : 'alarmed' });
         }

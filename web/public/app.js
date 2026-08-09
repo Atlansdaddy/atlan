@@ -25,7 +25,7 @@ import { appendConsoleLine } from './lib/previewconsole.js';
 import { renderRichMessage, rungChip } from './lib/richmsg.js';
 import { initDoctorReport } from './lib/doctorreport.js';
 import { renderDoctor } from './lib/doctorview.js';
-import { msgClass, whoLabel } from './lib/msgstyle.js';
+import { msgClass, whoLabel, sessionLine } from './lib/msgstyle.js';
 import { initPreviewMax } from './lib/previewmax.js';
 import { convId, newConversation, restoreChat, openHistory } from './lib/chathistory.js';
 
@@ -284,10 +284,11 @@ import { convId, newConversation, restoreChat, openHistory } from './lib/chathis
         sessionId = m.session ?? sessionId;
         const line = document.createElement('div');
         line.className = 'sessline';
-        line.textContent = `— turn done${m.cost != null ? ` · $${m.cost.toFixed(4)}` : ''} · tap to copy: claude --resume ${String(sessionId).slice(0, 8)}… —`;
-        line.addEventListener('click', () => {
-          navigator.clipboard?.writeText(`claude --resume ${sessionId}`);
-          line.textContent = '— copied: claude --resume … · paste it in the Term tab —';
+        const sess = sessionLine({ cost: m.cost, resume: m.resume }); // engine-supplied, never built here
+        line.textContent = sess.text;
+        if (sess.copy) line.addEventListener('click', () => {
+          navigator.clipboard?.writeText(sess.copy);
+          line.textContent = '— copied · paste it in the Term tab —';
         });
         chatlog.append(line); scroll();
         $('sendBtn').disabled = false;
@@ -298,7 +299,7 @@ import { convId, newConversation, restoreChat, openHistory } from './lib/chathis
       case 'preview.snapped':
         $('snapBtn').textContent = '📸 Snapshot → Claude';
         updateSeen(m.count);
-        addMsg('claude', `Snapshot taken — I'll see it with your next message.`);
+        addMsg('assistant', `Snapshot taken — I'll see it with your next message.`);
         break;
       case 'build.start':
         $('buildBtn').disabled = true;
@@ -393,7 +394,7 @@ import { convId, newConversation, restoreChat, openHistory } from './lib/chathis
     // reasoning is done once real text starts — mark the panel closed/summarized
     if (thinkEl) { thinkEl.open = false; thinkEl.querySelector('summary').textContent = '🧠 thought process'; }
     streamBubble = document.createElement('div');
-    streamBubble.className = 'msg claude';
+    streamBubble.className = 'msg assistant';
     const who = document.createElement('div');
     who.className = 'who'; who.textContent = 'Atlan';
     streamBubble.append(who);
@@ -583,7 +584,7 @@ import { convId, newConversation, restoreChat, openHistory } from './lib/chathis
     // one-time nudge: the basic browser voice has no SSML — point to the picker
     if (voiceMode && voiceProvider === 'browser' && !localStorage.getItem('atlanVoiceHinted')) {
       localStorage.setItem('atlanVoiceHinted', '1');
-      addMsg('claude', 'Speaking with the basic browser voice (no SSML). For a warmer voice with real prosody, pick one in Settings (⚙/Doctor tab) → “Voice — pick who speaks back”. Piper is free & on-device.');
+      addMsg('assistant', 'Speaking with the basic browser voice (no SSML). For a warmer voice with real prosody, pick one in Settings (⚙/Doctor tab) → “Voice — pick who speaks back”. Piper is free & on-device.');
     }
     if (voiceMode && lastReplyText) speak(lastReplyText);
     else stopSpeaking();
@@ -992,7 +993,7 @@ import { convId, newConversation, restoreChat, openHistory } from './lib/chathis
         body: JSON.stringify(sub),
       });
       $('pushBtn').style.display = 'none';
-      addMsg('claude', 'Push alerts on — fleet runs will reach you even with Atlan closed.');
+      addMsg('assistant', 'Push alerts on — fleet runs will reach you even with Atlan closed.');
     } catch (err) {
       addMsg('err', 'push setup failed: ' + err.message);
     }
@@ -1071,7 +1072,7 @@ import { convId, newConversation, restoreChat, openHistory } from './lib/chathis
         $('edPath').placeholder = `was ${srcPath} — review, then set a path to save`;
       }
       $('edDirty').textContent = cmEditor.getValue() !== edClean ? '● unsaved' : '';
-      if (j.fellBack) addMsg('claude', `Inline AI ran on ${j.engine} — the engine you picked isn't a chat brain.`);
+      if (j.fellBack) addMsg('assistant', `Inline AI ran on ${j.engine} — the engine you picked isn't a chat brain.`);
     }).catch((e) => { $('edInlineAi').disabled = false; addMsg('err', String(e)); });
   });
 
@@ -1158,7 +1159,7 @@ import { convId, newConversation, restoreChat, openHistory } from './lib/chathis
       if (j.error) return addMsg('err', j.error);
       $('gitCommitMsg').value = '';
       gitRefresh();
-      addMsg('claude', `Committed: "${msg}"`);
+      addMsg('assistant', `Committed: "${msg}"`);
     });
   });
   $('gitPushBtn')?.addEventListener('click', () => gitPost('push', {}).then((j) => { if (j.error) addMsg('err', j.error); else gitRefresh(); }));
@@ -1823,7 +1824,7 @@ import { convId, newConversation, restoreChat, openHistory } from './lib/chathis
         fetch('/api/harness/escalate', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prompt: r.escalatePrompt }) })
           .then((x) => x.json()).then((j) => {
             if (j.error) return addMsg('err', j.error);
-            addMsg('claude', `Escalated to the fleet as run ${j.id} — the inbox will ping when it surfaces.`);
+            addMsg('assistant', `Escalated to the fleet as run ${j.id} — the inbox will ping when it surfaces.`);
           }).catch((e) => { console.warn('[atlan]', e); });
       });
       box.append(btn);
@@ -1969,7 +1970,7 @@ import { convId, newConversation, restoreChat, openHistory } from './lib/chathis
   // would read as a new session that had somehow already happened.
   const replay = (id) => {
     chatlog.textContent = '';
-    restoreChat(addMsg, id).then((n) => { if (!n) addMsg('claude', 'New conversation. Say anything.'); scroll(); });
+    restoreChat(addMsg, id).then((n) => { if (!n) addMsg('assistant', 'New conversation. Say anything.'); scroll(); });
   };
   restoreChat(addMsg).then((n) => { if (n) { chatlog.firstElementChild?.remove(); scroll(); } });
   $('histBtn').addEventListener('click', () => openHistory({ panel: $('histPanel'), onOpen: replay }));

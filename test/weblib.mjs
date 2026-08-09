@@ -10,7 +10,7 @@
 
 import assert from 'node:assert';
 
-import { msgClass, whoLabel, isThirdParty } from '../web/public/lib/msgstyle.js';
+import { msgClass, whoLabel, isThirdParty, sessionLine } from '../web/public/lib/msgstyle.js';
 import {
   escapeHtml, parseMessageParts, langToExt, LANG_EXT, colorDiffHtml,
   urlBase64ToUint8Array,
@@ -463,7 +463,7 @@ test('a peer message with no sender still says it came from elsewhere', () => {
 });
 test('a peer message is NEVER styled as the user or as the agent', () => {
   assert.notEqual(msgClass('peer'), 'user');
-  assert.notEqual(msgClass('peer'), 'claude');
+  assert.notEqual(msgClass('peer'), 'assistant');
 });
 test('the USER is the only role with no byline', () => {
   assert.equal(whoLabel('user', 'anything'), null);
@@ -476,17 +476,51 @@ test('assistant carries a byline — the role rename dropped it once', () => {
   // only the old name in its byline test, so every agent-CLI message silently
   // lost its "Codex · full-auto" label. Extracting this is what surfaced it.
   assert.equal(whoLabel('assistant', 'Codex · full-auto'), 'Codex · full-auto');
-  assert.equal(msgClass('assistant'), 'claude', 'assistant styles as an assistant bubble');
+  assert.equal(msgClass('assistant'), 'assistant', 'assistant styles as an assistant bubble');
+});
+test('the class is named for the ROLE, not for a vendor', () => {
+  // It returned 'claude' for every engine, so a Codex reply and a message Atlan
+  // spoke itself both wore a CSS hook named after a company neither came from.
+  // The vendor name may still be ACCEPTED as input (below); it is never emitted.
+  for (const role of ['assistant', 'claude', 'brain', 'something-new']) {
+    assert.equal(msgClass(role), 'assistant', `${role} must not emit a vendor class`);
+  }
 });
 test('the OLD claude role still renders — stored transcripts must keep opening', () => {
-  assert.equal(msgClass('claude'), 'claude');
+  // Transcripts written before the rename are on disk. Accepting the old name is
+  // what keeps them openable; only the class it maps to changed.
+  assert.equal(msgClass('claude'), 'assistant');
   assert.equal(whoLabel('claude', 'Claude'), 'Claude');
 });
 test('an unknown role styles as an assistant, never as the user', () => {
   // Fail-safe direction: a role we do not recognise must not be able to
   // impersonate the person typing.
-  assert.equal(msgClass('something-new'), 'claude');
+  assert.equal(msgClass('something-new'), 'assistant');
   assert.notEqual(msgClass('something-new'), 'user');
+});
+
+// ── the session line ─────────────────────────────────────────────────────────
+// app.js built `claude --resume ${id}` itself, so one vendor's CLI syntax was a
+// property of the front end and appeared under a composer that might be set to
+// any engine. The command now travels on chat.result from the engine that owns
+// the session, and this is where that contract is pinned.
+test('an engine with no resume command gets NO hint offered', () => {
+  const s = sessionLine({ cost: 0.0139, resume: null });
+  assert.match(s.text, /turn done · \$0\.0139/);
+  assert.doesNotMatch(s.text, /tap to copy/, 'no engine, no hint');
+  assert.equal(s.copy, null, 'nothing may reach the clipboard');
+});
+test('the hint is whatever the ENGINE sent, verbatim — never assembled here', () => {
+  const s = sessionLine({ cost: 0.5, resume: 'some-cli --continue abc123' });
+  assert.match(s.text, /tap to copy: some-cli --continue abc123/);
+  assert.equal(s.copy, 'some-cli --continue abc123', 'the clipboard gets the engine\'s exact command');
+  assert.doesNotMatch(s.text, /claude/i, 'no vendor name may be introduced by the client');
+});
+test('a turn with no reported cost still renders a line', () => {
+  // The CLI engines report spend pre-flight, not mid-run, so cost is often null.
+  const s = sessionLine({ cost: null, resume: null });
+  assert.equal(s.text, '— turn done —');
+  assert.doesNotMatch(s.text, /\$/, 'a missing cost must not render as $0.0000');
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);
