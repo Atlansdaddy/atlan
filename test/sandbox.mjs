@@ -30,8 +30,7 @@ import {
 let pass = 0, fail = 0, skip = 0;
 const failures = [];
 async function test(name, fn) {
-  try { await fn(); pass++; console.log(`  ✓ ${name}`); }
-  catch (err) { fail++; failures.push(`${name} — ${err.message}`); console.log(`  ✗ ${name} — ${err.message}`); }
+  try { await fn(); pass++; console.log(`  ✓ ${name}`); } catch (err) { fail++; failures.push(`${name} — ${err.message}`); console.log(`  ✗ ${name} — ${err.message}`); }
 }
 function skipped(name, why) { skip++; console.log(`  ⊘ ${name} — SKIPPED: ${why}`); }
 
@@ -270,7 +269,7 @@ await test('MEASURED LIMIT: delete process.env does NOT scrub /proc/self/environ
   const out = await new Promise((res) => {
     let o = ''; const c = spawn(process.execPath, ['-e',
       'delete process.env.ATLAN_PROBE_X; process.stdout.write(String(require("fs").readFileSync("/proc/self/environ","utf8").includes("leak-me-9x")))'],
-      { env: { ...process.env, ATLAN_PROBE_X: 'leak-me-9x' } });
+    { env: { ...process.env, ATLAN_PROBE_X: 'leak-me-9x' } });
     c.stdout.on('data', (d) => { o += d; }); c.on('close', () => res(o));
   });
   assert.equal(out, 'true', 'if this ever prints false the platform changed and the report needs revisiting');
@@ -722,8 +721,7 @@ await test('the launcher ENFORCES the hardlink precondition under strict, not ju
     try {
       process.env.ATLAN_CONFINE = 'strict';
       let spawned = false;
-      try { spawnAgentCli('codex', 'true', [], { cwd: ws }); spawned = true; }
-      catch (err) { assert.ok(/second name for this inode|Nothing was spawned/.test(err.message), err.message); }
+      try { spawnAgentCli('codex', 'true', [], { cwd: ws }); spawned = true; } catch (err) { assert.ok(/second name for this inode|Nothing was spawned/.test(err.message), err.message); }
       if (!hadNetrc) assert.equal(spawned, false, 'strict launched anyway with a staged mask bypass');
     } finally { if (!hadNetrc) rmSync(netrc, { force: true }); }
   } finally {

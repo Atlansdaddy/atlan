@@ -19,8 +19,7 @@ let pass = 0, fail = 0;
 const results = [];
 
 async function test(name, fn) {
-  try { await fn(); results.push(['✓', name]); pass++; }
-  catch (e) { results.push(['✗', name + ' — ' + e.message]); fail++; }
+  try { await fn(); results.push(['✓', name]); pass++; } catch (e) { results.push(['✗', name + ' — ' + e.message]); fail++; }
 }
 const j = (r) => r.json();
 const post = (path, body) => fetch(BASE + path, {

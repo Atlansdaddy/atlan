@@ -39,8 +39,7 @@ async function runOnce(label, resume) {
   let sessionId = resume ?? null, cost = 0;
   for await (const m of q) {
     if (m.type === 'system' && m.subtype === 'init') sessionId = m.session_id;
-    else if (m.type === 'assistant') { const u = usageOf(m); agg.in += u.in; agg.out += u.out; agg.cw += u.cw; agg.cr += u.cr; }
-    else if (m.type === 'result' && m.total_cost_usd != null) cost = m.total_cost_usd;
+    else if (m.type === 'assistant') { const u = usageOf(m); agg.in += u.in; agg.out += u.out; agg.cw += u.cw; agg.cr += u.cr; } else if (m.type === 'result' && m.total_cost_usd != null) cost = m.total_cost_usd;
   }
   const fresh = agg.in + agg.out + agg.cw; // cache reads excluded (≈free) — our budget metric
   console.log(`\n[${label}]`);

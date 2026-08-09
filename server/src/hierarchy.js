@@ -199,8 +199,7 @@ async function execJob(run) {
         emit(run);
       } else if (link.onCheckerFail === 'human') {
         const decision = await humanGate(run, step);
-        if (decision.approve) { step.status = 'done'; step.passed = true; step.output = decision.editedOutput ?? step.output; run.blackboard[link.id] = step.output; }
-        else { step.status = 'failed'; run.status = 'halted'; run.result = `stopped at ${link.id}`; }
+        if (decision.approve) { step.status = 'done'; step.passed = true; step.output = decision.editedOutput ?? step.output; run.blackboard[link.id] = step.output; } else { step.status = 'failed'; run.status = 'halted'; run.result = `stopped at ${link.id}`; }
         done = true;
       } else {
         step.status = 'failed'; step.note = 'checks failed, ladder exhausted';
@@ -244,8 +243,7 @@ function resolveInputs(link, blackboard, jobInput) {
   const vars = {};
   for (const ref of link.inputsFrom) {
     const [head, ...rest] = ref.split('.');
-    if (head === 'job') { const key = rest.slice(1).join('.') || rest[0]; vars[rest[rest.length - 1] || 'input'] = dig(jobInput, rest.slice(1)); }
-    else {
+    if (head === 'job') { const key = rest.slice(1).join('.') || rest[0]; vars[rest[rest.length - 1] || 'input'] = dig(jobInput, rest.slice(1)); } else {
       const src = blackboard[head];
       const field = rest.join('.');
       vars[field || head] = field ? dig(src, rest) : src;
@@ -303,8 +301,7 @@ async function callTier(tierId, cmd, vars, run) {
       timeoutMs: 300000,
     });
     let parsed;
-    try { parsed = JSON.parse(text.replace(/^```(json)?\s*|\s*```$/g, '').trim()); }
-    catch { throw new Error(`${tierId} output was not valid JSON`); }
+    try { parsed = JSON.parse(text.replace(/^```(json)?\s*|\s*```$/g, '').trim()); } catch { throw new Error(`${tierId} output was not valid JSON`); }
     parsed._tokens = tokens;
     // Carried so a receipt can never imply a gate that wasn't there.
     parsed._gate = { enforced, why: gate };

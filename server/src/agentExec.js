@@ -234,8 +234,7 @@ export async function agentExec({
       // real project has not been touched at any point.
       let proposal = null;
       if (workspace) {
-        try { proposal = { ...workspace.diff(), workspace: workspace.dir, kind: workspace.kind }; }
-        catch (e) { proposal = { changed: -1, patch: null, status: `diff failed: ${e.message}` }; }
+        try { proposal = { ...workspace.diff(), workspace: workspace.dir, kind: workspace.kind }; } catch (e) { proposal = { changed: -1, patch: null, status: `diff failed: ${e.message}` }; }
       }
       finish(() => resolve({
         text: parsed.text,
@@ -266,7 +265,7 @@ export async function agentExec({
         boundary: [gate.enforced ? 'kernel' : null, workspace ? 'atlan' : null].filter(Boolean).join('+') || 'none',
         proposal,
         exitCode: code,
-        // The tail of stderr. Dropping it meant a caller could see 
+        // The tail of stderr. Dropping it meant a caller could see
         // and still have nothing to tell the user about what went wrong.
         stderr: err.trim().slice(-600),
       }));

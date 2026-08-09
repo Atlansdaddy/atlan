@@ -11,8 +11,7 @@ import { previewUrl } from '../web/public/lib/previewurl.js';
 
 let pass = 0, fail = 0;
 const test = (name, fn) => {
-  try { fn(); pass++; console.log(`  ✓ ${name}`); }
-  catch (e) { fail++; console.log(`  ✗ ${name}\n    ${e.message}`); }
+  try { fn(); pass++; console.log(`  ✓ ${name}`); } catch (e) { fail++; console.log(`  ✗ ${name}\n    ${e.message}`); }
 };
 
 test('plain loopback uses the configured http port', () => {

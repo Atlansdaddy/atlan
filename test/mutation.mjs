@@ -98,7 +98,7 @@ const MUTANTS = [
   ['M18c', TI, 'the supervised tier silently requires the rung a supervisor defeats',
     'TS itself — the phone would fall back to T0 and every agent run would be refused',
     "const SUPERVISOR_DEFEATS = ['selftest-denyset'];", 'const SUPERVISOR_DEFEATS = [];'],
-  ['M18d', TI, "T3 stops measuring the file door it claims to close",
+  ['M18d', TI, 'T3 stops measuring the file door it claims to close',
     'the only evidence behind "process isolation begins here" — the claim would rest on the grant list being read correctly, not on the kernel',
     "'egress-denial', 'landlock-canary', 'sibling-memory'],", "'egress-denial', 'landlock-canary'],"],
   ['M19', TI, 'a missing rung counts as green', 'absence reads as a pass',

@@ -64,8 +64,7 @@ export function normaliseDraft(raw, { kind = 'persona' } = {}) {
     const start = fenced.indexOf('{');
     const end = fenced.lastIndexOf('}');
     if (start < 0 || end <= start) return { ok: false, error: 'the engine did not return a JSON object' };
-    try { obj = JSON.parse(fenced.slice(start, end + 1)); }
-    catch (e) { return { ok: false, error: `unparseable draft: ${e.message}` }; }
+    try { obj = JSON.parse(fenced.slice(start, end + 1)); } catch (e) { return { ok: false, error: `unparseable draft: ${e.message}` }; }
   }
   if (!obj || typeof obj !== 'object') return { ok: false, error: 'draft was not an object' };
 

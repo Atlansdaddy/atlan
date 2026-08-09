@@ -17,8 +17,7 @@ globalThis.fetch = (url, opts = {}) => _fetch(url, { ...opts, headers: { ...(opt
 let pass = 0, fail = 0;
 const results = [];
 async function test(name, fn) {
-  try { await fn(); results.push(['✓', name]); pass++; }
-  catch (e) { results.push(['✗', name + ' — ' + e.message]); fail++; }
+  try { await fn(); results.push(['✓', name]); pass++; } catch (e) { results.push(['✗', name + ' — ' + e.message]); fail++; }
 }
 
 const browser = await chromium.launch({ args: ['--no-sandbox', '--disable-dev-shm-usage'] });

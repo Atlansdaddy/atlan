@@ -23,8 +23,7 @@ import {
 
 let pass = 0, fail = 0;
 function test(name, fn) {
-  try { fn(); pass++; console.log(`  ✓ ${name}`); }
-  catch (err) { fail++; console.log(`  ✗ ${name} — ${err.message}`); }
+  try { fn(); pass++; console.log(`  ✓ ${name}`); } catch (err) { fail++; console.log(`  ✗ ${name} — ${err.message}`); }
 }
 
 console.log('UNIT SUITE');
@@ -648,8 +647,7 @@ test('setupAllowed: a foreign Origin with no bearer is refused', () => {
 // A synthetic roster keeps this a pure unit — no keys, no llama-server probe.
 // The suite's test() is sync; these need await, so they get their own runner.
 async function atest(name, fn) {
-  try { await fn(); pass++; console.log(`  ✓ ${name}`); }
-  catch (err) { fail++; console.log(`  ✗ ${name} — ${err.message}`); }
+  try { await fn(); pass++; console.log(`  ✓ ${name}`); } catch (err) { fail++; console.log(`  ✗ ${name} — ${err.message}`); }
 }
 const { resolveBrain } = await import('../server/src/brains.js');
 const ROSTER = [

@@ -22,8 +22,7 @@ const read = (rel) => readFileSync(new URL(rel, import.meta.url), 'utf8');
 
 let pass = 0, fail = 0;
 function test(name, fn) {
-  try { fn(); pass++; console.log(`  ✓ ${name}`); }
-  catch (err) { fail++; console.log(`  ✗ ${name} — ${err.message}`); }
+  try { fn(); pass++; console.log(`  ✓ ${name}`); } catch (err) { fail++; console.log(`  ✗ ${name} — ${err.message}`); }
 }
 
 console.log('DOC DRIFT SUITE');

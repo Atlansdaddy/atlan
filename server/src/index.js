@@ -133,8 +133,7 @@ app.get('/api/engines', async (_req, res) => {
 // `supported:false` elsewhere and the UI hides the card.
 app.get('/api/local/models', (_req, res) => res.json(localModels()));
 app.post('/api/local/models', async (req, res) => {
-  try { res.json(await activateLocalModel(String(req.body?.name ?? ''))); }
-  catch (e) { res.status(400).json({ error: e.message }); }
+  try { res.json(await activateLocalModel(String(req.body?.name ?? ''))); } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
 app.use('/apk', express.static(APK_DIR));
@@ -390,8 +389,7 @@ app.get('/api/hierarchy/run/:id', (req, res) => {
   res.json(r);
 });
 app.post('/api/hierarchy/gate', (req, res) => {
-  try { res.json(resolveGate(String(req.body?.runId), { approve: !!req.body?.approve, editedOutput: req.body?.editedOutput ?? null })); }
-  catch (err) { res.status(400).json({ error: err.message }); }
+  try { res.json(resolveGate(String(req.body?.runId), { approve: !!req.body?.approve, editedOutput: req.body?.editedOutput ?? null })); } catch (err) { res.status(400).json({ error: err.message }); }
 });
 
 // ── attachments: upload (base64, up to 20MB) or reference an existing path ──
@@ -438,8 +436,7 @@ app.post('/api/git/ai-commit-msg', express.json(), gitAiCommitMsg);
 // ── studio: generation surfaces (image on the ChatGPT subscription, no key) ──
 app.get('/api/studio/roster', (_req, res) => res.json(studioRoster()));
 app.post('/api/studio/image', express.json(), async (req, res) => {
-  try { res.json(await generateImage({ prompt: req.body?.prompt, cwd: req.body?.cwd || PROJECTS_DIR })); }
-  catch (err) { res.status(400).json({ error: err.message }); }
+  try { res.json(await generateImage({ prompt: req.body?.prompt, cwd: req.body?.cwd || PROJECTS_DIR })); } catch (err) { res.status(400).json({ error: err.message }); }
 });
 
 app.get('/api/voice/roster', async (_req, res) => res.json(await voiceRoster()));
@@ -618,8 +615,7 @@ wss.on('connection', (ws, req) => {
         // The engine label rides on textstart so a streamed agent-CLI turn is
         // filed under the engine that produced it rather than all of them being
         // recorded as Claude.
-        else if (obj.t === 'chat.textstart') { streamed = ''; streamEngine = obj.engine ?? 'Claude'; }
-        else if (obj.t === 'chat.delta') streamed += obj.text ?? '';
+        else if (obj.t === 'chat.textstart') { streamed = ''; streamEngine = obj.engine ?? 'Claude'; } else if (obj.t === 'chat.delta') streamed += obj.text ?? '';
         else if (obj.t === 'chat.result') {
           if (streamed.trim()) appendChat(convId, { role: 'assistant', text: streamed, engine: streamEngine });
           streamed = '';

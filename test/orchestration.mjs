@@ -20,8 +20,7 @@ const { scrubbedEnv, openContained } = await import(new URL('../server/src/conta
 
 let pass = 0, fail = 0;
 const t = async (name, fn) => {
-  try { await fn(); pass++; console.log(`  ✓ ${name}`); }
-  catch (e) { fail++; console.log(`  ✗ ${name} — ${e.message}`); }
+  try { await fn(); pass++; console.log(`  ✓ ${name}`); } catch (e) { fail++; console.log(`  ✗ ${name} — ${e.message}`); }
 };
 const assert = (c, m) => { if (!c) throw new Error(m); };
 

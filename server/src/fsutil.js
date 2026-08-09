@@ -44,8 +44,7 @@ export function atomicWrite(path, data, opts = {}) {
 export function readJsonState(path, fallback) {
   if (!existsSync(path)) return { value: fallback, corrupt: false };
   let raw;
-  try { raw = readFileSync(path, 'utf8'); }
-  catch { return { value: fallback, corrupt: false }; } // unreadable ≠ corrupt (permissions, race)
+  try { raw = readFileSync(path, 'utf8'); } catch { return { value: fallback, corrupt: false }; } // unreadable ≠ corrupt (permissions, race)
   try { return { value: JSON.parse(raw), corrupt: false }; } catch { /* fall through */ }
   const quarantine = `${path}.corrupt-${new Date().toISOString().replace(/[:.]/g, '-')}`;
   try { renameSync(path, quarantine); } catch { /* keep going: reporting matters more than moving */ }

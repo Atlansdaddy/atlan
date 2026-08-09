@@ -40,8 +40,7 @@ export async function saveUpload({ name, mime, data }) {
   writeFileSync(path, buf);
   const out = { id, kind, name: name || safe, path, note: null };
   if (kind === 'audio' || kind === 'video') {
-    try { out.note = await describeMedia(path, mime, kind); }
-    catch (err) {
+    try { out.note = await describeMedia(path, mime, kind); } catch (err) {
       // Don't tell someone to add a key they already have. A missing key and a
       // failed call are different problems and need different fixes — lumping
       // them sent a retired-model 404 to the user as "add a key in Doctor".

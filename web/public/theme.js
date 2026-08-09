@@ -48,11 +48,9 @@ import { effectiveTheme, nextTheme, editorThemeFor, themeButtonGlyph, themeButto
 
   // ── server reconcile (same forward-sync contract as the tour flag) ──
   fetch('/api/prefs').then((r) => r.json()).then((p) => {
-    if (p.theme && !explicit) { explicit = p.theme; writeSaved('theme', p.theme); apply(p.theme); }
-    else if (explicit && !p.theme) postPref('theme', explicit);
+    if (p.theme && !explicit) { explicit = p.theme; writeSaved('theme', p.theme); apply(p.theme); } else if (explicit && !p.theme) postPref('theme', explicit);
     const localTpl = readSaved('atlanTemplate');
-    if (p.template && !localTpl) { writeSaved('atlanTemplate', p.template); root.setAttribute('data-template', p.template); apply(root.getAttribute('data-theme')); }
-    else if (localTpl && !p.template) postPref('template', localTpl);
+    if (p.template && !localTpl) { writeSaved('atlanTemplate', p.template); root.setAttribute('data-template', p.template); apply(root.getAttribute('data-theme')); } else if (localTpl && !p.template) postPref('template', localTpl);
   }).catch(() => { /* pre-login 401 or offline — local state already applied */ });
 
   // template picker writes the attribute; forward it server-side

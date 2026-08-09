@@ -55,7 +55,7 @@ t('a clean run reports survival', () => {
     '{"kind":"end","at":1006}',
   ]);
   assert.match(out, /VERDICT: survived/);
-  assert.match(out, /frozen intervals   0/);
+  assert.match(out, /frozen intervals {3}0/);
 });
 
 t('a Doze-sized gap is reported as a freeze, not survival', () => {
@@ -92,7 +92,7 @@ t('a dead cockpit is blamed on the server, not on Doze', () => {
     '{"kind":"end","at":1009}',
   ]);
   assert.match(out, /Server-side failure, not Doze/);
-  assert.match(out, /cockpit down       2 of 3/);
+  assert.match(out, /cockpit down {7}2 of 3/);
 });
 
 t('the verdict always carries the configuration it applies to', () => {
@@ -132,8 +132,8 @@ t('missing battery and thermal read as unavailable, never as zero', () => {
     sample({ at: 1003, elapsed: 3, gap: 3, battery: null, temp_c: null }),
     '{"kind":"end","at":1003}',
   ]);
-  assert.match(out, /battery            unavailable/);
-  assert.match(out, /temperature        unavailable/);
+  assert.match(out, /battery {12}unavailable/);
+  assert.match(out, /temperature {8}unavailable/);
   assert.doesNotMatch(out, /0\.0 C/);
 });
 

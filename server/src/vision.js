@@ -142,8 +142,7 @@ export function buildImageParts(paths, deps = {}) {
   const images = [];
   const errors = [];
   for (const p of paths ?? []) {
-    try { images.push({ url: imageToDataUrl(p, deps), name: String(p).split('/').pop() }); }
-    catch (err) { errors.push(`${String(p).split('/').pop()}: ${err.message}`); }
+    try { images.push({ url: imageToDataUrl(p, deps), name: String(p).split('/').pop() }); } catch (err) { errors.push(`${String(p).split('/').pop()}: ${err.message}`); }
   }
   return { images, errors };
 }

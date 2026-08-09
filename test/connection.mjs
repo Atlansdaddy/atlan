@@ -13,8 +13,7 @@ const authed = (path, opts = {}) => fetch(BASE + path, { ...opts, headers: { 'co
 
 let pass = 0, fail = 0;
 async function test(name, fn) {
-  try { await fn(); pass++; console.log(`  ✓ ${name}`); }
-  catch (err) { fail++; console.log(`  ✗ ${name} — ${err.message}`); }
+  try { await fn(); pass++; console.log(`  ✓ ${name}`); } catch (err) { fail++; console.log(`  ✗ ${name} — ${err.message}`); }
 }
 // Auth rides the x-atlan-token HEADER (bearer for automation) — never a URL.
 const openWs = (token = TOKEN) => new Promise((res, rej) => {

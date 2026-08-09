@@ -44,8 +44,7 @@ const { isSensitive } = await import('../server/src/guards.js');
 
 let pass = 0, fail = 0, skip = 0;
 function test(name, fn) {
-  try { fn(); pass++; console.log(`  ✓ ${name}`); }
-  catch (err) { fail++; console.log(`  ✗ ${name} — ${err.message}`); }
+  try { fn(); pass++; console.log(`  ✓ ${name}`); } catch (err) { fail++; console.log(`  ✗ ${name} — ${err.message}`); }
 }
 function skipped(name, why) { skip++; console.log(`  ⊘ ${name} — SKIPPED: ${why}`); }
 
@@ -446,8 +445,7 @@ if (!built.ok && !cc) {
       const saved = readFileSync(bin);
       writeFileSync(bin, body);
       chmodSync(bin, 0o700);
-      try { clearProbeCache(); return probe(); }
-      finally { writeFileSync(bin, saved); chmodSync(bin, 0o700); clearProbeCache(); }
+      try { clearProbeCache(); return probe(); } finally { writeFileSync(bin, saved); chmodSync(bin, 0o700); clearProbeCache(); }
     } finally {
       if (prev === undefined) delete process.env.ATLAN_FLEET_DIR; else process.env.ATLAN_FLEET_DIR = prev;
       rmSync(dir, { recursive: true, force: true });

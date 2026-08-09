@@ -16,8 +16,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 let pass = 0, fail = 0;
 async function test(name, fn) {
-  try { await fn(); pass++; console.log(`  ✓ ${name}`); }
-  catch (err) { fail++; console.log(`  ✗ ${name} — ${err.message}`); }
+  try { await fn(); pass++; console.log(`  ✓ ${name}`); } catch (err) { fail++; console.log(`  ✗ ${name} — ${err.message}`); }
 }
 
 // mock engines: each returns a JSON answer we control per-instance

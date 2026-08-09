@@ -20,8 +20,7 @@ import { REQUIRES, tierFromRungs, dominates } from '../server/src/sandbox/tiers.
 
 let pass = 0, fail = 0, skip = 0;
 const test = (name, fn) => {
-  try { fn(); pass++; console.log(`  ✓ ${name}`); }
-  catch (e) {
+  try { fn(); pass++; console.log(`  ✓ ${name}`); } catch (e) {
     if (e && e.__skip) { skip++; console.log(`  ⊘ ${name} — SKIPPED: ${e.message}`); return; }
     fail++; console.log(`  ✗ ${name} — ${e.message}`);
   }

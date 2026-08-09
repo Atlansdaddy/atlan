@@ -31,7 +31,7 @@ export async function runPreflight() {
   const pwSet = existsSync(join(FLEET_DIR, 'auth.json'));
   add('auth', 'Access auth layer', pwSet,
     pwSet ? 'password set; session-cookie gate on /api, /apk and WS; scrypt hash + 30-day sessions; header bearer for automation only'
-          : 'NO password set yet — set one on first load before exposing this beyond the phone');
+      : 'NO password set yet — set one on first load before exposing this beyond the phone');
 
   let keysOk = false, keysDetail = 'no keys stored yet (fine)';
   if (existsSync(join(ROOT, '.keys.enc'))) {

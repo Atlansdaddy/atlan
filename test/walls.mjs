@@ -32,8 +32,7 @@ import { randomBytes } from 'node:crypto';
 const REPO = new URL('..', import.meta.url).pathname;
 let pass = 0, fail = 0;
 const test = async (name, fn) => {
-  try { await fn(); pass++; console.log(`  ✓ ${name}`); }
-  catch (err) { fail++; console.log(`  ✗ ${name} — ${err.message}`); }
+  try { await fn(); pass++; console.log(`  ✓ ${name}`); } catch (err) { fail++; console.log(`  ✗ ${name} — ${err.message}`); }
 };
 
 console.log('WALLS — behavioural, never source-text\n');

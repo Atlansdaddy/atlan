@@ -389,8 +389,7 @@ export function agentTurn({ engine, cwd, text, send, state, model = null, owner 
     if (e.type === 'item.completed' && e.item) {
       const it = e.item;
       const itype = it.type ?? it.item_type;
-      if (itype === 'agent_message' && it.text) { sawText = true; send({ t: 'chat.msg', role: 'assistant', engine: engineLabel(engine), text: it.text }); }
-      else if (itype === 'command_execution') send({ t: 'tool.use', name: 'shell', input: String(it.command ?? '').slice(0, 300) });
+      if (itype === 'agent_message' && it.text) { sawText = true; send({ t: 'chat.msg', role: 'assistant', engine: engineLabel(engine), text: it.text }); } else if (itype === 'command_execution') send({ t: 'tool.use', name: 'shell', input: String(it.command ?? '').slice(0, 300) });
       else if (itype === 'file_change') send({ t: 'tool.use', name: 'edit', input: (it.changes ?? []).map((c) => c.path).join(', ').slice(0, 300) || 'files changed' });
       else if (itype === 'mcp_tool_call') send({ t: 'tool.use', name: it.tool ?? 'mcp', input: JSON.stringify(it.arguments ?? {}).slice(0, 200) });
       else if (itype === 'reasoning') {
@@ -445,8 +444,7 @@ export function agentTurn({ engine, cwd, text, send, state, model = null, owner 
       const line = buf.slice(0, nl).trim();
       buf = buf.slice(nl + 1);
       if (!line) continue;
-      try { handleEvent(JSON.parse(line)); }
-      catch { if (line.length > 2) { sawText = true; send({ t: 'chat.msg', role: 'assistant', engine: engineLabel(engine), text: line }); } }
+      try { handleEvent(JSON.parse(line)); } catch { if (line.length > 2) { sawText = true; send({ t: 'chat.msg', role: 'assistant', engine: engineLabel(engine), text: line }); } }
     }
   });
   child.stderr.on('data', (chunk) => {

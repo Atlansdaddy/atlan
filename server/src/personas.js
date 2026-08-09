@@ -155,8 +155,7 @@ function sanitizeCheckers(list, fields, vars) {
     } else if (k.kind === 'arith') {
       const formula = S(k.formula, 200);
       // fail fast on a formula that won't parse — a broken formula is a dead guardrail
-      try { safeArith(formula, Object.fromEntries([...fieldNames, ...varNames].map((n) => [n, 1]))); }
-      catch (e) { errs.push(`${where}: formula "${formula}" — ${e.message}`); return; }
+      try { safeArith(formula, Object.fromEntries([...fieldNames, ...varNames].map((n) => [n, 1]))); } catch (e) { errs.push(`${where}: formula "${formula}" — ${e.message}`); return; }
       out.push({ ...base, formula, tolerance: Number(k.tolerance) || 0.01 });
     } else {
       out.push(base); // not-empty
@@ -200,7 +199,7 @@ export function runCheckers(cmd, output, vars = {}) {
     const v = output?.[f.name];
     const ok = f.type === 'array' ? Array.isArray(v)
       : f.type === 'number' ? typeof v === 'number' && Number.isFinite(v)
-      : typeof v === f.type;
+        : typeof v === f.type;
     results.push({ tier: 1, check: `field "${f.name}" is ${f.type}`, ok, got: ok ? undefined : JSON.stringify(v)?.slice(0, 80) ?? 'missing' });
   }
   // tier-2: authored deterministic assertions
@@ -229,8 +228,7 @@ export function runCheckers(cmd, output, vars = {}) {
         // A non-finite expected value (e.g. divide-by-zero → Infinity) must FAIL
         // the check, never pass vacuously — caught live by an adversarial agent
         // 2026-07-20 (answer 5 vs Infinity was passing).
-        if (!Number.isFinite(expect)) { ok = false; got = `${k.formula} = ${expect} (not a finite number — check the inputs)`; }
-        else {
+        if (!Number.isFinite(expect)) { ok = false; got = `${k.formula} = ${expect} (not a finite number — check the inputs)`; } else {
           ok = typeof v === 'number' && Number.isFinite(v) && Math.abs(v - expect) <= k.tolerance * Math.max(1, Math.abs(expect));
           if (!ok) got = `${v} ≠ ${k.formula} = ${Number(expect.toFixed(4))}`;
         }

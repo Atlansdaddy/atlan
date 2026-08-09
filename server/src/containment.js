@@ -157,8 +157,7 @@ function walk(root) {
       // false for them, so a link inside the workspace cannot walk us out of it.
       if (e.isDirectory()) rec(abs, rel);
       else if (e.isFile()) {
-        try { out.set(rel, createHash('sha256').update(readFileSync(abs)).digest('hex')); }
-        catch { /* unreadable file: treated as absent on both sides, so it never shows as a change */ }
+        try { out.set(rel, createHash('sha256').update(readFileSync(abs)).digest('hex')); } catch { /* unreadable file: treated as absent on both sides, so it never shows as a change */ }
       }
     }
   };

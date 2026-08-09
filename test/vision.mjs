@@ -24,8 +24,7 @@ let pass = 0, fail = 0;
 // returns before any fetch, so calling it for real costs nothing. Sync tests are
 // unaffected: awaiting a non-promise is a no-op.
 async function test(name, fn) {
-  try { await fn(); pass++; console.log(`  ✓ ${name}`); }
-  catch (err) { fail++; console.log(`  ✗ ${name} — ${err.message}`); }
+  try { await fn(); pass++; console.log(`  ✓ ${name}`); } catch (err) { fail++; console.log(`  ✗ ${name} — ${err.message}`); }
 }
 
 console.log('VISION SUITE');

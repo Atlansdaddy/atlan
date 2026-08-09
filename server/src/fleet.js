@@ -644,7 +644,7 @@ function finish(run) {
     t: 'atlan.mood',
     mood: active.size ? 'building'
       : run.status === 'done' ? 'proud'
-      : run.status === 'killed' ? 'calm' : 'alarmed',
+        : run.status === 'killed' ? 'calm' : 'alarmed',
     agents: active.size,
   });
   const snippet = run.prompt.slice(0, 60);

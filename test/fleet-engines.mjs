@@ -41,8 +41,7 @@ let pass = 0, fail = 0;
 // Awaits the body so a test can exercise a real process tree. Sync tests are
 // unaffected: awaiting a non-promise is a no-op.
 async function test(name, fn) {
-  try { await fn(); pass++; console.log(`  ✓ ${name}`); }
-  catch (err) { fail++; console.log(`  ✗ ${name} — ${err.message}`); }
+  try { await fn(); pass++; console.log(`  ✓ ${name}`); } catch (err) { fail++; console.log(`  ✗ ${name} — ${err.message}`); }
 }
 
 console.log('FLEET ENGINES SUITE');

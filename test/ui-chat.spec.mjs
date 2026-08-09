@@ -30,8 +30,7 @@ globalThis.fetch = (url, opts = {}) => _fetch(url, { ...opts, headers: { ...(opt
 let pass = 0, fail = 0;
 const results = [];
 async function test(name, fn) {
-  try { await fn(); results.push(['OK', name]); pass++; }
-  catch (e) { results.push(['XX', name + ' — ' + e.message]); fail++; }
+  try { await fn(); results.push(['OK', name]); pass++; } catch (e) { results.push(['XX', name + ' — ' + e.message]); fail++; }
 }
 const browser = await chromium.launch({ args: ['--no-sandbox', '--disable-dev-shm-usage'] });
 const ctx = await browser.newContext({ viewport: { width: 412, height: 900 } });

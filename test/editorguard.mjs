@@ -17,8 +17,7 @@ import {
 
 let pass = 0, fail = 0;
 const test = async (name, fn) => {
-  try { await fn(); pass++; console.log(`  ✓ ${name}`); }
-  catch (e) { fail++; console.log(`  ✗ ${name}\n    ${e.message}`); }
+  try { await fn(); pass++; console.log(`  ✓ ${name}`); } catch (e) { fail++; console.log(`  ✗ ${name}\n    ${e.message}`); }
 };
 
 /** A fake cockpit: records what the UI was told and what hit the wire. */

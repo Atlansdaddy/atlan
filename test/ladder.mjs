@@ -14,8 +14,7 @@ import {
 
 let pass = 0, fail = 0;
 function test(name, fn) {
-  try { fn(); pass++; console.log(`  ✓ ${name}`); }
-  catch (err) { fail++; console.log(`  ✗ ${name} — ${err.message}`); }
+  try { fn(); pass++; console.log(`  ✓ ${name}`); } catch (err) { fail++; console.log(`  ✗ ${name} — ${err.message}`); }
 }
 
 console.log('LADDER SUITE');
@@ -265,8 +264,7 @@ atest('tokens are recorded per attempt, so the climb has a real cost trail', asy
 
 const run = async () => {
   for (const [name, fn] of asyncTest) {
-    try { await fn(); pass++; console.log(`  ✓ ${name}`); }
-    catch (err) { fail++; console.log(`  ✗ ${name} — ${err.message}`); }
+    try { await fn(); pass++; console.log(`  ✓ ${name}`); } catch (err) { fail++; console.log(`  ✗ ${name} — ${err.message}`); }
   }
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);

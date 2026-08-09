@@ -29,8 +29,7 @@ assert.equal(typeof atob, 'function', 'atob must be available to test base64url 
 
 let pass = 0, fail = 0;
 function test(name, fn) {
-  try { fn(); pass++; console.log(`  ✓ ${name}`); }
-  catch (err) { fail++; console.log(`  ✗ ${name} — ${err.message}`); }
+  try { fn(); pass++; console.log(`  ✓ ${name}`); } catch (err) { fail++; console.log(`  ✗ ${name} — ${err.message}`); }
 }
 
 console.log('WEB LIB SUITE');

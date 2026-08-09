@@ -11,8 +11,7 @@ const j = async (r) => ({ status: r.status, body: await r.json().catch(() => nul
 
 let pass = 0, fail = 0;
 async function test(name, fn) {
-  try { await fn(); pass++; console.log(`  ✓ ${name}`); }
-  catch (err) { fail++; console.log(`  ✗ ${name} — ${err.message}`); }
+  try { await fn(); pass++; console.log(`  ✓ ${name}`); } catch (err) { fail++; console.log(`  ✗ ${name} — ${err.message}`); }
 }
 
 console.log('FUNCTION SUITE');

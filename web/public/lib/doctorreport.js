@@ -44,8 +44,7 @@ function wrap(s, width) {
   for (const para of s.split('\n')) {
     let line = '';
     for (const word of para.split(' ')) {
-      if (line && (line + ' ' + word).length > width) { out.push(line); line = word; }
-      else line = line ? `${line} ${word}` : word;
+      if (line && (line + ' ' + word).length > width) { out.push(line); line = word; } else line = line ? `${line} ${word}` : word;
     }
     if (line) out.push(line);
   }

@@ -14,8 +14,7 @@ import { topUp, sendKill, TOPUP_LABEL, TOPUP_BUSY } from '../web/public/lib/flee
 
 let pass = 0, fail = 0;
 const test = async (name, fn) => {
-  try { await fn(); pass++; console.log(`  ✓ ${name}`); }
-  catch (e) { fail++; console.log(`  ✗ ${name}\n    ${e.message}`); }
+  try { await fn(); pass++; console.log(`  ✓ ${name}`); } catch (e) { fail++; console.log(`  ✗ ${name}\n    ${e.message}`); }
 };
 
 /** A button stand-in — the two properties the guard actually touches. */

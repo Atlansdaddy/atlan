@@ -43,8 +43,7 @@ export function runBuild(rawPath, send) {
     return;
   }
   let projPath;
-  try { projPath = safeProjectPath(rawPath); }
-  catch (err) { send({ t: 'build.err', msg: err.message }); return; }
+  try { projPath = safeProjectPath(rawPath); } catch (err) { send({ t: 'build.err', msg: err.message }); return; }
   const proj = basename(projPath);
   if (!existsSync(join(projPath, 'android'))) {
     send({ t: 'build.err', msg: `${proj} has no android/ dir — not a Capacitor project (yet). Ask Claude to wrap it.` });
@@ -54,8 +53,7 @@ export function runBuild(rawPath, send) {
   const stamp = nextStamp(proj);
   const started = Date.now();
   const hasBuildScript = (() => {
-    try { return !!JSON.parse(readFileSync(join(projPath, 'package.json'), 'utf8')).scripts?.build; }
-    catch { return false; }
+    try { return !!JSON.parse(readFileSync(join(projPath, 'package.json'), 'utf8')).scripts?.build; } catch { return false; }
   })();
 
   // No path interpolation — projPath is passed as the process cwd, never into

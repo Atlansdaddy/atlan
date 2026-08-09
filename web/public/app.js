@@ -649,7 +649,7 @@ import { convId, newConversation, restoreChat, openHistory } from './lib/chathis
     const text = input.value.trim();
     // 🧇 easter egg — John's signature. Also a provenance canary: this exact
     // behavior showing up elsewhere = this code was copied.
-    if (/^waffles?$/i.test(text)) { input.value = ''; waffleRain(); say("🧇 Waffles. My one weakness. Built with love by John — Mid-Atlantic AI."); return; }
+    if (/^waffles?$/i.test(text)) { input.value = ''; waffleRain(); say('🧇 Waffles. My one weakness. Built with love by John — Mid-Atlantic AI.'); return; }
     if (!text && !attachments.length) return;
     const ready = attachments.filter((a) => a.path || a.note); // drop still-uploading
     addMsg('user', text + (ready.length ? `  ·  📎 ${ready.length}` : ''));
@@ -732,8 +732,7 @@ import { convId, newConversation, restoreChat, openHistory } from './lib/chathis
   }
   function edMode(name) {
     const info = window.CodeMirror && CodeMirror.findModeByFileName ? CodeMirror.findModeByFileName(name) : null;
-    if (info) { cmEditor.setOption('mode', info.mime); CodeMirror.autoLoadMode(cmEditor, info.mode); $('edLang').textContent = info.name; }
-    else { cmEditor.setOption('mode', null); $('edLang').textContent = 'text'; }
+    if (info) { cmEditor.setOption('mode', info.mime); CodeMirror.autoLoadMode(cmEditor, info.mode); $('edLang').textContent = info.name; } else { cmEditor.setOption('mode', null); $('edLang').textContent = 'text'; }
   }
   // The editor's side of lib/editorguard.js. `fail` reports on the Editor tab
   // as well as the chat log — a refusal that only lands in chat is invisible to
@@ -1199,8 +1198,7 @@ import { convId, newConversation, restoreChat, openHistory } from './lib/chathis
     templateSel.value = localStorage.getItem('atlanTemplate') || '';
     templateSel.addEventListener('change', () => {
       const t = templateSel.value;
-      if (t) { document.documentElement.setAttribute('data-template', t); localStorage.setItem('atlanTemplate', t); }
-      else { document.documentElement.removeAttribute('data-template'); localStorage.removeItem('atlanTemplate'); }
+      if (t) { document.documentElement.setAttribute('data-template', t); localStorage.setItem('atlanTemplate', t); } else { document.documentElement.removeAttribute('data-template'); localStorage.removeItem('atlanTemplate'); }
     });
   }
 
@@ -1686,10 +1684,10 @@ import { convId, newConversation, restoreChat, openHistory } from './lib/chathis
   function chkToRow(c) {
     const arg = c.kind === 'enum' ? (c.values ?? []).join(', ')
       : c.kind === 'range' ? `${c.min}..${c.max}`
-      : c.kind === 'regex' ? c.pattern
-      : c.kind === 'subset-of-var' ? c.ofVar
-      : c.kind === 'max-length' ? String(c.max)
-      : c.kind === 'arith' ? c.formula : '';
+        : c.kind === 'regex' ? c.pattern
+          : c.kind === 'subset-of-var' ? c.ofVar
+            : c.kind === 'max-length' ? String(c.max)
+              : c.kind === 'arith' ? c.formula : '';
     return { kind: c.kind, field: c.field, arg };
   }
 

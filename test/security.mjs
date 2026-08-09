@@ -26,8 +26,7 @@ const rawStatus = (port, headers) => new Promise((resolve) => {
 
 let pass = 0, fail = 0;
 async function test(name, fn) {
-  try { await fn(); pass++; console.log(`  ✓ ${name}`); }
-  catch (err) { fail++; console.log(`  ✗ ${name} — ${err.message}`); }
+  try { await fn(); pass++; console.log(`  ✓ ${name}`); } catch (err) { fail++; console.log(`  ✗ ${name} — ${err.message}`); }
 }
 
 console.log('SECURITY / PENETRATION SUITE');
