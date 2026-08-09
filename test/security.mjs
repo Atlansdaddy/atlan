@@ -15,6 +15,7 @@ const j = async (r) => ({ status: r.status, body: await r.json().catch(() => ({}
 // Raw request so we can forge Host/Origin (fetch forbids those headers). Used to
 // prove the preview-proxy anti-rebinding gate.
 import http from 'node:http';
+import { homedir } from 'node:os'; // used at the $HOME credential-store test; was never imported
 import { REPO, repo, projectScratch as mkScratch, credPath } from './lib/paths.mjs';
 const PREVIEW_PORT = Number(process.env.ATLAN_PREVIEW_PORT ?? 4590);
 const rawStatus = (port, headers) => new Promise((resolve) => {

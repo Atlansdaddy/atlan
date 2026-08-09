@@ -25,7 +25,16 @@ import { agyBin, grokBin, copilotBin } from './agents.js';
 // same guarantee without agents.js and agentExec.js importing each other.
 // Re-exported here because fleet.js and the suites already import it from this
 // module, and the guarantee is the same one.
-export { killTree } from './procTree.js';
+//
+// IMPORTED and then exported — deliberately NOT `export { killTree } from ...`.
+// The re-export form creates no LOCAL binding, so the timeout handler below was
+// calling a name that did not exist in this scope: on timeout it threw
+// ReferenceError instead of killing the tree, which left the child alive and put
+// an uncaught exception in a timer callback. Found by no-undef on the linter's
+// first run; 846 tests never reached it because it only fires on timeout. The
+// comment at the kill site promises this exact asymmetry cannot happen.
+import { killTree } from './procTree.js';
+export { killTree };
 
 const BIN = {
   codex: () => 'codex',

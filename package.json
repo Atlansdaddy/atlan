@@ -16,6 +16,10 @@
     "acorn-loose": "^8.5.2"
   },
   "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@stylistic/eslint-plugin": "5.10.0",
+    "eslint": "10.8.1",
+    "globals": "17.9.0",
     "playwright": "1.61.1"
   }
 }
