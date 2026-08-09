@@ -137,4 +137,76 @@ t('missing battery and thermal read as unavailable, never as zero', () => {
   assert.doesNotMatch(out, /0\.0 C/);
 });
 
+// ── agent-work mode ──────────────────────────────────────────────────────────
+// Survival was only ever the precondition. The claim is "send agents off to work
+// on budgets while you sleep", so the report must separate a run that never came
+// back from one that did, from one that came back WRONG, from one that was never
+// issued because the spend ceiling stopped it. Those are four different answers
+// about the product and collapsing any two of them produces a false receipt.
+const run = (o) => JSON.stringify({ kind: 'run', at: 0, ...o });
+
+t('a run that never finished is stuck, not counted as work done', () => {
+  const out = report('stuck', [
+    cfg({ fleet: true }),
+    sample({ at: 1003, elapsed: 3, gap: 3 }),
+    run({ started: true, id: 'r1', n: 1 }),
+    run({ id: 'r1', finished: false, why: 'still running after 10min' }),
+    '{"kind":"end","at":1003}',
+  ]);
+  assert.match(out, /runs started {5}1/);
+  assert.match(out, /never finished {3}1/);
+  assert.doesNotMatch(out, /runs finished {4}1/, 'a stuck run must not count as finished');
+});
+
+t('a wrong answer counts as finished but NOT as correct', () => {
+  // A run can come back on time and come back garbage. Folding those together is
+  // how "the fleet worked all night" gets said about a night that produced junk.
+  const out = report('wrong', [
+    cfg({ fleet: true }),
+    sample({ at: 1003, elapsed: 3, gap: 3 }),
+    run({ started: true, id: 'r1', n: 1 }),
+    run({ id: 'r1', finished: true, status: 'done', tokens: 41000, cost: 0.02, answer: '9', correct: false, spent_total: 41000 }),
+    '{"kind":"end","at":1003}',
+  ]);
+  assert.match(out, /runs finished {4}1/);
+  assert.match(out, /answers correct {2}0/);
+  assert.match(out, /tokens spent {5}41000/);
+});
+
+t('runs stopped by the token ceiling are reported, never silently dropped', () => {
+  // A harness that quietly stops spending looks identical to one that ran all
+  // night. The ceiling doing its job IS a result and has to appear as one.
+  const out = report('capped', [
+    cfg({ fleet: true }),
+    sample({ at: 1003, elapsed: 3, gap: 3 }),
+    run({ started: true, id: 'r1', n: 1 }),
+    run({ id: 'r1', finished: true, status: 'done', tokens: 60000, cost: 0.03, answer: '1', correct: true, spent_total: 60000 }),
+    run({ skipped: 'token ceiling reached', spent: 60000, cap: 60000 }),
+    '{"kind":"end","at":1003}',
+  ]);
+  assert.match(out, /answers correct {2}1/);
+  assert.match(out, /skipped \(cap\) {4}1/);
+});
+
+t('a survival-only log says nothing at all about agent work', () => {
+  // The dangerous one: reading "VERDICT: survived" off a night that issued no
+  // agent turns, and quoting it as proof of the overnight claim.
+  const out = report('survival-only', [
+    cfg({ fleet: false }),
+    sample({ at: 1003, elapsed: 3, gap: 3 }),
+    '{"kind":"end","at":1003}',
+  ]);
+  assert.match(out, /VERDICT: survived/);
+  assert.doesNotMatch(out, /AGENT WORK/, 'no agent-work section without agent-work data');
+  assert.match(out, /"fleet":false/, 'the config line must show agent work was OFF');
+});
+
+t('--dry-run spends nothing and states the ceiling', () => {
+  const out = execFileSync('bash', [SCRIPT, '--fleet', '--dry-run'], { encoding: 'utf8' });
+  assert.match(out, /nothing has been sent/i);
+  assert.match(out, /profile {11}scout/);
+  assert.match(out, /night ceiling/);
+  assert.doesNotMatch(out, /VERDICT/, 'a dry run must not produce a verdict');
+});
+
 console.log(`\n${pass} passed, 0 failed`);
