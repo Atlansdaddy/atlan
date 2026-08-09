@@ -16,3 +16,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 process.env.ATLAN_FLEET_DIR ??= mkdtempSync(join(tmpdir(), 'atlan-test-'));
+
+// ATLAN_PROJECTS too, and for a second reason beyond isolation: without it the
+// two halves disagree about where a project may live. projectScratch() falls back
+// to tmpdir() while config.js's PROJECTS_DIR falls back to homedir(), so a direct
+// run creates its scratch project somewhere guardPath is right to refuse — and
+// every filesystem test then fails with "path must be under /root", which reads
+// like a broken wall rather than a misplaced fixture.
+process.env.ATLAN_PROJECTS ??= mkdtempSync(join(tmpdir(), 'atlan-projects-'));
