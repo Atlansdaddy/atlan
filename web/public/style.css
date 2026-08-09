@@ -621,3 +621,46 @@ header.tucked{transform:translateY(-100%)}
 .ctrltoggle{align-self:flex-start;background:none;border:0;color:var(--dim);font-size:11px;
   letter-spacing:.1em;text-transform:uppercase;padding:4px 2px;cursor:pointer}
 .ctrltoggle:hover{color:var(--accent)}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   SAFE AREA — adaptive per device, because it genuinely differs per device.
+
+   index.html sets viewport-fit=cover, which is what lets the app paint under the
+   system bars and reach the physical edge. The bargain is that you must then
+   inset the content yourself. Only two rules ever did — the preview fullscreen
+   layer and nav's padding-bottom — so the SHELL never got the horizontal insets
+   at all. On a flat-edged phone nobody notices. On a Galaxy S9, whose display
+   curves at both sides, the content runs into the curve and reads as too wide.
+
+   env(safe-area-inset-*) is the whole point here: the browser reports what THIS
+   device actually reserves, so one rule fits a notch, a punch-hole, a curved
+   edge and a gesture bar without measuring any of them. calc() ADDS to the
+   existing padding rather than replacing it, so a phone reporting 0 keeps
+   exactly the spacing it has today — no device regresses to fix another.
+   ───────────────────────────────────────────────────────────────────────────── */
+.screen{
+  padding-left:calc(env(safe-area-inset-left,0px) + 12px);
+  padding-right:calc(env(safe-area-inset-right,0px) + 12px);
+}
+header{
+  padding-top:calc(env(safe-area-inset-top,0px) + 12px);
+  padding-left:calc(env(safe-area-inset-left,0px) + 14px);
+  padding-right:calc(env(safe-area-inset-right,0px) + 14px);
+}
+nav{
+  padding-left:env(safe-area-inset-left,0px);
+  padding-right:env(safe-area-inset-right,0px);
+}
+/* The narrow-phone override lives after the media query it adjusts, so it has to
+   restate the inset or the S9 loses it again at <=560px. */
+@media (max-width:560px){
+  .screen{
+    padding-left:calc(env(safe-area-inset-left,0px) + 9px);
+    padding-right:calc(env(safe-area-inset-right,0px) + 9px);
+  }
+  /* 360dp-wide devices: the wordmark, mascot line and session block compete for
+     one row. Let the session block give up its width first — it is status, not
+     navigation. */
+  .atlan-line{max-width:none}
+  .sess{min-width:0}
+}
