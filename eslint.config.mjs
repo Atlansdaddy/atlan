@@ -85,7 +85,7 @@ export default [
     },
   },
   {
-    files: ['web/public/**/*.js', 'server/preview-shim.mjs'],
+    files: ['web/public/**/*.js'],
     languageOptions: {
       ecmaVersion: 'latest',
       sourceType: 'module',
