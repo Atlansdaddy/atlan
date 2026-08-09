@@ -411,7 +411,7 @@ export function probeConfinement({ net = 'none', scratch = defaultScratch(), for
       if (r.error) out += `\nspawn-error=${r.error.code || r.error.message}`;
     } finally { try { sib.kill('SIGKILL'); } catch { /* already gone */ } }
 
-    const v = (k) => (out.match(new RegExp(`^${k}=(.*)$`, 'm')) || [, null])[1];
+    const v = (k) => (out.match(new RegExp(`^${k}=(.*)$`, 'm')) || [null, null])[1];
     const ran = v('done') === '1';
 
     // Each control is ok ONLY on positive evidence. Absence of a line, a

@@ -86,7 +86,10 @@ const node = (src, env = {}, { expectFail = false } = {}) => {
     });
   } catch (err) {
     if (expectFail) return (err.stdout || '') + (err.stderr || '');
-    throw new Error(`subprocess failed: ${(err.stderr || err.stdout || err.message).slice(-500)}`);
+    // `cause` kept: the summary line below is what you read, but the original
+    // error carries the exit code and signal, and a suite that eats those makes
+    // "subprocess failed" the end of the trail instead of the start.
+    throw new Error(`subprocess failed: ${(err.stderr || err.stdout || err.message).slice(-500)}`, { cause: err });
   }
 };
 const scratch = (name) => { const d = join(STATE, name); mkdirSync(d, { recursive: true }); return d; };

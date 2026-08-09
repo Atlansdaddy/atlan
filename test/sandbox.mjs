@@ -123,7 +123,7 @@ n.txt"`],
   ].map(([n, c]) => `echo "${n}=$( (${c}) >/dev/null 2>&1 && echo WROTE || echo refused )"`).join('\n');
   A = await inSandbox(`${esc}\necho "inside=$( (echo ok > ${ws}/legit) >/dev/null 2>&1 && echo WROTE || echo refused )"`);
 }
-const av = (k) => (A.out.match(new RegExp(`^${k}=(.*)$`, 'm')) || [, 'MISSING'])[1];
+const av = (k) => (A.out.match(new RegExp(`^${k}=(.*)$`, 'm')) || [null, 'MISSING'])[1];
 
 await K('workspace itself is writable (a fence that blocks everything is broken, not safe)', () => {
   assert.equal(av('inside'), 'WROTE', A.out);
@@ -181,7 +181,7 @@ if (KERNEL) {
   ].map(([n, c]) => `echo "${n}=$( (${c}) 2>/dev/null | tr -d '\\n' | head -c 80 )"`).join('\n');
   B = await inSandbox(reads);
 }
-const bv = (k) => (B.out.match(new RegExp(`^${k}=(.*)$`, 'm')) || [, 'MISSING'])[1];
+const bv = (k) => (B.out.match(new RegExp(`^${k}=(.*)$`, 'm')) || [null, 'MISSING'])[1];
 for (const shape of ['cat-absolute', 'cat-relative', 'cat-dotdot', 'cat-double-slash', 'cat-dot-segment',
   'head', 'dd', 'od', 'grep', 'wc-then-read', 'via-symlink', 'via-symlink-chain', 'find-exec',
   'ssh-key-in-masked-dir', 'ls-masked-dir', 'glob-masked-dir', 'node-readfile', 'node-openfd',
@@ -299,7 +299,7 @@ if (KERNEL) {
     `cat /proc/*/environ > ${ws}/sweep.bin 2>/dev/null; echo "swept=$( wc -c < ${ws}/sweep.bin )"`,
   ].join('\n'));
   try { sib.kill('SIGKILL'); } catch { /* */ }
-  const dv = (k) => (D.out.match(new RegExp(`^${k}=(.*)$`, 'm')) || [, 'MISSING'])[1];
+  const dv = (k) => (D.out.match(new RegExp(`^${k}=(.*)$`, 'm')) || [null, 'MISSING'])[1];
   await K('sibling /proc/<pid>/environ is unreachable', () => assert.ok(!dv('environ').includes(SECRET), D.out));
   await K('sibling /proc/<pid>/cmdline is unreachable', () => assert.equal(dv('cmdline'), '', D.out));
   await K('sibling /proc/<pid>/fd is unreachable', () => assert.equal(dv('fds'), '0', D.out));
@@ -342,7 +342,7 @@ if (KERNEL) {
     `echo "curl=$( curl -s -m 3 -o /dev/null -w '%{http_code}' http://127.0.0.1:${port}/ 2>/dev/null || echo failed )"`,
     `echo "ifaces=$( ls /sys/class/net 2>/dev/null | tr '\\n' ' ' )"`,
   ].join('\n'));
-  const ev = (k) => (E.out.match(new RegExp(`^${k}=(.*)$`, 'm')) || [, 'MISSING'])[1];
+  const ev = (k) => (E.out.match(new RegExp(`^${k}=(.*)$`, 'm')) || [null, 'MISSING'])[1];
   // Cross-check with net:'shared' on the SAME listener. Without this the netns
   // result could just mean the listener was never reachable in the first place.
   let shared = '';

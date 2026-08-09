@@ -35,7 +35,7 @@ export async function saveUpload({ name, mime, data }) {
   if (buf.length > MAX_BYTES) throw new Error(`attachment too big (max ${MAX_BYTES / 1024 / 1024}MB)`);
   const kind = kindOf(mime, name);
   const id = randomUUID().slice(0, 8);
-  const safe = (name || 'file').replace(/[^\w.\-]/g, '_').slice(-60);
+  const safe = (name || 'file').replace(/[^\w.-]/g, '_').slice(-60);
   const path = join(DIR, `${id}-${safe}`);
   writeFileSync(path, buf);
   const out = { id, kind, name: name || safe, path, note: null };

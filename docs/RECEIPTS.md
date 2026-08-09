@@ -20,6 +20,7 @@ _Free suites only. The E2E suite (real Claude runs) is opt-in — `RUN_PAID=1 no
 | Connection | Live WebSocket + PTY: authed connect, 4001 on bad token, malformed-frame survival, multi-client broadcast, tmux round-trip, reconnection. (Spawns 2 tiny killed runs.) | ✅ 10/10 |
 | Proot ladder | The confinement ladder measured THROUGH a ptrace supervisor — the context Atlan actually runs in on a phone. Exists because the default tier was once raised to T1 on a bare-kernel measurement that was true and was not this environment: under proot the same binary loses two T1 rungs to SIGSYS, so a T1 default would have refused every agent run on the primary platform. Pins the rule that a tier measured without the supervisor is not a measurement of this product. | ✅ 8/8 |
 | Confinement tier | The homebuilt confinement layer, attacked rather than described: the 15-rung behavioural ladder run on THIS device, the full (declared, established) refusal matrix, the credential grant list, and per-control escapes — relative and symlink path escapes, TOCTOU grant swaps, static binaries, direct syscalls, unlisted syscalls, inherited descriptors, AF_UNIX and loopback egress. Compiles the real launcher and runs real processes under it; skips (counted, printed) on a device with no toolchain. | ✅ 114/114 |
+| Lint | ESLint as a gate rather than a suggestion. Exists because the linter's first run found a bug 846 tests never reached: agentExec.js re-exported killTree with `export { x } from`, which creates no LOCAL binding, so the run-timeout handler threw ReferenceError instead of killing the process tree — child left alive, uncaught exception in a timer callback. no-undef catches that whole class, a name referenced and never bound, and only keeps catching it if a violation fails the build. Runs the whole ruleset, not a chosen subset, because picking the important rules is how a config drifts from what CI enforces. | ✅ 2/2 |
 | Endurance report | The tool that answers the one README claim carrying no receipt — "send agents off to work on budgets while you sleep." Its failure mode is silent: a report printing SURVIVED about a night the OS froze turns an open question into a false answer. Asserts the freeze threshold is read from the LOG's own config rather than the reporting flags (a 3s-interval run judged by the 60s default loses a 400s freeze), that Doze and a dead cockpit get different verdicts because they need different fixes, that every verdict carries the configuration it applies to so a plugged-in whitelisted run cannot be quoted as the pessimistic one, and that a missing sensor reads "unavailable" rather than a fabricated zero. | ✅ 8/8 |
 | Security/Penetration | Auth bypass, SSRF (preview + harness), secret exfiltration, path traversal, stored-XSS, oversized-body DoS, profile privilege-escalation. | ✅ 47/47 |
 | Walls | Every wall SECURITY.md claims, exercised by BEHAVIOUR rather than by grepping the source. A mutation pass found that the daily token cap, the concurrency cap, the budget clamp, the in-flight reservation, scout's canUseTool, the preview proxy's WS-upgrade gate, atomicWrite's 0600 and temp+rename, the failed-login throttle, session revocation, the session store's freedom from replayable tokens and scrubbedEnv's explicit DROP list could all be neutered with the whole gate still green — because the assertions read the source text instead of making the thing happen. Boots its OWN cockpit (it changes the password and SIGKILLs the process), and covers the orphaned-child, corrupt-store, silent-exit and scheduler classes the same way. | ✅ 51/51 |
@@ -38,7 +39,7 @@ _Free suites only. The E2E suite (real Claude runs) is opt-in — `RUN_PAID=1 no
 | Tour/Onboarding | Drives all tour steps live — every step spotlights a real visible element; handbook opens/searches/relaunches. | ✅ 10/10 |
 | UI · Fleet | Every Fleet control driven at 412x900: top-up cannot be double-tapped into a double-spend, a kill that fails is reported, the header burn gauge moves while a run burns, Hierarchy job links come with a command selected, and Builder rows stay wide enough to type into. First of the five per-surface specs to reach zero — the rest join as their surfaces are fixed (docs/UI-AUDIT.md). | ✅ 29/29 |
 
-**Total: 846 passed, 0 failed across 26 suites.**
+**Total: 848 passed, 0 failed across 27 suites.**
 
 ## Unit
 
@@ -515,6 +516,19 @@ SANDBOX / CONFINEMENT SUITE
   ✓ establish() surfaces the rung that certified the top tier
 
 114 passed, 0 failed
+```
+
+## Lint
+
+ESLint as a gate rather than a suggestion. Exists because the linter's first run found a bug 846 tests never reached: agentExec.js re-exported killTree with `export { x } from`, which creates no LOCAL binding, so the run-timeout handler threw ReferenceError instead of killing the process tree — child left alive, uncaught exception in a timer callback. no-undef catches that whole class, a name referenced and never bound, and only keeps catching it if a violation fails the build. Runs the whole ruleset, not a chosen subset, because picking the important rules is how a config drifts from what CI enforces.
+
+```
+$ node test/lint.mjs
+Lint
+  ok  eslint reports no problems
+  ok  eslint.config.mjs loads
+
+2 passed, 0 failed
 ```
 
 ## Endurance report

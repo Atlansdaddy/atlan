@@ -41,7 +41,7 @@ export default [
       // Style, matched to what this codebase already does rather than to a
       // default. Every one of these was chosen by reading the existing source.
       '@stylistic/semi': ['error', 'always'],
-      '@stylistic/quotes': ['error', 'single', { avoidEscape: true, allowTemplateLiterals: true }],
+      '@stylistic/quotes': ['error', 'single', { avoidEscape: true, allowTemplateLiterals: 'always' }],
       '@stylistic/indent': ['error', 2, { SwitchCase: 1, ignoredNodes: ['TemplateLiteral *'] }],
       '@stylistic/comma-dangle': ['error', 'only-multiline'],
       '@stylistic/no-trailing-spaces': 'error',
@@ -64,10 +64,20 @@ export default [
         caughtErrors: 'none', // `catch (e) {}` with a deliberately unused binding is a pattern here
       }],
       'no-empty': ['error', { allowEmptyCatch: true }], // deliberately-empty catches carry a comment saying why
+
+      // OFF, deliberately. It cannot tell a dead store from a FAIL-CLOSED
+      // DEFAULT, and this codebase leans on the latter: `let keysOk = false`
+      // before the security preflight decides, `let conf = null` before a
+      // confinement attempt that may throw, `let dir = false` before a statSync
+      // inside a try whose catch continues. Each is "useless" by the rule's
+      // reading because some later branch always assigns — and each is exactly
+      // the value you want if a future edit adds a branch that doesn't.
+      // Obeying it here would trade a safe default for a lint score.
+      'no-useless-assignment': 'off',
     },
   },
   {
-    files: ['server/**/*.js', 'test/**/*.mjs', 'scripts/**/*.mjs', 'eslint.config.mjs'],
+    files: ['server/**/*.js', 'server/**/*.mjs', 'test/**/*.mjs', 'scripts/**/*.mjs', 'eslint.config.mjs'],
     languageOptions: {
       ecmaVersion: 'latest',
       sourceType: 'module',

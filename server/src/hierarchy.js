@@ -180,7 +180,7 @@ async function execJob(run) {
       step.checks = verdict.results;
       step.output = out && !err ? stripMeta(out) : null;
 
-      if (run.tokens >= run.budget) { step.status = 'halted'; step.note = 'job budget hit'; run.status = 'halted-budget'; done = true; break; }
+      if (run.tokens >= run.budget) { step.status = 'halted'; step.note = 'job budget hit'; run.status = 'halted-budget'; break; }
 
       if (verdict.passed) {
         // human gate where configured / where tier-3 risk concentrates
@@ -188,7 +188,7 @@ async function execJob(run) {
           || (job.humanGate === 'on-tier3' && link.escalation.length && tierId === link.escalation[link.escalation.length - 1]);
         if (gate) {
           const decision = await humanGate(run, step);
-          if (!decision.approve) { step.status = 'rejected'; step.note = 'you rejected this output'; run.status = 'halted'; run.result = `stopped at ${link.id} (human reject)`; done = true; break; }
+          if (!decision.approve) { step.status = 'rejected'; step.note = 'you rejected this output'; run.status = 'halted'; run.result = `stopped at ${link.id} (human reject)`; break; }
           if (decision.editedOutput) step.output = decision.editedOutput;
         }
         step.status = 'done'; step.passed = true;

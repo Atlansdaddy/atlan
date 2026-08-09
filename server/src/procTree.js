@@ -19,8 +19,10 @@
 export function killTree(child, { graceMs = 3000 } = {}) {
   if (!child?.pid) return false;
   const signal = (sig) => {
-    try { process.kill(-child.pid, sig); return true; }      // whole group
-    catch { try { child.kill(sig); return true; } catch { return false; } } // group gone → try the pid
+    // Whole group first (negative pid). If the group is already gone, fall back
+    // to the pid alone — flattened from a nested try/catch, same two attempts.
+    try { process.kill(-child.pid, sig); return true; } catch { /* group gone — try the pid */ }
+    try { child.kill(sig); return true; } catch { return false; }
   };
   const sent = signal('SIGTERM');
   const t = setTimeout(() => { if (child.exitCode === null && child.signalCode === null) signal('SIGKILL'); }, graceMs);
