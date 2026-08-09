@@ -223,11 +223,16 @@ await test('chat history opens, searches, and closes', async () => {
   assert.ok(await page.locator('#histPanel').isHidden(), 'close did not close it');
 });
 
-await test('the composer names the engine you selected', async () => {
-  // Regression guard for the copy fix: it said "Message Claude Code…" with Grok
-  // selected, then said nothing useful at all, and now follows the picker.
+await test('the composer names ATLAN, never a vendor', async () => {
+  // It said "Message Claude Code…" with Grok selected; then it followed the
+  // picker's optgroup, which put Claude's name on a Galaxy S9 that has no Claude
+  // installed and whose only ready engine is the local model. You message Atlan;
+  // Atlan routes it, and the engine picker directly above already says which.
   const ph = await page.locator('#chatInput').getAttribute('placeholder');
-  assert.match(ph, /^Message .+…$/, `the placeholder should name a target, got ${JSON.stringify(ph)}`);
+  assert.equal(ph, 'Message Atlan…', `got ${JSON.stringify(ph)}`);
+  for (const vendor of ['Claude', 'Codex', 'Grok', 'Copilot', 'Gemini']) {
+    assert.ok(!ph.includes(vendor), `the composer must not advertise ${vendor}`);
+  }
 });
 
 await test('a PEER message renders attributed, never as the user', async () => {

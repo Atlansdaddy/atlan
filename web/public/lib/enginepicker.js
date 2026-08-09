@@ -28,16 +28,20 @@
  * about to read the sentence they type. Generic copy is not neutral; it moves
  * the question somewhere you cannot see it.
  *
- * So it follows the selection. The optgroup carries the ENGINE, which is the
- * part worth showing; the option carries the model, which the picker shows anyway.
+ * Following the selection was the next attempt, and it read the optgroup label —
+ * which put "Message Claude Code…" on a Galaxy S9 where Claude is not installed
+ * and the local model is the only ready engine. It was naming whatever the
+ * roster happened to select first, not what you were talking to.
+ *
+ * IT SAYS "Message Atlan…" NOW (John's call, 2026-08-09). You are messaging
+ * Atlan; Atlan routes it. That is not the generic copy this comment warns about —
+ * "your agent" hides the question, "Atlan" answers it — and the engine picker
+ * sits directly above, already naming the engine and the model. It also cannot
+ * go stale or advertise something the device does not have.
  */
 export function initComposerHint({ select, input }) {
   if (!select || !input) return null;
-  const paint = () => {
-    const opt = select.selectedOptions?.[0];
-    const group = opt?.parentElement?.label?.split('—')[0]?.trim();
-    input.placeholder = group ? `Message ${group}…` : 'Message your agent…';
-  };
+  const paint = () => { input.placeholder = 'Message Atlan…'; };
   select.addEventListener('change', paint);
   // The roster arrives asynchronously, so repaint when the options actually
   // land — otherwise the hint stays whatever the markup happened to ship with.

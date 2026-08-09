@@ -1211,7 +1211,7 @@ PLAYWRIGHT UI SUITE
   ✓ inline-AI whole-file rewrite becomes a PROPOSAL — Save is inert until a path is chosen
   ✓ preview MAXIMISES and comes back
   ✓ chat history opens, searches, and closes
-  ✓ the composer names the engine you selected
+  ✓ the composer names ATLAN, never a vendor
   ✓ a PEER message renders attributed, never as the user
   ✓ doctor renders GROUPED, containment findable by name
   ✓ no uncaught page errors during the run
