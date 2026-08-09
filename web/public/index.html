@@ -97,18 +97,26 @@
         </select>
       </div>
       <div id="attachChips" class="attachchips"></div>
-      <!-- Auto-approve. OFF by default, and it stays off until someone chooses:
-           an approval gate that arms itself is not a gate. The armed state shows
-           on the composer for the same reason — you should never have to wonder
-           whether the next tool call will ask. -->
-      <div class="autoapprove">
-        <label for="autoSel">auto-approve</label>
-        <select id="autoSel" aria-label="auto-approve profile">
-          <option value="">off — ask me every tool</option>
-          <option value="scout">scout — reads only</option>
-          <option value="verifier">verifier — reads + runs checks</option>
-          <option value="builder">builder — files + bash in this project</option>
-        </select>
+      <!-- The set-once controls, folded by default. On a 5.8" screen the
+           conversation was down to about a third of the display; these are the
+           rows you touch once a session, so they are the ones that hide. The
+           composer, the engine and the project never fold — those are the ones
+           you reach for mid-thought. -->
+      <button id="ctrlToggle" class="ctrltoggle" aria-expanded="false" aria-controls="ctrlPanel">⌄ more controls</button>
+      <div id="ctrlPanel" hidden>
+        <!-- Auto-approve. OFF by default, and it stays off until someone chooses:
+             an approval gate that arms itself is not a gate. The armed state shows
+             on the composer for the same reason — you should never have to wonder
+             whether the next tool call will ask. -->
+        <div class="autoapprove">
+          <label for="autoSel">auto-approve</label>
+          <select id="autoSel" aria-label="auto-approve profile">
+            <option value="">off — ask me every tool</option>
+            <option value="scout">scout — reads only</option>
+            <option value="verifier">verifier — reads + runs checks</option>
+            <option value="builder">builder — files + bash in this project</option>
+          </select>
+        </div>
       </div>
       <div class="composer">
         <button class="btn iconbtn" id="micBtn" title="speak (voice input)" aria-label="voice input">🎤</button>
@@ -117,7 +125,8 @@
         <button class="btn hot send" id="sendBtn" aria-label="send message">➤</button>
       </div>
       <input type="file" id="attachFile" multiple style="display:none">
-      <div class="attachref">
+      <!-- Reachable from 📎 as well, so folding this row loses no capability. -->
+      <div class="attachref" id="attachRefRow" hidden>
         <input id="attachRefPath" placeholder="…or reference a file/folder path in your project" spellcheck="false">
         <button class="btn ghost" id="attachRefBtn">＋ ref</button>
       </div>

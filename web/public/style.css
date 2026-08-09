@@ -607,3 +607,17 @@ a{color:var(--accent)}
 .autoapprove.armed label{color:var(--accent)}
 .autoapprove.armed select{border-color:var(--accent)}
 .sessline.permdenied{color:var(--bad,#ff6723)}
+
+/* Header tuck. TRANSFORM, not display or height — collapsing the box would
+   reflow the scroller mid-scroll and jump the text under the reader's thumb,
+   which is the artifact this exists to avoid. The header keeps its space; it
+   just moves out of the way. */
+header{transition:transform .18s ease}
+header.tucked{transform:translateY(-100%)}
+
+/* The chevron. Deliberately quiet — it is a disclosure, not an action, and it
+   sits between the conversation and the composer where a loud control would
+   compete with the send button. */
+.ctrltoggle{align-self:flex-start;background:none;border:0;color:var(--dim);font-size:11px;
+  letter-spacing:.1em;text-transform:uppercase;padding:4px 2px;cursor:pointer}
+.ctrltoggle:hover{color:var(--accent)}

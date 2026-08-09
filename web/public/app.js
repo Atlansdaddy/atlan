@@ -28,6 +28,7 @@ import { renderDoctor } from './lib/doctorview.js';
 import { msgClass, whoLabel, sessionLine, autoPermLine } from './lib/msgstyle.js';
 import { normalizeProfile, initAutoApprove } from './lib/autoapprove.js';
 import { permCard } from './lib/permcard.js';
+import { initProjectPicker, initHeaderAutohide, initControlCollapse } from './lib/chrome.js';
 let autoApprove = null; // set at init; .refresh() re-reads after + New switches conversation
 import { initPreviewMax } from './lib/previewmax.js';
 import { convId, newConversation, restoreChat, openHistory } from './lib/chathistory.js';
@@ -677,13 +678,7 @@ import { convId, newConversation, restoreChat, openHistory } from './lib/chathis
   });
 
   // ── projects ──
-  fetch('/api/projects').then((r) => r.json()).then((list) => {
-    for (const p of list) {
-      const o = document.createElement('option');
-      o.value = p.path; o.textContent = p.name;
-      $('projSel').append(o);
-    }
-  }).catch(() => {});
+  initProjectPicker({ select: $('projSel') });
   $('projSel').addEventListener('change', () => {
     // separator-agnostic: project paths are host paths (win32 sends C:\…)
     $('projName').textContent = $('projSel').value.split(/[\\/]/).pop() || 'no project';
@@ -1975,4 +1970,8 @@ import { convId, newConversation, restoreChat, openHistory } from './lib/chathis
   initPreviewMax({ section: $('s-preview'), button: $('previewMax') }); initComposerHint({ select: $('modelSel'), input: $('chatInput') });
   // Remembered PER CONVERSATION, so arming one chat to build never arms the next.
   autoApprove = initAutoApprove({ select: $('autoSel'), conv: convId });
+  // Give the conversation its screen back: header tucks while reading, set-once
+  // controls fold. The nav bar stays — it is the only route between eight panels.
+  initHeaderAutohide({ header: document.querySelector('header'), scroller: chatlog });
+  initControlCollapse({ toggle: $('ctrlToggle'), panel: $('ctrlPanel'), also: [$('attachRefRow')] });
 })();

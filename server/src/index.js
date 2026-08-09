@@ -3,7 +3,7 @@ import { createServer } from 'node:http';
 import { WebSocketServer } from 'ws';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { readdirSync, statSync } from 'node:fs';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { ClaudeSession } from './claudeEngine.js';
 import { openPty, writePty, resizePty } from './pty.js';
@@ -528,13 +528,47 @@ app.get('/api/projects', (_req, res) => {
       if (!statSync(p).isDirectory()) continue;
       const hasGit = existsQuiet(join(p, '.git'));
       const hasPkg = existsQuiet(join(p, 'package.json'));
-      if (hasGit || hasPkg) out.push({ name, path: p });
+      if (hasGit || hasPkg) out.push({ name, path: p, ...(hasGit ? gitLabel(p) ?? {} : {}) });
     } catch { /* unreadable dir */ }
   }
   res.json(out);
 });
 
 function existsQuiet(p) { try { statSync(p); return true; } catch { return false; } }
+
+/**
+ * Which branch a project directory is on, and whether it is a WORKTREE.
+ *
+ * The picker listed eleven "projects" of which nine were one repo: six git
+ * worktrees and two clones, each on a different branch, all named atlan-something
+ * and indistinguishable in a dropdown. Scrolling it felt like scrolling branches
+ * because it was.
+ *
+ * A clone's `.git` is a DIRECTORY. A worktree's `.git` is a FILE holding
+ * "gitdir: /path/to/main/.git/worktrees/<name>". statSync cannot tell those apart,
+ * which is why both read as "a project".
+ *
+ * Read, never spawn. `git rev-parse` per directory is a process per project on
+ * every page load, and the reference platform is a phone.
+ */
+function gitLabel(dir) {
+  try {
+    const dotgit = join(dir, '.git');
+    const st = statSync(dotgit);
+    let gitdir = dotgit;
+    let worktree = false;
+    if (st.isFile()) {
+      worktree = true;
+      const m = /gitdir:\s*(.+)/.exec(readFileSync(dotgit, 'utf8'));
+      if (!m) return null;
+      gitdir = m[1].trim();
+    }
+    const head = readFileSync(join(gitdir, 'HEAD'), 'utf8').trim();
+    const ref = /^ref:\s*refs\/heads\/(.+)$/.exec(head);
+    // Detached HEAD is a real state, not an error — show the short sha.
+    return { branch: ref ? ref[1] : head.slice(0, 8), worktree };
+  } catch { return null; }
+}
 
 const server = createServer(app);
 const wss = new WebSocketServer({ server, path: '/ws' });
