@@ -23,6 +23,46 @@ await test('GET /api/doctor → array of {id,label,ok,detail}', async () => {
   assert.ok(Array.isArray(body) && body.length > 5);
   for (const c of body) assert.ok('id' in c && 'label' in c && 'ok' in c && 'detail' in c);
 });
+await test('every doctor row carries the QUESTION it answers', async () => {
+  // doctor.js had no test naming it, and it was restructured into groups — so
+  // this pins the contract the tab renders from. A row with no group would fall
+  // into Health silently and the grouping would quietly stop meaning anything.
+  const { body } = await j(await api('/api/doctor'));
+  const known = new Set(['safety', 'engines', 'build', 'health']);
+  for (const c of body) {
+    assert.ok(c.group, `${c.id} has no group`);
+    assert.ok(known.has(c.group), `${c.id} is in unknown group ${c.group}`);
+    assert.ok(c.groupLabel, `${c.id} carries no group label for the UI to render`);
+  }
+});
+await test('the containment row is named for the question, not the implementation', async () => {
+  // It was "Homebuilt confinement ladder (atlan-confine, seccomp)" and a user
+  // looking for exactly this scrolled past it.
+  const { body } = await j(await api('/api/doctor'));
+  const row = body.find((c) => c.id === 'confine');
+  assert.ok(row, 'the confinement row must exist');
+  assert.equal(row.group, 'safety');
+  assert.match(row.label, /containment/i, `label should say what it answers, got "${row.label}"`);
+  assert.ok(!/atlan-confine|seccomp/i.test(row.label), 'the implementation name belongs in the detail, not the label');
+  assert.match(row.detail, /established T[0-3S]/, 'the detail must state the tier it measured');
+});
+await test('the CLI-connections row reports binary AND auth per engine', async () => {
+  // Installed-but-logged-out and never-installed used to look identical.
+  const { body } = await j(await api('/api/doctor'));
+  const row = body.find((c) => c.id === 'cli-connections');
+  assert.ok(row, 'the connections row must exist');
+  assert.equal(row.group, 'engines');
+  assert.match(row.detail, /\d+\/\d+ usable/, 'it must count what is usable');
+  assert.match(row.detail, /bin (ok|MISSING)/, 'it must say whether the binary runs');
+  assert.match(row.detail, /auth (ok|—|NO AUTH)/, 'and whether it is authenticated');
+});
+await test('the chat-store row reports usage and never claims to have acted', async () => {
+  const { body } = await j(await api('/api/doctor'));
+  const row = body.find((c) => c.id === 'chat-store');
+  assert.ok(row, 'the transcripts row must exist');
+  assert.match(row.detail, /conversation/, 'it must say how many conversations');
+  assert.ok(!/deleted|removed|pruned/i.test(row.detail), 'nothing is ever deleted to save space, so nothing may say it was');
+});
 await test('GET /api/engines → agents + brains, grouped', async () => {
   const { body } = await j(await api('/api/engines'));
   assert.ok(Array.isArray(body));

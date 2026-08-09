@@ -13,6 +13,7 @@ import { _testInternals as AUTH } from '../server/src/auth.js';
 import { runBuild } from '../server/src/build.js';
 import { appendChat, readChat, listChats, deleteChat, validId, MAX_TEXT, chatUsage, archiveChats, resolveTarget, listProjects, _testInternals as CHATLOG } from '../server/src/chatlog.js';
 import { agentStatus, agentBinaries } from '../server/src/agents.js';
+import { _testInternals as PREVIEW } from '../server/src/preview.js';
 import { draftPrompt, normaliseDraft, previewCompiled } from '../server/src/personaDraft.js';
 import {
   checkPeerMessage, recordPeerMessage, clearBacklog, resetPeerLimits, peerLimitState,
@@ -161,6 +162,49 @@ test('nothing is archived when nothing matches, and nothing is removed', () => {
   assert.strictEqual(r.archived, 0);
   assert.strictEqual(listChats().length, before, 'a no-op archive must not touch the store');
 });
+// ── the preview proxy's origin guard: the SSRF / rebinding boundary ──
+// Port 4590 is UNAUTHENTICATED by design (an iframe cannot carry the cockpit's
+// cookie), so this function is the only thing standing between a malicious page
+// and a proxy that will fetch on its behalf. It had no test, because it was not
+// exported — which is how a boundary ends up unverified without anyone deciding
+// that it should be.
+const asReq = (host, origin) => ({ headers: { host, ...(origin ? { origin } : {}) } });
+
+test('preview guard ACCEPTS loopback with no Origin (a top-level navigation)', () => {
+  for (const h of ['127.0.0.1:4590', 'localhost:4590', '[::1]:4590', '127.0.0.1']) {
+    assert.strictEqual(PREVIEW.previewOriginOk(asReq(h)), true, `${h} should be allowed`);
+  }
+});
+test('preview guard ACCEPTS a same-name Origin on a DIFFERENT port', () => {
+  // `tailscale serve` terminates TLS on its own port and forwards here, so the
+  // port a browser reports is not one this process can know. Pinning it would
+  // reject our own frame; the attacker is on a different NAME, not a port.
+  assert.strictEqual(PREVIEW.previewOriginOk(asReq('127.0.0.1:4590', 'http://127.0.0.1:5173')), true);
+  assert.strictEqual(PREVIEW.previewOriginOk(asReq('localhost:4590', 'https://localhost')), true);
+});
+test('preview guard REFUSES a forged Host — this is the DNS-rebinding vector', () => {
+  for (const h of ['evil.example.com', 'attacker.test:4590', 'foo.bar']) {
+    assert.strictEqual(PREVIEW.previewOriginOk(asReq(h)), false, `${h} must be refused`);
+  }
+});
+test('preview guard REFUSES a cross-site Origin on an allowed Host', () => {
+  assert.strictEqual(PREVIEW.previewOriginOk(asReq('127.0.0.1:4590', 'https://evil.example.com')), false);
+});
+test('preview guard is not fooled by a hostname that merely CONTAINS a loopback name', () => {
+  // The lookalike class: suffix, prefix, and embedded. A substring match would
+  // pass every one of these.
+  for (const h of ['127.0.0.1.evil.com', 'evil-127.0.0.1.com', 'localhost.evil.com',
+    'notlocalhost', 'localhosts', 'xlocalhost']) {
+    assert.strictEqual(PREVIEW.previewOriginOk(asReq(h)), false, `${h} must not pass as loopback`);
+    assert.strictEqual(PREVIEW.previewOriginOk(asReq('127.0.0.1', `http://${h}`)), false,
+      `${h} must not pass as an Origin either`);
+  }
+});
+test('preview guard REFUSES a missing or malformed Host rather than defaulting open', () => {
+  assert.strictEqual(PREVIEW.previewOriginOk({ headers: {} }), false, 'no Host must not mean allowed');
+  assert.strictEqual(PREVIEW.previewOriginOk(asReq('')), false);
+});
+
 // ── runaway control on chat-to-chat messages ──
 // A person sends one message. Two agents given the same ability answer each
 // other, and every answer is a real turn: tokens, a spawned CLI, a phone kept

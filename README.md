@@ -147,12 +147,39 @@ bin/atlan-serve.sh start          # durable: detached, auto-respawns, survives a
 
 Then open `http://127.0.0.1:4589`. On first load you **set a password** (8+ chars); a long-lived httpOnly session cookie keeps you logged in across restarts. Take the guided tour (the `?` button reopens it and the searchable handbook any time). See `docs/SETUP.md` for the full clone-and-run guide.
 
+## Configure it
+
+Everything below has a working default — Atlan runs with none of these set. They
+are listed because **an undocumented environment variable is a setting nobody can
+find**, and an audit on 2026-08-08 found fourteen of them, including the one that
+raises the confinement tier.
+
+| variable | default | what it does |
+|---|---|---|
+| `ATLAN_CONFINE_TIER` | `T0` | The confinement tier a run **declares**. `T0` · `TS` · `T1` · `T2` · `T3`. A run whose declaration outruns what the device can prove does not start, and the Doctor names the rung that said no. See `docs/SECURITY.md` before raising it. |
+| `ATLAN_DEFAULT_ENGINE` | `claude` | Engine used when a request names none. |
+| `ATLAN_SANDBOX` | off | `1` passes the Agent SDK's OS-sandbox option to autonomous fleet Bash. Needs kernel user namespaces — unavailable under proot. |
+| `ATLAN_ASSUME_NO_SANDBOX` | off | `1` forces the no-kernel-sandbox path. For testing the phone's behaviour from a PC, and for demanding Atlan-side containment where the kernel would have helped. |
+| `ATLAN_ORIGIN` | — | An extra origin the guard accepts (a tunnel hostname). |
+| `ATLAN_SECURE_COOKIE` | off | `1` sets the `Secure` cookie flag. Set it behind TLS. |
+| `ATLAN_FLEET_DIR` | `<repo>/.fleet` | Where durable state lives: runs, routines, sessions, keys, **chat transcripts**. |
+| `ATLAN_CHAT_ARCHIVE_BYTES` | `15 GB` | Transcript size at which the Doctor suggests archiving. Nothing is ever deleted automatically. |
+| `ATLAN_PROJECTS` | `/root` | The projects directory the picker lists and every guard scopes to. |
+| `ATLAN_MODELS_DIR` · `ATLAN_LLAMA_SERVICE` · `ATLAN_LLAMA_DEFAULTS` | — | Local `llama-server`: where models live, the service name, and its launch flags. |
+| `ATLAN_TIER_LOCAL_BASE` · `ATLAN_TIER_CLOUDSM_BASE` · `ATLAN_TIER_FRONTIER_MODEL` | — | Override a worker-hierarchy rung's endpoint or model. |
+| `ATLAN_SECRET` | — | Key for the credential-blinding layer. |
+| `ATLAN_TOKEN` | — | Automation bearer, sent as a header. Never put it in a URL. |
+| `ANTHROPIC_API_KEY` · `ANTIGRAVITY_API_KEY` · `XAI_API_KEY` · `GITHUB_TOKEN` / `GH_COPILOT_TOKEN` · `CODEX_API_KEY` | — | Per-engine credentials. Each is granted **only** to the engine that needs it — the env is not copied wholesale, which is what once handed codex the xAI key. |
+| `PREFIX` | — | Set by Termux; used to find the toolchain when building a grant list. |
+
 ## Test it
 
 ```bash
 npm test                          # boots a throwaway instance, runs every suite, writes docs/RECEIPTS.md
 ```
-Eleven suites: `unit` · `function` (+ data-store durability) · `connection` (WS/PTY) · `security` (pentest) · `adversarial` · `hierarchy` · `attachments` · `editor` · `voice` (provider honesty + injection) · `ui.spec` · `tour.spec`. Tests run on a separate throwaway instance (own port + temp state), so they never touch your live cockpit. The `e2e` suite makes real Claude runs and is opt-in via `RUN_PAID=1`.
+**828 assertions across 25 suites.** They run on a separate throwaway instance (own port + temp state), so they never touch your live cockpit. `e2e` makes real Claude runs and is opt-in via `RUN_PAID=1`.
+
+CI runs the same gate on every push. **A green badge does not mean the sandbox was verified** — a GitHub runner has no proot and cannot write unprivileged `uid_map`, so ~87 assertions skip there and the workflow says so in its own log. The confinement work is only ever proven on a real host or a real device.
 
 ## Security posture (honest)
 

@@ -70,7 +70,11 @@
       </div>
       <div class="histpanel" id="histPanel" hidden></div>
       <div class="chatlog" id="chatlog" role="log" aria-live="polite" aria-label="conversation">
-        <div class="msg claude"><div class="who">Atlan</div>Pick a project below, then talk to your agent. Every session here can be picked up in the terminal with <code>claude --resume</code> — tap the session id to copy the command.</div>
+        <!-- The FIRST thing anyone reads. It used to teach `claude --resume`,
+             which is a vendor-specific terminal trick, before you had even
+             chosen an engine. Orientation belongs here; that detail belongs on
+             the session line after a Claude turn, where it is actually true. -->
+        <div class="msg claude"><div class="who">Atlan</div>Pick a project below, then talk to your agent. Everything you say here is saved — <b>🗂 History</b> brings any conversation back, and <b>＋ New</b> starts a fresh one.</div>
       </div>
       <div class="projbar">
         <select id="projSel" aria-label="project"><option value="">loading projects…</option></select>

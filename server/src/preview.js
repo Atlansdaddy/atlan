@@ -21,6 +21,26 @@ import { hostAllowed } from './auth.js';
 // only a secret token stops that, which we deliberately avoid in the URL. This
 // shuts the browser-reachable vector, which is the realistic remote threat.
 const hostOfOrigin = (o) => { try { return new URL(o).hostname; } catch { return null; } };
+
+/**
+ * The hostname out of a Host header, port removed.
+ *
+ * `split(':')[0]` is wrong for IPv6 and it was refusing a case this project
+ * means to allow: `[::1]:4590` split on ':' is `[`, so preview over IPv6
+ * loopback answered 403. hostAllowed() strips the brackets itself and the
+ * ORIGIN path already went through `new URL().hostname`, which handles v6 — so
+ * the Host path was the only place that got it wrong, and the mismatch is what
+ * says it was an oversight rather than a decision. Found by the first test this
+ * function ever had.
+ */
+function hostOfHeader(h) {
+  const s = String(h || '');
+  if (s.startsWith('[')) {
+    const end = s.indexOf(']');
+    return end > 0 ? s.slice(0, end + 1) : '';   // unterminated bracket is malformed, not loopback
+  }
+  return s.split(':')[0];
+}
 function previewOriginOk(req) {
   // The allowed names come from auth.js — the loopback triple, ATLAN_ORIGIN, and
   // the tailnet name the cockpit derives from `tailscale status` at boot. This
@@ -28,7 +48,7 @@ function previewOriginOk(req) {
   // impossible on a phone: the phone's Host was correct, it just wasn't on the
   // list. Rebinding is still shut out, because a forged DNS name is not one WE
   // derived from this machine's own identity.
-  if (!hostAllowed(String(req.headers.host || '').split(':')[0])) return false;
+  if (!hostAllowed(hostOfHeader(req.headers.host))) return false;
   const o = req.headers.origin;
   if (!o) return true; // top-level navigation / most subresources
   // Compared by HOSTNAME, not exact string. The port a browser sees is a
@@ -39,6 +59,12 @@ function previewOriginOk(req) {
   return hostAllowed(String(hostOfOrigin(o)));
 }
 
+// Exposed for tests. This function IS the anti-rebinding boundary on an
+// unauthenticated port, and it was unreachable from a test — which is the whole
+// reason it had none. `_testInternals` is the convention the rest of this repo
+// uses for exactly this (auth.js, routines.js, chatlog.js, peerlimit.js).
+export const _testInternals = { previewOriginOk };
+
 let target = 'http://127.0.0.1:5173';
 export function setPreviewTarget(url) { target = url; }
 export function getPreviewTarget() { return target; }
@@ -48,6 +74,10 @@ export function getPreviewTarget() { return target; }
 const INJECT = `
 (() => {
   if (window.__atlanInjected) return; window.__atlanInjected = true;
+  /* Swallowed on purpose: this runs INSIDE the previewed app. A postMessage
+     that throws (no parent, a detached frame, a cross-origin teardown mid-flight)
+     must never surface as an error in someone else's console — the watcher is a
+     guest and a guest that throws looks like the host app is broken. */
   const post = (m) => { try { parent.postMessage(Object.assign({ __atlan: true }, m), '*'); } catch (e) {} };
   const fmt = (args) => args.map((a) => {
     if (a instanceof Error) return a.stack || String(a);

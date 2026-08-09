@@ -11,12 +11,12 @@ _Free suites only. The E2E suite (real Claude runs) is opt-in — `RUN_PAID=1 no
 
 | Suite | What it proves | Result |
 |---|---|---|
-| Unit | Pure functions in isolation: safe-arith evaluator, checker engine, Persona+ compilers, schema builders, scheduler math, token compare. | ✅ 81/81 |
+| Unit | Pure functions in isolation: safe-arith evaluator, checker engine, Persona+ compilers, schema builders, scheduler math, token compare. | ✅ 87/87 |
 | Web Lib | The front-end's pure logic, extracted from app.js so Node can reach it: fenced-code parsing (incl. streaming and boundary cases), HTML escaping, diff colouring, base64url, day/night and greeting bands. Previously untestable — the only front-end coverage was Playwright driving the UI. | ✅ 67/67 |
 | Editor Guards | The two irreversible things the editor can do to you: opening another file over unsaved work, and saving the current buffer onto a DIFFERENT existing file (the path box is also the navigate box, and writeFile has no existence check). Asserts the guards fire — and, just as hard, that they stay quiet on ordinary saves, because a dialog on every save is one people dismiss unread. | ✅ 14/14 |
 | Preview URL | Where the preview iframe points. Three hardcoded literals in app.js made the preview pane structurally impossible on a phone — an http frame inside an https page is blocked as mixed content, and the workaround baked one operator's tailscale port and hostname into shared code. Asserts the ports come from the server, the origin always derives from the url (postMessage is pinned both ways), and that https with no TLS front door refuses to guess and says which setting fixes it. | ✅ 7/7 |
 | Fleet Actions | The fleet buttons that spend money or stop work. Top-up disarms BEFORE the request, so a second tap cannot land in the gap and resume the same session on a second budget; it re-arms only when nothing was spent. Kill — per-run and fleet-wide — reports every way it can fail, because a kill that did not land must never look like one that did. | ✅ 13/13 |
-| Function | Every HTTP endpoint contract + shape, plus data-store durability (corrupt/truncated JSON fails soft). (Spawns 1 tiny killed run.) | ✅ 33/33 |
+| Function | Every HTTP endpoint contract + shape, plus data-store durability (corrupt/truncated JSON fails soft). (Spawns 1 tiny killed run.) | ✅ 37/37 |
 | Connection | Live WebSocket + PTY: authed connect, 4001 on bad token, malformed-frame survival, multi-client broadcast, tmux round-trip, reconnection. (Spawns 2 tiny killed runs.) | ✅ 10/10 |
 | Proot ladder | The confinement ladder measured THROUGH a ptrace supervisor — the context Atlan actually runs in on a phone. Exists because the default tier was once raised to T1 on a bare-kernel measurement that was true and was not this environment: under proot the same binary loses two T1 rungs to SIGSYS, so a T1 default would have refused every agent run on the primary platform. Pins the rule that a tier measured without the supervisor is not a measurement of this product. | ✅ 8/8 |
 | Confinement tier | The homebuilt confinement layer, attacked rather than described: the 15-rung behavioural ladder run on THIS device, the full (declared, established) refusal matrix, the credential grant list, and per-control escapes — relative and symlink path escapes, TOCTOU grant swaps, static binaries, direct syscalls, unlisted syscalls, inherited descriptors, AF_UNIX and loopback egress. Compiles the real launcher and runs real processes under it; skips (counted, printed) on a device with no toolchain. | ✅ 114/114 |
@@ -37,7 +37,7 @@ _Free suites only. The E2E suite (real Claude runs) is opt-in — `RUN_PAID=1 no
 | Tour/Onboarding | Drives all tour steps live — every step spotlights a real visible element; handbook opens/searches/relaunches. | ✅ 10/10 |
 | UI · Fleet | Every Fleet control driven at 412x900: top-up cannot be double-tapped into a double-spend, a kill that fails is reported, the header burn gauge moves while a run burns, Hierarchy job links come with a command selected, and Builder rows stay wide enough to type into. First of the five per-surface specs to reach zero — the rest join as their surfaces are fixed (docs/UI-AUDIT.md). | ✅ 29/29 |
 
-**Total: 828 passed, 0 failed across 25 suites.**
+**Total: 838 passed, 0 failed across 25 suites.**
 
 ## Unit
 
@@ -62,6 +62,12 @@ UNIT SUITE
   ✓ a draft can be compiled without being saved
   ✓ an ARCHIVED conversation is still listed and still opens
   ✓ nothing is archived when nothing matches, and nothing is removed
+  ✓ preview guard ACCEPTS loopback with no Origin (a top-level navigation)
+  ✓ preview guard ACCEPTS a same-name Origin on a DIFFERENT port
+  ✓ preview guard REFUSES a forged Host — this is the DNS-rebinding vector
+  ✓ preview guard REFUSES a cross-site Origin on an allowed Host
+  ✓ preview guard is not fooled by a hostname that merely CONTAINS a loopback name
+  ✓ preview guard REFUSES a missing or malformed Host rather than defaulting open
   ✓ rate limit: the same sender cannot hammer one conversation
   ✓ rate limit is PER PAIR — a different recipient is unaffected
   ✓ rate limit expires — the window slides, it is not a permanent ban
@@ -128,7 +134,7 @@ UNIT SUITE
   ✓ resolveBrain: the gemini agent-vs-brain ambiguity resolves brain-first
   ✓ resolveBrain: no ready brain throws a fix-it message, never a silent empty
 
-81 passed, 0 failed
+87 passed, 0 failed
 ```
 
 ## Web Lib
@@ -291,6 +297,10 @@ Every HTTP endpoint contract + shape, plus data-store durability (corrupt/trunca
 $ node test/function.mjs
 FUNCTION SUITE
   ✓ GET /api/doctor → array of {id,label,ok,detail}
+  ✓ every doctor row carries the QUESTION it answers
+  ✓ the containment row is named for the question, not the implementation
+  ✓ the CLI-connections row reports binary AND auth per engine
+  ✓ the chat-store row reports usage and never claims to have acted
   ✓ GET /api/engines → agents + brains, grouped
   ✓ GET /api/preflight → {ready, blockers, checks}
   ✓ GET /api/fleet → {runs, history, today, profiles, pushSubs}
@@ -324,7 +334,7 @@ FUNCTION SUITE
   ✓ GET /api/chats/projects returns the project list
   ✓ cleanup: the suite leaves no conversations behind
 
-33 passed, 0 failed
+37 passed, 0 failed
 ```
 
 ## Connection

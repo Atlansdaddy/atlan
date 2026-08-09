@@ -619,11 +619,13 @@ import { convId, newConversation, restoreChat, openHistory } from './lib/chathis
 
   // text-to-speech: server "good" voice if configured, else the browser voice
   let audioEl = null, currentMood = 'calm';
+  // Swallowed on purpose: STOPPING speech must always succeed — speechSynthesis is absent in some webviews and pause() throws on a detached element, and failing to stop talking loudly is worse than failing quietly.
   function stopSpeaking() { try { audioEl?.pause(); } catch {} try { speechSynthesis.cancel(); } catch {} }
   function speak(text) {
     if (!text) return;
     stopSpeaking();
     if (voiceProvider === 'browser') {
+      // Swallowed: speech is a garnish — a webview without SpeechSynthesis loses the voice, not the turn. The reply is already on screen.
       try { const u = new SpeechSynthesisUtterance(text.slice(0, 4000)); u.rate = 1; speechSynthesis.speak(u); } catch {}
       return;
     }
@@ -632,6 +634,7 @@ import { convId, newConversation, restoreChat, openHistory } from './lib/chathis
       body: JSON.stringify({ text: text.slice(0, 4000), provider: voiceProvider, mood: currentMood }),
     }).then((r) => r.json()).then((a) => {
       if (a.error || !a.data) { // fall back to the browser voice on any failure
+        // Last resort after the server voice failed; if this throws too, there is simply no voice here — a degrade, not an error.
         try { speechSynthesis.speak(new SpeechSynthesisUtterance(text.slice(0, 4000))); } catch {}
         return;
       }
