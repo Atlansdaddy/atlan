@@ -35,7 +35,3 @@ export function scanForSecrets(text) {
   }
   return kinds;
 }
-
-export function looksSecret(text) {
-  return scanForSecrets(text).length > 0;
-}
