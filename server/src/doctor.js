@@ -3,7 +3,7 @@ import { promisify } from 'node:util';
 import { agentBinaries, agentStatus } from './agents.js';
 import { chatUsage } from './chatlog.js';
 import { existsSync, statSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { arch, homedir } from 'node:os';
 import { join } from 'node:path';
 import { PORT, sandboxEnabled, LOCAL_LLM_BASE, ANDROID_SDK } from './config.js';
 
@@ -25,13 +25,35 @@ export async function runDoctor() {
       const m = out.match(/version "(\d+)/);
       return { ok: m ? m[1] === '21' : false, detail: out.split('\n')[0] };
     }),
-    check('sdk', 'Android SDK 35', async () => ({
-      ok: existsSync(join(ANDROID_SDK, 'build-tools/35.0.0')),
-      detail: ANDROID_SDK,
-    })),
-    check('aapt2', 'aapt2 qemu shim', async () => {
+    check('sdk', 'Android SDK 35', async () => {
+      const ok = existsSync(join(ANDROID_SDK, 'build-tools/35.0.0'));
+      return {
+        ok,
+        // "missing" against a bare path is a dead end — it does not say which
+        // path was looked at, that the path is overridable, or that a host with
+        // no SDK is a normal state rather than a broken install. The APK
+        // pipeline is the on-phone proot recipe; a home node that only serves
+        // local models has no reason to carry a 600MB SDK.
+        detail: ok ? ANDROID_SDK
+          : `not installed at ${ANDROID_SDK} — only needed to build APKs on THIS host `
+            + '(set ATLAN_ANDROID_SDK if yours lives elsewhere)',
+      };
+    }),
+    // NAMED FOR THE ARCHITECTURE, because the shim is not universal. aapt2 ships
+    // as an x86_64 binary, so an arm64 phone runs it under qemu — and an x86_64
+    // host runs it directly, with nothing to emulate. Reporting "aapt2 qemu shim
+    // — missing" on x86_64 sent someone looking for a component that host must
+    // never have. What both cases actually need is the same: aapt2 runs.
+    check('aapt2', arch() === 'x64' ? 'aapt2 (native — no shim on x86_64)' : 'aapt2 qemu shim', async () => {
       const shim = join(ANDROID_SDK, 'build-tools/35.0.0/aapt2');
-      if (!existsSync(shim)) return { ok: false, detail: 'shim missing' };
+      if (!existsSync(shim)) {
+        return {
+          ok: false,
+          detail: arch() === 'x64'
+            ? 'aapt2 not found — it comes with the SDK above; no qemu shim is needed on x86_64'
+            : 'shim missing',
+        };
+      }
       // Require the real version banner or an "aapt2 <version>" line — NOT the
       // bare word "aapt2", which also appears in error output (the same trap the
       // Piper check fell into). No `|| true`: a broken qemu shim rejects and we
