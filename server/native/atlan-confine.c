@@ -912,7 +912,22 @@ static int x_sane(void) {
 
 /* ──────────────────────────────── probe ──────────────────────────────────── */
 
-struct verdict { int ok; int fatal; char detail[240]; };
+/* `unmeasurable` is a THIRD answer, and it is not a polite word for failure.
+ *
+ * Atlan's filter never emits SECCOMP_RET_TRAP — it kills (the default tail),
+ * returns an errno (the deny set), or allows. So a TRAPPED SIGSYS, which is what
+ * exit 90 records, cannot have come from us. It is the platform's own filter:
+ * Android applies one to every untrusted_app, and an Android older than a syscall
+ * refuses that syscall by killing the caller rather than answering ENOSYS.
+ *
+ * A rung that dies that way did not measure a boundary and did not measure the
+ * absence of one — the question could not be put. On a Galaxy S9 that is three of
+ * sixteen (io_uring, fd-hygiene, deny-set), and scoring them as failures blamed
+ * Atlan for a refusal that happened before its filter was consulted.
+ *
+ * It never counts toward a tier. Unmeasured is not passed, and a device does not
+ * get promoted for a question nobody could ask. */
+struct verdict { int ok; int fatal; int unmeasurable; char detail[240]; };
 static struct verdict V[24];
 static const char *VID[24];
 static int VN;
@@ -970,8 +985,14 @@ static void rung(const char *id, int (*fn)(char *d, size_t n)) {
              WTERMSIG(st) == SIGSYS ? " (SIGSYS — this platform's own seccomp filter denies the call outright)" : "",
              buf[0] ? " · " : "", buf);
   } else if (WEXITSTATUS(st) == 90) {
+    /* Trapped, not killed — and Atlan never emits RET_TRAP, so this is not our
+     * filter. The platform refused the call before ours was reached, so the rung
+     * put no question and got no answer. */
     V[VN].ok = 0;
-    snprintf(V[VN].detail, sizeof(V[VN].detail), "SIGSYS trapped in-child%s%s", buf[0] ? " · " : "", buf);
+    V[VN].unmeasurable = 1;
+    snprintf(V[VN].detail, sizeof(V[VN].detail),
+             "UNMEASURABLE here — the platform's own seccomp filter traps this call (SIGSYS) before Atlan's is consulted%s%s",
+             buf[0] ? " · " : "", buf);
   } else {
     V[VN].ok = WEXITSTATUS(st) == 0;
     snprintf(V[VN].detail, sizeof(V[VN].detail), "%s", buf[0] ? buf : (V[VN].ok ? "ok" : "failed"));
@@ -1443,7 +1464,12 @@ static int do_probe(void) {
   for (int i = 0; i < VN; i++) {
     printf("%s{\"n\":%d,\"id\":", i ? "," : "", i + 1);
     jstr(VID[i]);
-    printf(",\"ok\":%s,\"detail\":", V[i].ok ? "true" : "false");
+    /* `unmeasurable` rides ALONGSIDE ok:false, never instead of it. A consumer
+     * that has not been taught the distinction keeps reading a rung the platform
+     * refused as not-established, which is the safe direction — the risk of a new
+     * field is a reader that treats it as a pass. */
+    printf(",\"ok\":%s,\"unmeasurable\":%s,\"detail\":",
+           V[i].ok ? "true" : "false", V[i].unmeasurable ? "true" : "false");
     jstr(V[i].detail);
     putchar('}');
   }
