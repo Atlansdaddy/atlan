@@ -17,6 +17,8 @@ import { scanProject } from './preflight/scanProject.mjs';
 import { resolveInProjects } from './guards.js';
 import { agentStatus, agentTurn, killAgentTurns } from './agents.js';
 import { localModels, activateLocalModel } from './localmodels.js';
+import { localAgentRun } from './localAgent.js';
+import { randomUUID } from 'node:crypto';
 import { handleInlineAiEdit } from './editorAi.js';
 import {
   getGitStatus, getGitDiff, gitStage, gitUnstage, gitCommit, gitPush, gitPull, gitAiCommitMsg,
@@ -669,6 +671,10 @@ wss.on('connection', (ws, req) => {
   let claude = null;
   let currentTab = 's-chat'; // last tab the client reported → feeds Atlan's self-awareness
   const brainHistory = new Map();
+  // Pending local-agent approvals, id -> resolver. PER CONNECTION: a card raised
+  // on one socket must not be answerable from another, and closing the socket
+  // must not leave a tool call waiting on a promise nobody will ever settle.
+  const localPerms = new Map();
   const agentState = new Map();
   // Preview context that auto-attaches to the next turn: errors since last
   // turn + any snapshots taken. Logs/warns stay in the UI only.
@@ -693,6 +699,11 @@ wss.on('connection', (ws, req) => {
     claude?.dispose().catch(() => {});
     claude = null;
     killAgentTurns((t) => t.owner === connId);
+    // Deny every card still waiting. A closed socket can never answer one, and a
+    // tool call left awaiting a promise nobody will settle holds the loop open
+    // forever — the same class of leak as an orphaned child process.
+    for (const resolve of localPerms.values()) resolve(false);
+    localPerms.clear();
     pending.errors = []; pending.snaps = [];
     brainHistory.clear(); agentState.clear();
   });
@@ -766,6 +777,42 @@ wss.on('connection', (ws, req) => {
             claude.setModel(m.model); // warm-session model switch — no respawn, keeps context
           }
           claude.prompt(text);
+        } else if (engineId === 'local') {
+          // THE ON-DEVICE MODEL, WITH HANDS — bounded, not autonomous.
+          //
+          // It used to land in brainChat, which is chat-only by construction, so
+          // "make a hello world in the preview tab" got a description of one. Now
+          // it runs the four-tool loop, and the SAME gate the Claude path uses
+          // decides each call: with no auto-approve profile armed, every tool
+          // raises a permission card and waits; with one armed, that profile
+          // decides and each decision still leaves a visible line. Bounded either
+          // way, and never silent.
+          const prof = VALID_CHAT_PROFILES.has(m.profile) ? m.profile : null;
+          const cwd = m.cwd || PROJECTS_DIR;
+          send({ t: 'chat.turnstart' });
+          localAgentRun({
+            prompt: text, cwd, profile: prof ?? 'builder', onEvent: send,
+            onPreview: (abs) => { setPreviewTarget(`file://${abs}`); send({ t: 'preview.file', path: abs }); },
+            // No profile armed => ask, every time. Armed => the profile already
+            // decides inside runTool, so asking again would be theatre.
+            approve: prof ? undefined : async ({ name, args }) => {
+              const id = randomUUID();
+              send({ t: 'perm.req', id, tool: name, input: JSON.stringify(args).slice(0, 300) });
+              return new Promise((res) => localPerms.set(id, res));
+            },
+          }).then((r) => {
+            send({ t: 'chat.msg', role: 'assistant', text: r.text, engine: 'local' });
+            send({ t: 'chat.result', subtype: 'success', brain: 'llama-server (local)', tokens: null });
+          }).catch((err) => {
+            // The one failure everyone hits first gets its own sentence rather
+            // than an HTTP status: tools need --jinja, and the cockpit cannot fix
+            // that from here.
+            const why = /--jinja/.test(err.message)
+              ? 'The local model server is running without --jinja, so it cannot use tools. Restart llama-server with --jinja to let it write files.'
+              : err.message;
+            send({ t: 'chat.msg', role: 'err', text: why });
+            send({ t: 'chat.result', subtype: 'error', brain: 'llama-server (local)', tokens: null });
+          });
         } else {
           // Brains keep their own short history per connection+provider so a
           // conversation holds together; snapshots stay queued for Claude.
@@ -805,7 +852,16 @@ wss.on('connection', (ws, req) => {
         break;
       }
       case 'perm.reply':
-        claude?.resolvePermission(m.id, !!m.approved);
+        // One card type, two possible askers. The Claude session answers its own
+        // ids; a local-agent id lives in localPerms. Routing on "who is waiting
+        // for THIS id" rather than on the selected engine means a reply cannot be
+        // lost by switching engines mid-approval.
+        if (localPerms.has(m.id)) {
+          localPerms.get(m.id)(!!m.approved);
+          localPerms.delete(m.id);
+        } else {
+          claude?.resolvePermission(m.id, !!m.approved);
+        }
         break;
       case 'build.start':
         runBuild(m.path || DEFAULT_BUILD_PROJECT, send);

@@ -319,5 +319,67 @@ await test('a caller-supplied signal is honoured over the default deadline', asy
   assert.equal(seen, ac.signal, 'the caller must be able to cancel the run');
 });
 
+
+// ── the human gate (what makes CHAT bounded rather than autonomous) ──────────
+// Chat supplies an `approve` hook that raises a permission card and waits. The
+// fleet and hierarchy do not — they are already bounded by their profile — so the
+// default is allow and the gate is something chat opts INTO.
+await test('a declined tool does not run, and the model is told plainly', async () => {
+  const before = existsSync(join(proj, 'declined.txt'));
+  const r = await localAgentRun({
+    prompt: 'write a file', cwd: proj,
+    approve: async () => false,
+    fetchImpl: scripted([call('write_file', { path: 'declined.txt', content: 'x' }), say('understood')]),
+  });
+  assert.equal(r.tools[0].ok, false);
+  assert.match(r.tools[0].result, /declined/);
+  assert.equal(existsSync(join(proj, 'declined.txt')), before, 'a declined write still happened');
+  assert.match(r.text, /understood/, 'the model must get a chance to respond to a refusal');
+});
+
+await test('the gate is asked BEFORE the tool runs, not after', async () => {
+  // A card shown for something that already happened is not a gate, it is a
+  // receipt. Asserted by declining and checking the disk.
+  let askedWith = null;
+  await localAgentRun({
+    prompt: 'write', cwd: proj,
+    approve: async (req) => { askedWith = req; return false; },
+    fetchImpl: scripted([call('write_file', { path: 'never.txt', content: 'x' }), say('ok')]),
+  });
+  assert.equal(askedWith?.name, 'write_file', 'the gate was not told which tool');
+  assert.equal(askedWith?.args?.path, 'never.txt', 'the gate was not told the arguments');
+  assert.ok(!existsSync(join(proj, 'never.txt')));
+});
+
+await test('an approve hook that THROWS is treated as a refusal', async () => {
+  // A socket that dies mid-card, or a bug in the asker, must not become an allow.
+  const r = await localAgentRun({
+    prompt: 'write', cwd: proj,
+    approve: async () => { throw new Error('socket closed'); },
+    fetchImpl: scripted([call('write_file', { path: 'thrown.txt', content: 'x' }), say('ok')]),
+  });
+  assert.equal(r.tools[0].ok, false);
+  assert.ok(!existsSync(join(proj, 'thrown.txt')), 'a broken gate let the write through');
+});
+
+await test('each tool call in a batch is gated separately', async () => {
+  // One approval must not authorise the rest of the turn.
+  const seen = [];
+  const batch = {
+    role: 'assistant', content: '',
+    tool_calls: [
+      { id: 'a', type: 'function', function: { name: 'list_files', arguments: '{"path":"."}' } },
+      { id: 'b', type: 'function', function: { name: 'write_file', arguments: '{"path":"batch.txt","content":"x"}' } },
+    ],
+  };
+  await localAgentRun({
+    prompt: 'two things', cwd: proj,
+    approve: async (req) => { seen.push(req.name); return req.name === 'list_files'; },
+    fetchImpl: scripted([batch, say('done')]),
+  });
+  assert.deepEqual(seen, ['list_files', 'write_file'], 'every call must be asked about');
+  assert.ok(!existsSync(join(proj, 'batch.txt')), 'approving one call authorised another');
+});
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

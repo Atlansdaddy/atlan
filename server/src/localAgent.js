@@ -237,6 +237,13 @@ export async function localAgentRun({
   prompt, cwd, profile = 'builder', model = 'local',
   base = `${LOCAL_LLM_BASE}/v1`, fetchImpl = fetch, onEvent = () => {}, onPreview,
   maxSteps = MAX_STEPS, signal, stepTimeoutMs = 180_000,
+  // Asked BEFORE each tool runs. Returning false refuses it the same way the
+  // profile does — as a tool result the model can recover from, not a thrown
+  // request. Defaulting to allow keeps programmatic callers (the fleet, the
+  // hierarchy) unchanged; they are already bounded by the profile. Chat supplies
+  // one that raises a permission card, which is what makes chat BOUNDED rather
+  // than autonomous.
+  approve = async () => true,
 }) {
   if (!prompt?.trim()) throw new Error('empty prompt');
   if (!cwd) throw new Error('cwd is required — it IS the write boundary');
@@ -284,7 +291,18 @@ export async function localAgentRun({
       try { args = JSON.parse(tc?.function?.arguments ?? '{}'); } catch { args = {}; }
       let result;
       let ok = true;
-      try { result = runTool(name, args, { cwd, profile, onPreview }); } catch (err) { ok = false; result = `ERROR: ${err.message}`; }
+      // The human gate comes FIRST, before the profile and before the path
+      // checks: a refusal here should not depend on whether the request would
+      // have been legal, and the user should never be shown a card for something
+      // that already ran.
+      let allowed = true;
+      try { allowed = await approve({ name, args }); } catch { allowed = false; }
+      if (!allowed) {
+        result = 'ERROR: you declined this action';
+        ok = false;
+      } else {
+        try { result = runTool(name, args, { cwd, profile, onPreview }); } catch (err) { ok = false; result = `ERROR: ${err.message}`; }
+      }
       used.push({ name, args, ok, result: String(result).slice(0, 200) });
       onEvent({ t: 'localtool', name, args, ok, result: String(result).slice(0, 400) });
       messages.push({ role: 'tool', tool_call_id: tc.id, name, content: String(result).slice(0, MAX_READ_BYTES) });
