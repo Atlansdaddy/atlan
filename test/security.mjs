@@ -2,6 +2,7 @@
 // Runs against the LIVE server. Auth bypass, path traversal, SSRF via the
 // preview target + harness base override, key exfiltration, XSS persistence,
 // oversized payloads, and the brute-force throttle.
+import './_isolate.mjs'; // FIRST — auth.js and keys.js write into FLEET_DIR the moment they load
 import assert from 'node:assert';
 import { readFileSync } from 'node:fs';
 

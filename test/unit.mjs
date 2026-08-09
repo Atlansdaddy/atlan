@@ -2,6 +2,7 @@
 // deterministic core the whole product's honesty rests on: the safe arithmetic
 // evaluator, the checker engine, the Persona+ compilers, the schema builders,
 // scheduler due/grace math, and the timing-safe token compare.
+import './_isolate.mjs'; // FIRST — a scratch FLEET_DIR, before config.js resolves the real one
 import assert from 'node:assert';
 import { appendFileSync, utimesSync } from 'node:fs';
 import {
