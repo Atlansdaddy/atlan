@@ -45,6 +45,18 @@ NOTE=""
 # is enough to catch "runs stopped firing after hour 2", which is the failure
 # being looked for. Sampling every 15 minutes would cost four times as much and
 # reveal nothing extra.
+# ── local-model mode ─────────────────────────────────────────────────────────
+# The fleet cannot run the on-device model: FLEET_ENGINES is ['claude', ...CLIs]
+# and the local engine is chat-only, which the picker says out loud. So on a phone
+# whose only ready engine is llama-server, --fleet would need an installed and
+# authed CLI and real money.
+#
+# --local asks the model itself, on the same schedule, for nothing. It measures a
+# DIFFERENT claim and the report says so: that the phone, the cockpit and the
+# model all survive a night and keep producing work. It does not measure Atlan's
+# agent orchestration, and a --local night must never be quoted as a --fleet one.
+LOCALM=0
+LLAMA_BASE="${ATLAN_LOCAL_LLM_BASE:-http://127.0.0.1:8080}"
 FLEET=0
 EVERY_MIN=60
 RUN_BUDGET=60000     # per run; enforced mid-run on the SDK engine, so it halts
@@ -58,6 +70,8 @@ while [ $# -gt 0 ]; do
     --hours)     HOURS="$2"; shift 2 ;;
     --seconds)   SECONDS_OVERRIDE="$2"; shift 2 ;;   # smoke-testing the harness itself
     --fleet)     FLEET=1; shift ;;                   # measure AGENT WORK, not just survival
+    --local)     LOCALM=1; shift ;;                  # measure LOCAL MODEL work — free
+    --llama)     LLAMA_BASE="$2"; shift 2 ;;
     --every)     EVERY_MIN="$2"; shift 2 ;;          # minutes between agent runs
     --budget)    RUN_BUDGET="$2"; shift 2 ;;         # per-run token budget (HALTS at it)
     --cap)       TOKEN_CAP="$2"; shift 2 ;;          # total token ceiling for the whole night
@@ -88,6 +102,14 @@ if [ -n "${REPORT_FILE:-}" ]; then
   [ -n "$R_INTERVAL" ] || { echo "log has no config line — cannot set a freeze threshold" >&2; exit 1; }
   awk -F'"' '
     /"kind":"config"/ { cfg = $0 }
+    /"kind":"local"/ {
+      local_seen = 1; l_n++
+      if (/"ok":true/) l_ok++
+      for (i = 1; i <= NF; i++) {
+        if ($i == "secs")   { split($(i+1), a, /[:,}]/); l_secs += a[2] }
+        if ($i == "tokens") { split($(i+1), a, /[:,}]/); l_tok  += a[2] }
+      }
+    }
     /"kind":"run"/ {
       fleet_seen = 1
       if (/"started":true/)    started++
@@ -128,6 +150,15 @@ if [ -n "${REPORT_FILE:-}" ]; then
       printf "cockpit down       %d of %d samples\n", down + 0, n
       printf "frozen intervals   %d  (longest gap %ds, interval %ds)\n", frozen + 0, maxgap + 0, INTERVAL
       printf "total time frozen  %.1f min\n", frozen_total / 60
+      if (local_seen) {
+        print ""
+        printf "LOCAL MODEL WORK  (on-device inference — NOT the agent fleet)\n"
+        printf "  turns attempted  %d\n", l_n + 0
+        printf "  answered right   %d\n", l_ok + 0
+        printf "  silent/failed    %d  <- model server down or frozen\n", (l_n - l_ok) + 0
+        printf "  tokens produced  %d\n", l_tok + 0
+        if (l_secs > 0) printf "  avg turn         %.1fs\n", l_secs / (l_n ? l_n : 1)
+      }
       if (fleet_seen) {
         print ""
         printf "AGENT WORK\n"
@@ -251,6 +282,29 @@ finish_run() {
     "$(date +%s)" "$id" >> "$LOG"
 }
 
+# One real inference against the on-device model. Free, so it can run all night.
+# A verifiable-ish answer matters for the same reason it does in fleet mode: a
+# turn that returns garbage is a different failure from one that never returns,
+# and without something to check both look like "completed".
+local_turn() {
+  local t0 t1 body out toks
+  t0=$(date +%s)
+  body=$(curl -s -m 180 "$LLAMA_BASE/v1/chat/completions" \
+    -H 'Content-Type: application/json' \
+    -d '{"messages":[{"role":"user","content":"Reply with ONLY the word ATLAN followed by the number 7. Nothing else."}],"max_tokens":24}' 2>/dev/null)
+  t1=$(date +%s)
+  if [ -z "$body" ]; then
+    printf '{"kind":"local","at":%s,"ok":false,"why":"no response — model server down or frozen"}\n' "$t1" >> "$LOG"
+    return 0
+  fi
+  out=$(printf '%s' "$body" | sed -n 's/.*"content":"\([^"]*\)".*/\1/p' | head -c 60)
+  toks=$(printf '%s' "$body" | sed -n 's/.*"completion_tokens":\([0-9]*\).*/\1/p')
+  local ok=false
+  case "$out" in *ATLAN*7*) ok=true ;; esac
+  printf '{"kind":"local","at":%s,"ok":%s,"secs":%s,"tokens":%s,"answer":"%s"}\n' \
+    "$t1" "$ok" "$((t1 - t0))" "${toks:-0}" "$(printf '%s' "$out" | tr -d '\\"')" >> "$LOG"
+}
+
 cockpit_up() {
   # A HEAD to the cockpit. 401 counts as UP: auth answering means the server lives.
   local code
@@ -267,6 +321,29 @@ if [ "${DRY:-0}" -eq 1 ]; then
   [ "$WORST" -gt "$TOKEN_CAP" ] && EFF=$TOKEN_CAP || EFF=$WORST
   echo "PLAN — nothing has been sent."
   echo
+  # The local plan is a DIFFERENT plan and must not be described with the fleet's
+  # numbers. Printing "480,000 tokens" for a run that spends nothing is the exact
+  # confidently-wrong output this harness exists to prevent.
+  if [ "$LOCALM" -eq 1 ]; then
+    echo "  LOCAL MODEL MODE — no API, no tokens, no rate limit, no money."
+    echo
+    echo "  duration          ${HOURS}h, sampling every ${INTERVAL}s"
+    echo "  model turns       $RUNS  (one every ${EVERY_MIN} min)"
+    echo "  endpoint          $LLAMA_BASE/v1/chat/completions  (on-device llama-server)"
+    echo "  cost              0 — this is the phone's own model"
+    echo
+    echo "  each turn sends:"
+    echo '    {"messages":[{"role":"user","content":"Reply with ONLY the word ATLAN followed by the number 7. Nothing else."}],"max_tokens":24}'
+    echo
+    echo "  MEASURES: whether the phone, the cockpit and the model survive a night"
+    echo "  and keep producing work. It does NOT measure the agent fleet — the local"
+    echo "  engine is chat-only and FLEET_ENGINES does not include it. A --local"
+    echo "  night is not a --fleet night and the report says so."
+    [ "$FLEET" -eq 1 ] || exit 0
+    echo
+    echo "  --fleet ALSO given, so the paid plan below runs too:"
+    echo
+  fi
   echo "  duration          ${HOURS}h, sampling every ${INTERVAL}s"
   echo "  agent runs        $RUNS  (one every ${EVERY_MIN} min)"
   echo "  profile           scout — read-only: no Bash, no Edit, no Write"
@@ -319,11 +396,13 @@ cleanup() {
 }
 trap cleanup TERM INT
 
-printf '{"kind":"config","at":%s,"hours":%s,"interval":%s,"load":%s,"synthetic_load":%s,"wake_lock":%s,"charging":"%s","device":"%s","kernel":"%s","fleet":%s,"every_min":%s,"run_budget":%s,"token_cap":%s,"engine":"%s","note":"%s"}\n' \
+printf '{"kind":"config","at":%s,"hours":%s,"interval":%s,"load":%s,"synthetic_load":%s,"wake_lock":%s,"charging":"%s","device":"%s","kernel":"%s","fleet":%s,"local_model":%s,"every_min":%s,"run_budget":%s,"token_cap":%s,"engine":"%s","note":"%s"}\n' \
   "$(date +%s)" "$HOURS" "$INTERVAL" "$LOAD" "$([ "$LOAD" -gt 0 ] && echo true || echo false)" \
   "$([ "$WAKE_LOCK" -eq 1 ] && echo true || echo false)" "$(charging)" \
   "$(getprop ro.product.model 2>/dev/null || uname -m)" "$(uname -r)" \
-  "$([ "$FLEET" -eq 1 ] && echo true || echo false)" "$EVERY_MIN" "$RUN_BUDGET" "$TOKEN_CAP" "$ENGINE" "$NOTE" >> "$LOG"
+  "$([ "$FLEET" -eq 1 ] && echo true || echo false)" \
+  "$([ "$LOCALM" -eq 1 ] && echo true || echo false)" \
+  "$EVERY_MIN" "$RUN_BUDGET" "$TOKEN_CAP" "$ENGINE" "$NOTE" >> "$LOG"
 
 if [ "$FLEET" -eq 1 ]; then
   echo "AGENT WORK MODE — real runs, real tokens."
@@ -347,11 +426,11 @@ while [ "$(date +%s)" -lt "$END" ]; do
   GAP=$((NOW - LAST))
   LAST=$NOW
 
-  if [ "$FLEET" -eq 1 ] && [ "$NOW" -ge "$NEXT_RUN" ]; then
+  if [ "$NOW" -ge "$NEXT_RUN" ] && { [ "$FLEET" -eq 1 ] || [ "$LOCALM" -eq 1 ]; }; then
     NEXT_RUN=$((NOW + EVERY_MIN * 60))
-    RID=$(start_run)
-    finish_run "$RID"
-    LAST=$(date +%s)   # polling took real time; don't score it as a Doze freeze
+    [ "$LOCALM" -eq 1 ] && local_turn
+    if [ "$FLEET" -eq 1 ]; then RID=$(start_run); finish_run "$RID"; fi
+    LAST=$(date +%s)   # the work took real time; don't score it as a Doze freeze
   fi
   printf '{"kind":"sample","at":%s,"elapsed":%s,"gap":%s,"battery":%s,"charging":"%s","temp_c":%s,"cockpit":"%s","load1":%s}\n' \
     "$NOW" "$((NOW - START))" "$GAP" "$(battery_pct)" "$(charging)" "$(temp_c)" "$(cockpit_up)" \

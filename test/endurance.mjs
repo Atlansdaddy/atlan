@@ -209,4 +209,52 @@ t('--dry-run spends nothing and states the ceiling', () => {
   assert.doesNotMatch(out, /VERDICT/, 'a dry run must not produce a verdict');
 });
 
+
+// ── local-model mode ─────────────────────────────────────────────────────────
+// The fleet cannot run the on-device model — FLEET_ENGINES is ['claude', ...CLIs]
+// and the local engine is chat-only. So on a phone whose only ready engine is
+// llama-server, --local is the only way to measure a model working overnight, and
+// the one thing that must never happen is a free local night being read as a paid
+// fleet night. These pin that separation.
+t('a local night reports LOCAL MODEL WORK and claims no agent work', () => {
+  const out = report('localnight', [
+    cfg({ fleet: false, local_model: true }),
+    sample({ at: 1003, elapsed: 3, gap: 3 }),
+    JSON.stringify({ kind: 'local', at: 1003, ok: true, secs: 6, tokens: 12, answer: 'ATLAN 7' }),
+    JSON.stringify({ kind: 'local', at: 1063, ok: true, secs: 7, tokens: 12, answer: 'ATLAN 7' }),
+    '{"kind":"end","at":1063}',
+  ]);
+  assert.match(out, /LOCAL MODEL WORK/);
+  assert.match(out, /turns attempted {2}2/);
+  assert.match(out, /answered right {3}2/);
+  assert.doesNotMatch(out, /AGENT WORK/, 'a local night must not claim the fleet ran');
+});
+
+t('a model that went silent is counted, not averaged away', () => {
+  // The failure this whole run exists to catch: the phone sleeps, llama-server
+  // dies or is killed, and turns stop coming back. Two good turns and one silent
+  // one must not read as "it worked".
+  const out = report('localdead', [
+    cfg({ fleet: false, local_model: true }),
+    sample({ at: 1003, elapsed: 3, gap: 3 }),
+    JSON.stringify({ kind: 'local', at: 1003, ok: true, secs: 6, tokens: 12, answer: 'ATLAN 7' }),
+    JSON.stringify({ kind: 'local', at: 1063, ok: false, why: 'no response — model server down or frozen' }),
+    '{"kind":"end","at":1063}',
+  ]);
+  assert.match(out, /turns attempted {2}2/);
+  assert.match(out, /answered right {3}1/);
+  assert.match(out, /silent\/failed {4}1/);
+});
+
+t('--local --dry-run states zero cost and refuses the fleet numbers', () => {
+  // Printing the paid plan's 480,000 tokens for a run that spends nothing is the
+  // exact confidently-wrong output this harness exists to prevent.
+  const out = execFileSync('bash', [SCRIPT, '--local', '--dry-run'], { encoding: 'utf8' });
+  assert.match(out, /LOCAL MODEL MODE/);
+  assert.match(out, /cost {14}0/);
+  assert.doesNotMatch(out, /night ceiling/, 'the token ceiling belongs to the paid plan');
+  assert.doesNotMatch(out, /budget per run/, 'a local turn has no token budget');
+  assert.match(out, /does NOT measure the agent fleet/);
+});
+
 console.log(`\n${pass} passed, 0 failed`);
