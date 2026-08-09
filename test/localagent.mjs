@@ -11,7 +11,7 @@
 // network and no llama-server.
 import './_isolate.mjs';
 import assert from 'node:assert';
-import { mkdirSync, writeFileSync, readFileSync, existsSync, symlinkSync } from 'node:fs';
+import { mkdirSync, writeFileSync, readFileSync, existsSync, symlinkSync, readdirSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import { projectScratch } from './lib/paths.mjs';
@@ -234,6 +234,24 @@ await test('a SYMLINK inside the project cannot read outside it', async () => {
     () => runTool('read_file', { path: 'escape/secret.txt' }, { cwd: victim, profile: 'builder' }),
     /through a link/,
   );
+});
+
+await test('a DEEP path under a symlink cannot outrun the resolver', () => {
+  // A second reviewer broke the fix for the test above in one line. The ancestor
+  // walk had a 64-step cap and a lexical fallback, so `escape/n/n/…/pwned.txt`
+  // with 64+ missing components ran out of steps, realpathSync threw, and the
+  // catch fell back to the lexical path — which is under cwd on paper. It failed
+  // OPEN exactly when resolution failed. Reproduced at depth 72: the write landed
+  // outside the project and built its directory tree there.
+  const other = projectScratch('deep-other-');
+  const victim = projectScratch('deep-victim-');
+  symlinkSync(other, join(victim, 'escape'));
+  const deep = `escape/${'n/'.repeat(70)}pwned.txt`;
+  assert.throws(
+    () => runTool('write_file', { path: deep, content: 'owned' }, { cwd: victim, profile: 'builder' }),
+    /through a link|cannot resolve/,
+  );
+  assert.equal(readdirSync(other).length, 0, 'the deep write escaped the project');
 });
 
 await test('a SYMLINK inside the project cannot write outside it', () => {

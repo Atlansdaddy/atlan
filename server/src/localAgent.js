@@ -123,16 +123,34 @@ function safePath(cwd, p, { mustExist = false } = {}) {
   //
   // realpath the deepest EXISTING ancestor, because the target of a write does
   // not exist yet and realpathSync would throw on it.
+  //
+  // NO ITERATION CAP, and no lexical fallback. The first version of this fix had
+  // both, and a second reviewer broke it in one line: with 64+ non-existent
+  // components under the symlink — `escape/n/n/n/…/pwned.txt` — the walk ran out
+  // of steps before reaching an existing directory, realpathSync threw, the catch
+  // fell back to the LEXICAL path, and that path is under cwd on paper. It failed
+  // OPEN at precisely the moment resolution failed. Reproduced at depth 72: the
+  // write landed outside the project and created its tree there.
+  //
+  // guards.js walks to the root with no cap; capping here reintroduced a limit
+  // the guard next door does not have. Terminating at the filesystem root is
+  // bounded by the path itself, so the loop cannot run away.
   let probe = abs;
-  for (let i = 0; i < 64 && !existsSync(probe); i++) {
+  while (!existsSync(probe)) {
     const up = dirname(probe);
-    if (up === probe) break;
+    if (up === probe) break; // reached the root
     probe = up;
   }
-  let real;
-  try { real = realpathSync(probe); } catch { real = probe; }
-  let realCwd;
-  try { realCwd = realpathSync(cwd); } catch { realCwd = cwd; }
+  let real, realCwd;
+  try {
+    real = realpathSync(probe);
+    realCwd = realpathSync(cwd);
+  } catch (err) {
+    // Cannot resolve => cannot vouch for it. The only safe direction is refusal.
+    // `cause` kept: the model is shown a short reason, but the underlying errno
+    // is what tells an operator whether this was ELOOP, ENAMETOOLONG or EACCES.
+    throw new Error(`cannot resolve path safely: ${raw} (${err.code ?? err.message})`, { cause: err });
+  }
   if (!isUnder(real, realCwd)) throw new Error(`path escapes the project through a link: ${raw}`);
 
   guardPath(abs, { mustExist, blockAppRoot: true, verb: 'writable' });
