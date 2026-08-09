@@ -4,7 +4,7 @@
 
 Built by John Viruet / Mid-Atlantic AI. Licensed **Apache-2.0** — free to use and fork; keep the attribution. Its resident AI, **Atlan**, is the cockpit's living mascot — a calm presence that reacts to what's actually happening as you build.
 
-> **Status (2026-08-08):** M1–M6 plus streaming chat on a **warm, fast session** (the CLI is spawned once and kept alive — no ~3.7s cold-start per turn; measured ~1.3s to first token warm vs ~7s cold), **live self-awareness** (Atlan perceives the current time, your active tab, running agents, today's token burn, and the open project), **visible reasoning** (summarized thinking streams to a panel), password auth, worker hierarchy, attachments, a code editor, voice I/O (**12 AI-model + 10 voice providers** — browser voice free by default, the rest BYO-key, OpenAI-Realtime honestly marked roadmap), and a **durable auto-respawning server** (`bin/atlan-serve.sh`) with optional Termux:Boot reboot-autostart. **828 automated tests green across 25 suites** (see `docs/RECEIPTS.md`). Runs loopback-only by design; the Preflight security gate goes green once you've set a password (it's part of first-run).
+> **Status (2026-08-08):** M1–M6 plus streaming chat on a **warm, fast session** (the CLI is spawned once and kept alive — no ~3.7s cold-start per turn; measured ~1.3s to first token warm vs ~7s cold), **live self-awareness** (Atlan perceives the current time, your active tab, running agents, today's token burn, and the open project), **visible reasoning** (summarized thinking streams to a panel), password auth, worker hierarchy, attachments, a code editor, voice I/O (**12 AI-model + 10 voice providers** — browser voice free by default, the rest BYO-key, OpenAI-Realtime honestly marked roadmap), and a **durable auto-respawning server** (`bin/atlan-serve.sh`) with optional Termux:Boot reboot-autostart. **838 automated tests green across 25 suites** (see `docs/RECEIPTS.md`). Runs loopback-only by design; the Preflight security gate goes green once you've set a password (it's part of first-run).
 >
 > **New in this pass:** conversations **persist across a refresh** with a searchable history and archiving that never deletes · **chat-to-chat and chat-to-project messages**, bounded by rate, duplicate, backlog and relay-depth limits · a **preview full-screen** toggle · a **Doctor grouped by the question each check answers**, with a one-tap copy-report and a real agent-CLI connection check · a **Persona+ drafter** that fills the form from a plain sentence · and the removal of the last places a vendor name stood in for "the engine you picked" — the wire protocol, the runtime decisions, and the copy.
 >
@@ -177,7 +177,7 @@ raises the confinement tier.
 ```bash
 npm test                          # boots a throwaway instance, runs every suite, writes docs/RECEIPTS.md
 ```
-**828 assertions across 25 suites.** They run on a separate throwaway instance (own port + temp state), so they never touch your live cockpit. `e2e` makes real Claude runs and is opt-in via `RUN_PAID=1`.
+**838 assertions across 25 suites.** They run on a separate throwaway instance (own port + temp state), so they never touch your live cockpit. `e2e` makes real Claude runs and is opt-in via `RUN_PAID=1`.
 
 CI runs the same gate on every push. **A green badge does not mean the sandbox was verified** — a GitHub runner has no proot and cannot write unprivileged `uid_map`, so ~87 assertions skip there and the workflow says so in its own log. The confinement work is only ever proven on a real host or a real device.
 
