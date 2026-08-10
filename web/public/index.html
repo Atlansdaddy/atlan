@@ -79,7 +79,9 @@
              asking for the old class — it rendered unstyled. -->
         <div class="msg assistant"><div class="who">Atlan</div>Pick a project below, then talk to your agent. Everything you say here is saved — <b>🗂 History</b> brings any conversation back, and <b>＋ New</b> starts a fresh one.</div>
       </div>
-      <div class="projbar">
+      <!-- id'd because .projbar is a generic layout class used across every
+           panel; the reading-mode tuck must move THIS row and no other. -->
+      <div class="projbar" id="chatProjBar">
         <select id="projSel" aria-label="project"><option value="">loading projects…</option></select>
         <select id="modelSel" aria-label="engine and model">
           <!-- The ladder sits FIRST because on a phone it is usually the right

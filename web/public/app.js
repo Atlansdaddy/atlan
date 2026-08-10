@@ -1972,6 +1972,6 @@ import { convId, newConversation, restoreChat, openHistory } from './lib/chathis
   autoApprove = initAutoApprove({ select: $('autoSel'), conv: convId });
   // Give the conversation its screen back: header tucks while reading, set-once
   // controls fold. The nav bar stays — it is the only route between eight panels.
-  initHeaderAutohide({ header: document.querySelector('header'), scroller: chatlog });
+  initHeaderAutohide({ header: document.querySelector('header'), scroller: chatlog, also: [document.querySelector('#s-chat .chatbar'), $('chatProjBar')] });
   initControlCollapse({ toggle: $('ctrlToggle'), panel: $('ctrlPanel'), also: [$('attachRefRow')] });
 })();

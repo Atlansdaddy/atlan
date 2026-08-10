@@ -664,3 +664,25 @@ nav{
   .atlan-line{max-width:none}
   .sess{min-width:0}
 }
+
+/* Reading mode. The HEADER slides out of the way (transform, so the scroller does
+   not reflow under the reader's thumb). The rows INSIDE the scrolling column
+   cannot use the same trick — sliding them would leave a hole where they were —
+   so they collapse their own box instead, animated, with the content clipped so
+   nothing spills while it moves.
+
+   The composer and the nav never tuck: you type mid-read, and the nav is the only
+   way between eight panels. */
+#s-chat .chatbar, #chatProjBar{
+  overflow:hidden;
+  max-height:60px;
+  opacity:1;
+  transition:max-height .18s ease, opacity .14s ease, margin .18s ease;
+}
+#s-chat .chatbar.tucked, #chatProjBar.tucked{
+  max-height:0;
+  opacity:0;
+  margin-top:0;
+  margin-bottom:0;
+  pointer-events:none;   /* a collapsed control must not still be tappable */
+}

@@ -62,11 +62,16 @@ export function initProjectPicker({ select, fetchJson = () => fetch('/api/projec
  * `threshold` exists because a scroller with momentum reports tiny direction
  * flips; without it the header strobes.
  */
-export function initHeaderAutohide({ header, scroller, threshold = 24 }) {
+export function initHeaderAutohide({ header, scroller, also = [], threshold = 24 }) {
   if (!header || !scroller) return null;
+  // The header was the only thing tucking, so History/+New and the project row
+  // stayed put and the gain was one row out of five. `also` takes the rest of the
+  // chat's chrome. The COMPOSER and the NAV deliberately never tuck: you type
+  // mid-read, and the nav is the only route between eight panels.
+  const group = [header, ...also].filter(Boolean);
   let last = 0, hidden = false;
-  const show = () => { if (hidden) { header.classList.remove('tucked'); hidden = false; } };
-  const hide = () => { if (!hidden) { header.classList.add('tucked'); hidden = true; } };
+  const show = () => { if (hidden) { for (const el of group) el.classList.remove('tucked'); hidden = false; } };
+  const hide = () => { if (!hidden) { for (const el of group) el.classList.add('tucked'); hidden = true; } };
   scroller.addEventListener('scroll', () => {
     const y = scroller.scrollTop;
     // Always visible at the top: a header you cannot get back by scrolling up to
