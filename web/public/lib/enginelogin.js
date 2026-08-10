@@ -130,7 +130,7 @@ export function initEngineLogin({ panel, card, term, openTerm, send }) {
     // NOT the operator's `main` shell. Read rather than assumed, so this cannot
     // start typing into `main` if the default ever changes.
     send({ t: 'pty.input', name: term?.session?.() ?? sessionName, data: command + '\r' });
-    watchForPrompt();
+    watchForPrompt(sessionName);
   }
 
   /**
@@ -144,7 +144,7 @@ export function initEngineLogin({ panel, card, term, openTerm, send }) {
    * Bounded to a few minutes, because a listener left on the terminal forever
    * would keep re-showing a stale card over unrelated work later.
    */
-  function watchForPrompt() {
+  function watchForPrompt(sessionName) {
     if (!card || !term?.onOutput) return;
     let buf = '';
     let shown = '';
@@ -152,7 +152,15 @@ export function initEngineLogin({ panel, card, term, openTerm, send }) {
       buf = (buf + text).slice(-8000); // a rolling window: a code can straddle two frames
       const p = findAuthPrompt(buf);
       const key = `${p?.url ?? ''}|${p?.code ?? ''}`;
-      if (p && key !== shown) { shown = key; showAuthCard(card, p); }
+      if (p && key !== shown) {
+        shown = key;
+        // The return leg goes to the SAME session this sign-in is running in —
+        // read from the terminal, so a code can never be typed into another
+        // engine's prompt the way the commands themselves once were.
+        showAuthCard(card, p, (value) => {
+          send({ t: 'pty.input', name: term?.session?.() ?? sessionName, data: value + '\r' });
+        });
+      }
     });
     setTimeout(stop, 240000);
   }
@@ -173,7 +181,7 @@ export function initEngineLogin({ panel, card, term, openTerm, send }) {
  * is worse than no button. If the copy fails, the value is still readable and
  * selectable as ordinary DOM text — which the terminal canvas never was.
  */
-export function showAuthCard(card, { url, code }) {
+export function showAuthCard(card, { url, code }, sendBack) {
   card.textContent = '';
   card.hidden = false;
 
@@ -209,6 +217,41 @@ export function showAuthCard(card, { url, code }) {
       setTimeout(() => { b.textContent = 'Copy code'; }, 2500);
     });
     card.append(val, b);
+  }
+
+  // THE RETURN LEG. Half these flows are not "read a code off the screen" but
+  // "open this link, and paste what the browser gives you BACK into the
+  // terminal" — claude's is one. That is the same selection problem in reverse,
+  // and it is worse: xterm.js takes input through a hidden textarea, so pasting
+  // into a canvas with a thumb is unreliable even when it is possible.
+  //
+  // A real input solves it, because the OS paste target is then an ordinary
+  // field. Only offered when there is a link, since a flow that printed its own
+  // code is not waiting for one back.
+  if (url && sendBack) {
+    const row = document.createElement('div');
+    row.className = 'authcard-back';
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.placeholder = 'paste the code from the browser';
+    input.autocapitalize = 'off';
+    input.autocomplete = 'off';
+    input.spellcheck = false;
+    const go = document.createElement('button');
+    go.className = 'mini';
+    go.textContent = 'Send to terminal';
+    const submit = () => {
+      const v = input.value.trim();
+      if (!v) return;
+      sendBack(v);
+      input.value = '';
+      go.textContent = 'Sent';
+      setTimeout(() => { go.textContent = 'Send to terminal'; }, 2000);
+    };
+    go.addEventListener('click', submit);
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
+    row.append(input, go);
+    card.append(row);
   }
 
   const dismiss = document.createElement('button');

@@ -510,6 +510,11 @@ details .doctor-list{margin-bottom:8px}
   padding:8px 12px;border:1px dashed var(--line);border-radius:8px;background:var(--surface2);
   user-select:all;-webkit-user-select:all}
 .authcard .authcard-x{background:transparent;color:var(--muted);border-color:transparent}
+/* The return leg: a real input, because pasting into a canvas with a thumb is
+   unreliable even where it is possible. */
+.authcard-back{display:flex;flex-basis:100%;gap:6px;align-items:center}
+.authcard-back input{flex:1;min-width:0;min-height:44px;font-family:var(--mono);font-size:13px;
+  background:var(--surface2);color:var(--ink);border:1px solid var(--line);border-radius:9px;padding:0 10px}
 /* Sign-in rows reuse .keyrow so the two credential surfaces read as siblings. */
 .keyrow .kstate{font-family:var(--mono);font-size:9.5px;color:var(--muted);flex:1;min-width:0}
 .keyrow .kstate.ok{color:var(--ok)}
