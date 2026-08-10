@@ -25,7 +25,7 @@ import { appendConsoleLine } from './lib/previewconsole.js';
 import { renderRichMessage, rungChip } from './lib/richmsg.js';
 import { initDoctorReport } from './lib/doctorreport.js';
 import { renderDoctor } from './lib/doctorview.js';
-import { initEngineLogin } from './lib/enginelogin.js';
+import { initEngineLogin, initSignIn } from './lib/enginelogin.js';
 import { createTerm } from './lib/term.js';
 import { msgClass, whoLabel, sessionLine, autoPermLine } from './lib/msgstyle.js';
 import { normalizeProfile, initAutoApprove } from './lib/autoapprove.js';
@@ -110,7 +110,7 @@ import { convId, newConversation, restoreChat, openHistory } from './lib/chathis
     if (b.dataset.s === 's-editor') initEditor();
     if (b.dataset.s === 's-fleet') loadFleet();
     if (b.dataset.s === 's-scan') loadScan();
-    if (b.dataset.s === 's-doctor') { loadDoctor(); loadKeys(); loadPreflight(); loadLocalModels(); }
+    if (b.dataset.s === 's-doctor') { loadDoctor(); loadSignIn(); loadKeys(); loadPreflight(); loadLocalModels(); }
   }));
 
   // Show a screen that has no nav button of its own (Git). The nav keeps the
@@ -1349,7 +1349,7 @@ import { convId, newConversation, restoreChat, openHistory } from './lib/chathis
     }).catch(() => { list.innerHTML = '<div class="hint">doctor endpoint unreachable</div>'; });
   }
   $('doctorBtn').addEventListener('click', () => { loadDoctor(); loadPreflight(); });
-  initEngineLogin({
+  const engineLogin = initEngineLogin({
     panel: $('doctorList'),
     // Its OWN tmux session, never `main`. `main` is the operator's shell — the
     // one they can attach to from Termux — and typing a command into it while
@@ -1362,6 +1362,7 @@ import { convId, newConversation, restoreChat, openHistory } from './lib/chathis
     session: () => termSession.session(),
     send,
   });
+  const loadSignIn = initSignIn({ list: $('signinList'), run: engineLogin.run });
   initDoctorReport({ button: $('doctorCopy'), getChecks: () => lastChecks, panel: $('doctorList') });
 
   // ── preflight (security gate) ──

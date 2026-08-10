@@ -1,6 +1,43 @@
 import pty from 'node-pty';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import { getStoredKey } from './keys.js';
 import { PROJECTS_DIR } from './config.js';
+
+/**
+ * tmux, if this host has it — resolved from PATH once, never assumed.
+ *
+ * It WAS assumed, and on a phone without it the Term tab was not degraded but
+ * dead: pty.spawn forks a live terminal and the exec fails in the CHILD, so the
+ * user got "execvp(3) failed.: No such file or directory" and an exit, with
+ * nothing naming tmux as the missing piece. Everything downstream of the
+ * terminal went with it, including the engine-login buttons.
+ *
+ * What tmux actually buys is PERSISTENCE and the CLI↔GUI handoff: `new-session
+ * -A` reattaches, so a dropped socket rejoins the same shell and `tmux attach -t
+ * atlan-main` from Termux reaches the same session. Worth having — not worth
+ * being the difference between a terminal and no terminal.
+ */
+let tmuxResolved = false;
+let tmuxPath = null;
+function findTmux() {
+  if (tmuxResolved) return tmuxPath;
+  tmuxResolved = true;
+  for (const dir of String(process.env.PATH ?? '').split(':')) {
+    if (!dir) continue;
+    try {
+      const p = join(dir, 'tmux');
+      if (existsSync(p)) { tmuxPath = p; break; }
+    } catch { /* an unreadable PATH entry is not an error, just not tmux */ }
+  }
+  return tmuxPath;
+}
+
+/** Tests re-ask after installing (or hiding) tmux. */
+export function _resetTmuxProbe() { tmuxResolved = false; tmuxPath = null; }
+
+/** True when a session survives a dropped socket; false on the shell fallback. */
+export function ptyPersistent() { return process.platform !== 'win32' && !!findTmux(); }
 
 // Interactive CLIs launched in the Term tab should inherit the same creds the
 // cockpit uses — otherwise `gemini` falls back to the dead individual OAuth
@@ -39,8 +76,14 @@ export function openPty(name, ws, { cols = 80, rows = 24, cwd } = {}) {
     const isWin = process.platform === 'win32';
     const targetCwd = cwd || PROJECTS_DIR;
 
-    const shell = isWin ? (process.env.COMSPEC || 'powershell.exe') : 'tmux';
-    const args = isWin ? [] : ['new-session', '-A', '-s', `atlan-${name}`];
+    // Three cases, in order of preference: tmux (persistent, reattachable),
+    // win32's COMSPEC, or a plain login shell. The last one is the phone without
+    // tmux — a real terminal that simply does not survive a reconnect, which
+    // beats an execvp error that named nothing.
+    const tmux = isWin ? null : findTmux();
+    const shell = isWin ? (process.env.COMSPEC || 'powershell.exe')
+      : (tmux ?? process.env.SHELL ?? '/bin/sh');
+    const args = tmux ? ['new-session', '-A', '-s', `atlan-${name}`] : [];
 
     try {
       const proc = pty.spawn(shell, args, {

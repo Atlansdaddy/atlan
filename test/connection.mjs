@@ -75,6 +75,30 @@ await test('PTY round-trip: open a tmux pty, echo, receive output', async () => 
   assert.ok(String(m.data).includes(marker));
   ws.close();
 });
+await test('a host with no tmux still gets a terminal, not an execvp error', async () => {
+  // THE TERM TAB WAS DEAD ON THE PHONE AND NOTHING SAID WHY. openPty spawned
+  // `tmux new-session` unconditionally; node-pty forks a live PTY and the exec
+  // fails in the CHILD, so a missing tmux surfaced as "execvp(3) failed.: No
+  // such file or directory" plus an exit — naming neither tmux nor a fix.
+  // Everything downstream went with it, including the engine-login buttons.
+  //
+  // Driven through the module rather than the socket, because the question is
+  // which BINARY gets chosen and the server under test has tmux installed.
+  const ptymod = await import('../server/src/pty.js');
+  const realPath = process.env.PATH;
+  try {
+    process.env.PATH = '/nonexistent-atlan-test'; // a PATH with no tmux on it
+    ptymod._resetTmuxProbe();
+    assert.equal(ptymod.ptyPersistent(), false, 'no tmux on PATH must report non-persistent');
+  } finally {
+    process.env.PATH = realPath;
+    ptymod._resetTmuxProbe();
+  }
+  // …and where tmux DOES exist, persistence is claimed rather than quietly lost.
+  const cp = await import('node:child_process');
+  const haveTmux = await new Promise((res) => cp.exec('command -v tmux || true', (_e, o) => res(String(o).trim())));
+  if (haveTmux) assert.equal(ptymod.ptyPersistent(), true, 'tmux is installed here, so sessions must be persistent');
+});
 await test('reconnection after a drop re-subscribes to broadcasts', async () => {
   let ws = await openWs();
   ws.close();

@@ -144,12 +144,24 @@ export async function runDoctor() {
         actions,
       };
     }),
-    check('tmux', 'tmux', async () => {
+    check('tmux', 'tmux (terminal persistence)', async () => {
       // Require the "tmux <version>" banner. A present-but-broken tmux prints
       // "tmux: error while loading shared libraries…" which startsWith('tmux')
       // and would falsely read green (the broken-binary trap).
       const { stdout } = await sh('tmux -V 2>&1 || true');
-      return { ok: /^tmux \d/.test(stdout.trim()), detail: stdout.trim() };
+      const have = /^tmux \d/.test(stdout.trim());
+      // WARN, NOT FAIL. Without tmux the Term tab still works — it falls back to
+      // a plain login shell — so this is a lost capability, not a broken one.
+      // It read as a hard failure while the terminal was genuinely dead, which
+      // conflated two different problems; the terminal being dead was pty.js
+      // assuming tmux existed, and that is fixed.
+      return {
+        ok: have,
+        warn: !have,
+        detail: have
+          ? `${stdout.trim()} — sessions survive a reconnect, and \`tmux attach -t atlan-main\` reaches them from a shell`
+          : 'not installed — the terminal falls back to a plain shell, so sessions do NOT survive a reconnect and cannot be attached from Termux. Install with: pkg install tmux',
+      };
     }),
     check('disk', 'Free disk', async () => {
       const { stdout } = await sh(`df -h "${homedir()}" | tail -1 | awk '{print $4}'`);
