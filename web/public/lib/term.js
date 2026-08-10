@@ -19,7 +19,25 @@
 // everything correctly. ready() resolves on the first output, which is the only
 // trustworthy signal that a shell exists.
 
-export function createTerm({ mount, send, cwd }) {
+/**
+ * The caption under the terminal, for the session actually attached.
+ *
+ * It was a literal `atlan-main` in the markup, so after an engine login it named
+ * a session the user was not looking at and told them to attach to it. Escaped
+ * here because a session name reaches this from the client's own state — not
+ * user input today, but the day it is, this is where it would have mattered.
+ */
+export function termHintHtml(name) {
+  const esc = String(name ?? 'main').replace(/[&<>"']/g, (c) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+  ));
+  const s = `atlan-${esc}`;
+  return `This is tmux session <code>${s}</code> — run <code>tmux attach -t ${s}</code> from any other terminal `
+    + 'on this host to take over on the CLI, any time. What you do there shows here, and vice versa. '
+    + '(Without tmux — Windows, or a host that has not installed it — this is a plain shell and does not mirror.)';
+}
+
+export function createTerm({ mount, send, cwd, onAttach }) {
   let term = null;
   let fitAddon = null;
   let current = null;        // tmux session this terminal is attached to
@@ -36,6 +54,11 @@ export function createTerm({ mount, send, cwd }) {
 
   function attach(name) {
     current = name;
+    // The caption under the terminal named `atlan-main` as a literal, so after a
+    // login it told you to attach to a session you were not looking at. It says
+    // which one you are actually on now — and says so when there is no tmux at
+    // all, rather than promising an attach that cannot work.
+    onAttach?.(name);
     readyPromise = new Promise((res) => { resolveReady = res; });
     term.reset(); // the previous session's scrollback is not this session's
     send({ t: 'pty.open', name, cols: term.cols, rows: term.rows, cwd: cwd() });

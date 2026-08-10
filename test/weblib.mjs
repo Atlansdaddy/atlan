@@ -17,6 +17,7 @@ import {
   urlBase64ToUint8Array,
 } from '../web/public/lib/text.js';
 import { isNight, greetingFor, hueFor, MOOD_HUE } from '../web/public/lib/ambient.js';
+import { termHintHtml } from '../web/public/lib/term.js';
 import {
   engineOptionLabel, engineOptionValue, ladderOptionLabel, ladderOptionTitle, rungLineText,
 } from '../web/public/lib/enginepicker.js';
@@ -229,6 +230,26 @@ test('urlBase64ToUint8Array returns a real Uint8Array of the right length', () =
   const out = urlBase64ToUint8Array('aGVsbG8'); // "hello"
   assert.ok(out instanceof Uint8Array);
   assert.equal(out.length, 5);
+});
+
+// ── term: the caption under the terminal ───────────────────────────────────
+test('the terminal caption names the session you are ACTUALLY on', () => {
+  // It was the literal atlan-main, written into the markup. The engine-login
+  // button opens its OWN session, so after a login the caption named a session
+  // the user was not looking at and told them to attach to it — confidently
+  // wrong, which is worse than saying nothing.
+  assert.match(termHintHtml('main'), /atlan-main/);
+  const login = termHintHtml('login');
+  assert.match(login, /atlan-login/);
+  assert.ok(!/atlan-main/.test(login), 'the login session must not be described as main');
+});
+test('a session name cannot inject markup into the caption', () => {
+  // The name comes from the client's own state today, not from user input —
+  // which is exactly the assumption worth pinning. The caption is assigned with
+  // innerHTML, so the day a name arrives from anywhere else, this is closed.
+  const h = termHintHtml('<img src=x onerror=alert(1)>');
+  assert.ok(!/<img/.test(h), 'raw markup must not survive into the caption');
+  assert.match(h, /&lt;img/);
 });
 
 // ── ambient: isNight ───────────────────────────────────────────────────────

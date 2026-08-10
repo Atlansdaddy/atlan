@@ -26,7 +26,7 @@ import { renderRichMessage, rungChip } from './lib/richmsg.js';
 import { initDoctorReport } from './lib/doctorreport.js';
 import { renderDoctor } from './lib/doctorview.js';
 import { initEngineLogin, initSignIn } from './lib/enginelogin.js';
-import { createTerm } from './lib/term.js';
+import { createTerm, termHintHtml } from './lib/term.js';
 import { msgClass, whoLabel, sessionLine, autoPermLine } from './lib/msgstyle.js';
 import { normalizeProfile, initAutoApprove } from './lib/autoapprove.js';
 import { permCard } from './lib/permcard.js';
@@ -689,7 +689,10 @@ import { convId, newConversation, restoreChat, openHistory } from './lib/chathis
   });
 
   // ── terminal ── (lib/term.js owns the session; this is just the handle)
-  const termSession = createTerm({ mount: () => $('term'), send, cwd: () => $('projSel').value });
+  const termSession = createTerm({
+    mount: () => $('term'), send, cwd: () => $('projSel').value,
+    onAttach: (name) => { const h = $('termHint'); if (h) h.innerHTML = termHintHtml(name); },
+  });
   const initTerm = () => termSession.open();
 
   // ── code editor (CodeMirror, language-agnostic) ──

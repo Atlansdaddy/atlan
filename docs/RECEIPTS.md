@@ -12,7 +12,7 @@ _Free suites only. The E2E suite (real Claude runs) is opt-in — `RUN_PAID=1 no
 | Suite | What it proves | Result |
 |---|---|---|
 | Unit | Pure functions in isolation: safe-arith evaluator, checker engine, Persona+ compilers, schema builders, scheduler math, token compare. | ✅ 88/88 |
-| Web Lib | The front-end's pure logic, extracted from app.js so Node can reach it: fenced-code parsing (incl. streaming and boundary cases), HTML escaping, diff colouring, base64url, day/night and greeting bands. Previously untestable — the only front-end coverage was Playwright driving the UI. | ✅ 77/77 |
+| Web Lib | The front-end's pure logic, extracted from app.js so Node can reach it: fenced-code parsing (incl. streaming and boundary cases), HTML escaping, diff colouring, base64url, day/night and greeting bands. Previously untestable — the only front-end coverage was Playwright driving the UI. | ✅ 79/79 |
 | Editor Guards | The two irreversible things the editor can do to you: opening another file over unsaved work, and saving the current buffer onto a DIFFERENT existing file (the path box is also the navigate box, and writeFile has no existence check). Asserts the guards fire — and, just as hard, that they stay quiet on ordinary saves, because a dialog on every save is one people dismiss unread. | ✅ 14/14 |
 | Preview URL | Where the preview iframe points. Three hardcoded literals in app.js made the preview pane structurally impossible on a phone — an http frame inside an https page is blocked as mixed content, and the workaround baked one operator's tailscale port and hostname into shared code. Asserts the ports come from the server, the origin always derives from the url (postMessage is pinned both ways), and that https with no TLS front door refuses to guess and says which setting fixes it. | ✅ 7/7 |
 | Fleet Actions | The fleet buttons that spend money or stop work. Top-up disarms BEFORE the request, so a second tap cannot land in the gap and resume the same session on a second budget; it re-arms only when nothing was spent. Kill — per-run and fleet-wide — reports every way it can fail, because a kill that did not land must never look like one that did. | ✅ 13/13 |
@@ -41,7 +41,7 @@ _Free suites only. The E2E suite (real Claude runs) is opt-in — `RUN_PAID=1 no
 | Tour/Onboarding | Drives all tour steps live — every step spotlights a real visible element; handbook opens/searches/relaunches. | ✅ 10/10 |
 | UI · Fleet | Every Fleet control driven at 412x900: top-up cannot be double-tapped into a double-spend, a kill that fails is reported, the header burn gauge moves while a run burns, Hierarchy job links come with a command selected, and Builder rows stay wide enough to type into. First of the five per-surface specs to reach zero — the rest join as their surfaces are fixed (docs/UI-AUDIT.md). | ✅ 29/29 |
 
-**Total: 908 passed, 0 failed across 29 suites.**
+**Total: 910 passed, 0 failed across 29 suites.**
 
 ## Unit
 
@@ -178,6 +178,8 @@ WEB LIB SUITE
   ✓ urlBase64ToUint8Array decodes unpadded base64url
   ✓ urlBase64ToUint8Array translates the -_ alphabet back to +/
   ✓ urlBase64ToUint8Array returns a real Uint8Array of the right length
+  ✓ the terminal caption names the session you are ACTUALLY on
+  ✓ a session name cannot inject markup into the caption
   ✓ isNight covers 22:00 through 06:30 across the midnight wrap
   ✓ isNight excludes the day, with exact boundaries
   ✓ greetingFor returns a distinct line for each band
@@ -227,7 +229,7 @@ WEB LIB SUITE
   ✓ an auto-approved tool still leaves a visible line
   ✓ an auto-DENIED tool says which profile refused it and why
 
-77 passed, 0 failed
+79 passed, 0 failed
 ```
 
 ## Editor Guards
