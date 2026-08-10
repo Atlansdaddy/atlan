@@ -22,8 +22,9 @@
  * @param {Function} o.termReady  () => Promise that settles when the shell speaks
  * @param {Function} o.write      (text) => void, echoes into the terminal
  * @param {Function} o.send       (frame) => void, the WebSocket sender
+ * @param {Function} o.session    () => the tmux session the terminal is on now
  */
-export function initEngineLogin({ panel, openTerm, termReady, write, send }) {
+export function initEngineLogin({ panel, openTerm, termReady, write, send, session }) {
   if (!panel) return;
   panel.addEventListener('atlan:run-in-term', async (ev) => {
     const { command, label } = ev.detail ?? {};
@@ -38,6 +39,9 @@ export function initEngineLogin({ panel, openTerm, termReady, write, send }) {
       new Promise((r) => setTimeout(r, 4000)),
     ]);
     write?.(`\r\n\x1b[36m— ${label ?? 'sign in'} — finish it below; Atlan never sees the credential —\x1b[0m\r\n`);
-    send({ t: 'pty.input', name: 'main', data: command + '\r' });
+    // Addressed to whatever session openTerm() attached, which is deliberately
+    // NOT the operator's `main` shell. Read rather than assumed, so this cannot
+    // start typing into `main` if the default ever changes.
+    send({ t: 'pty.input', name: session?.() ?? 'login', data: command + '\r' });
   });
 }

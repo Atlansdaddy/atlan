@@ -339,8 +339,8 @@ import { convId, newConversation, restoreChat, openHistory } from './lib/chathis
         $('buildBtn').disabled = false;
         addBuildLine(m.msg, 'bl-hi');
         break;
-      case 'pty.data': termSession.data(m.data); break; // first byte also settles ready()
-      case 'pty.exit': termSession.exit('\r\n[terminal session ended — reopen the tab to restart]'); break;
+      case 'pty.data': termSession.data(m); break; // the frame, not just the text: it carries the session name
+      case 'pty.exit': termSession.exit(m, '\r\n[terminal session ended — reopen the tab to restart]'); break;
       case 'fleet.run': upsertRun(m.run); break;
       case 'fleet.event': {
         const r = fleetRuns.get(m.id);
@@ -1351,11 +1351,15 @@ import { convId, newConversation, restoreChat, openHistory } from './lib/chathis
   $('doctorBtn').addEventListener('click', () => { loadDoctor(); loadPreflight(); });
   initEngineLogin({
     panel: $('doctorList'),
-    openTerm: () => { document.querySelector('nav button[data-s="s-term"]')?.click(); initTerm(); },
+    // Its OWN tmux session, never `main`. `main` is the operator's shell — the
+    // one they can attach to from Termux — and typing a command into it while
+    // something is running injects into that instead.
+    openTerm: () => { document.querySelector('nav button[data-s="s-term"]')?.click(); termSession.open('login'); },
     // Only await when a shell has yet to speak; an already-open PTY would never
     // settle this and the caller would wait out its timeout for nothing.
     termReady: () => termSession.ready(),
     write: (t) => termSession.write(t),
+    session: () => termSession.session(),
     send,
   });
   initDoctorReport({ button: $('doctorCopy'), getChecks: () => lastChecks, panel: $('doctorList') });
