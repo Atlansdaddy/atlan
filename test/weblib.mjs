@@ -19,6 +19,7 @@ import {
 import { isNight, greetingFor, hueFor, MOOD_HUE } from '../web/public/lib/ambient.js';
 import { termHintHtml } from '../web/public/lib/term.js';
 import { plain, extractAuthUrl, extractAuthCode, findAuthPrompt } from '../web/public/lib/authcode.js';
+import { loginSession } from '../web/public/lib/enginelogin.js';
 import {
   engineOptionLabel, engineOptionValue, ladderOptionLabel, ladderOptionTitle, rungLineText,
 } from '../web/public/lib/enginepicker.js';
@@ -276,6 +277,27 @@ test('findAuthPrompt returns whichever half it found', () => {
   assert.equal(onlyUrl.code, null);
   const onlyCode = findAuthPrompt('your code is ABCD-EFGH');
   assert.equal(onlyCode.code, 'ABCD-EFGH');
+});
+
+test('each engine signs in in its OWN terminal', () => {
+  // They shared one, and it broke the first time two were used in a row: claude's
+  // sign-in was open waiting for a pasted OAuth code when copilot's button fired,
+  // so the copilot command was typed into claude's prompt and came back
+  // "OAuth error: Invalid code." Observed live on the S9, not hypothesised.
+  assert.notEqual(loginSession('claude'), loginSession('copilot'));
+  assert.equal(loginSession('claude'), 'login-claude');
+});
+test('a session name cannot be forged out of an engine id', () => {
+  // It becomes a tmux session (`atlan-<this>`); a space or a quote would produce
+  // one nobody can address again.
+  // Hyphens survive — they are legal in a tmux session name — so the shell
+  // metacharacters are what has to go, and they do.
+  assert.equal(loginSession('cla ude; rm -rf /'), 'login-clauderm-rf');
+  for (const c of [' ', ';', '"', "'", '$', '`', '/', '|', '&']) {
+    assert.ok(!loginSession(`x${c}y`).includes(c), `${c} must not reach a session name`);
+  }
+  assert.equal(loginSession(''), 'login');
+  assert.equal(loginSession(null), 'login');
 });
 
 // ── term: the caption under the terminal ───────────────────────────────────

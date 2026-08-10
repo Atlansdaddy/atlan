@@ -34,6 +34,17 @@
  */
 import { findAuthPrompt } from './authcode.js';
 
+/**
+ * The tmux session an engine's sign-in runs in. One each, never shared.
+ *
+ * Sanitised because it becomes a tmux session name (`atlan-<this>`), and an id
+ * carrying a space or a quote would produce a session nobody can address.
+ */
+export function loginSession(engine) {
+  const id = String(engine ?? '').replace(/[^a-z0-9-]/gi, '').slice(0, 24);
+  return id ? `login-${id}` : 'login';
+}
+
 export function renderSignIn(list, engines, onLogin) {
   if (!list) return;
   list.textContent = '';
@@ -79,7 +90,7 @@ export function renderSignIn(list, engines, onLogin) {
 export function initSignIn({ list, run }) {
   return function load() {
     fetch('/api/engines').then((r) => r.json()).then((all) => {
-      renderSignIn(list, all.filter((e) => e.group === 'agent'), (e) => run(e.login, `Log in to ${e.id}`));
+      renderSignIn(list, all.filter((e) => e.group === 'agent'), (e) => run(e.login, `Log in to ${e.id}`, loginSession(e.id)));
     }).catch(() => { /* Doctor still renders; the list just stays empty */ });
   };
 }
@@ -93,9 +104,19 @@ export function initSignIn({ list, run }) {
  * @param {Function} o.send      (frame) => void, the WebSocket sender
  */
 export function initEngineLogin({ panel, card, term, openTerm, send }) {
-  async function run(command, label) {
+  /**
+   * @param {string} sessionName tmux session to run it in — ONE PER ENGINE.
+   *
+   * They shared a single `login` session at first, and it broke exactly as you
+   * would expect the moment two were used in a row: claude's sign-in was still
+   * open waiting for a pasted OAuth code when copilot's button fired, so the
+   * copilot command was typed into claude's prompt and came back "OAuth error:
+   * Invalid code." Confusing, and it looked like the button was broken when the
+   * only thing wrong was which terminal it typed into.
+   */
+  async function run(command, label, sessionName = 'login') {
     if (!command) return;
-    openTerm();
+    openTerm(sessionName);
     // A PTY that is already open has no fresh output coming, so waiting on it
     // would hang forever. The race is the timeout, not the happy path: keystrokes
     // sent before the shell starts are silently dropped, which is how a button
@@ -108,7 +129,7 @@ export function initEngineLogin({ panel, card, term, openTerm, send }) {
     // Addressed to whatever session openTerm() attached, which is deliberately
     // NOT the operator's `main` shell. Read rather than assumed, so this cannot
     // start typing into `main` if the default ever changes.
-    send({ t: 'pty.input', name: term?.session?.() ?? 'login', data: command + '\r' });
+    send({ t: 'pty.input', name: term?.session?.() ?? sessionName, data: command + '\r' });
     watchForPrompt();
   }
 
@@ -137,7 +158,10 @@ export function initEngineLogin({ panel, card, term, openTerm, send }) {
   }
 
   // The Doctor check rows dispatch this; the sign-in list calls run() directly.
-  panel?.addEventListener('atlan:run-in-term', (ev) => run(ev.detail?.command, ev.detail?.label));
+  panel?.addEventListener('atlan:run-in-term', (ev) => {
+    const d = ev.detail ?? {};
+    run(d.command, d.label, loginSession(d.engine));
+  });
   return { run };
 }
 

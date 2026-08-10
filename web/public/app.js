@@ -1357,7 +1357,7 @@ import { convId, newConversation, restoreChat, openHistory } from './lib/chathis
     // Its OWN tmux session, never `main`. `main` is the operator's shell — the
     // one they attach to from Termux — and typing into it while something is
     // running injects the command into that instead.
-    openTerm: () => { document.querySelector('nav button[data-s="s-term"]')?.click(); termSession.open('login'); },
+    openTerm: (name) => { document.querySelector('nav button[data-s="s-term"]')?.click(); termSession.open(name); },
   });
   const loadSignIn = initSignIn({ list: $('signinList'), run: engineLogin.run });
   initDoctorReport({ button: $('doctorCopy'), getChecks: () => lastChecks, panel: $('doctorList') });

@@ -111,7 +111,10 @@ function paint(list, checks, groups) {
             ev.stopPropagation(); // the row sits inside <details> — don't toggle it
             list.dispatchEvent(new CustomEvent('atlan:run-in-term', {
               bubbles: true,
-              detail: { command: a.run, label: a.label },
+              // `engine` decides WHICH terminal it runs in. Without it every
+              // engine shared one, and a second sign-in typed its command into
+              // the first one's prompt.
+              detail: { command: a.run, label: a.label, engine: a.id },
             }));
           });
           bar.append(b);
