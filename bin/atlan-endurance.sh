@@ -206,12 +206,25 @@ charging() {
     termux-battery-status 2>/dev/null | sed -n 's/.*"status": *"\([A-Z]*\)".*/\1/p' | head -1
   else echo UNKNOWN; fi
 }
-# Hottest zone, not zone0 — zone0 is often the battery and throttling shows up in the SoC.
+# CPU temperature, chosen BY ZONE TYPE — not the hottest number on the device.
+#
+# The first version took the max across every thermal_zone, which reported a
+# rock-steady 75C all night on a phone whose real sensors read 36-37C. The 75 was
+# `lmh-dcvs-00` and `lmh-dcvs-01`: Limits-Management-Hardware zones that report a
+# configured THRESHOLD, not a measurement. It never varied because it is a
+# constant, and "max of everything" cannot tell a limit from a reading.
+#
+# Zones whose type names a CPU are real sensors on every Android SoC seen here
+# (cpu0-silver-usr, cpu3-gold-usr...). Falling back to the max only when no CPU
+# zone exists keeps a number on unfamiliar hardware, and it is still labelled
+# honestly as unavailable when nothing is readable at all.
 temp_c() {
-  local hi=0 v
-  for z in /sys/class/thermal/thermal_zone*/temp; do
-    [ -r "$z" ] || continue
-    v=$(cat "$z" 2>/dev/null) || continue
+  local hi=0 v t
+  for z in /sys/class/thermal/thermal_zone*/; do
+    [ -r "$z/temp" ] || continue
+    t=$(cat "$z/type" 2>/dev/null)
+    case "$t" in *cpu*) ;; *) continue ;; esac
+    v=$(cat "$z/temp" 2>/dev/null) || continue
     case "$v" in ''|*[!0-9-]*) continue ;; esac
     [ "$v" -gt 1000 ] && v=$((v / 1000))
     [ "$v" -gt "$hi" ] && hi=$v

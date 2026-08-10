@@ -28,7 +28,7 @@ import { renderDoctor } from './lib/doctorview.js';
 import { msgClass, whoLabel, sessionLine, autoPermLine } from './lib/msgstyle.js';
 import { normalizeProfile, initAutoApprove } from './lib/autoapprove.js';
 import { permCard } from './lib/permcard.js';
-import { initProjectPicker, initHeaderAutohide, initControlCollapse } from './lib/chrome.js';
+import { initProjectPicker, initFocusMode, initControlCollapse } from './lib/chrome.js';
 let autoApprove = null; // set at init; .refresh() re-reads after + New switches conversation
 import { initPreviewMax } from './lib/previewmax.js';
 import { convId, newConversation, restoreChat, openHistory } from './lib/chathistory.js';
@@ -1972,6 +1972,6 @@ import { convId, newConversation, restoreChat, openHistory } from './lib/chathis
   autoApprove = initAutoApprove({ select: $('autoSel'), conv: convId });
   // Give the conversation its screen back: header tucks while reading, set-once
   // controls fold. The nav bar stays — it is the only route between eight panels.
-  initHeaderAutohide({ header: document.querySelector('header'), scroller: chatlog, also: [document.querySelector('#s-chat .chatbar'), $('chatProjBar')] });
+  initFocusMode({ button: $('focusBtn'), header: document.querySelector('header'), rows: [$('chatProjBar'), $('ctrlToggle')] });
   initControlCollapse({ toggle: $('ctrlToggle'), panel: $('ctrlPanel'), also: [$('attachRefRow')] });
 })();

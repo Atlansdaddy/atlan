@@ -711,6 +711,25 @@ wss.on('connection', (ws, req) => {
   ws.on('message', (raw) => {
     let m;
     try { m = JSON.parse(raw); } catch { return; }
+    // NO SOCKET MESSAGE MAY KILL THE COCKPIT.
+    //
+    // It could, and it did. Selecting the Claude engine on a device with no
+    // Claude CLI installed threw synchronously — prompt() calls _start() calls
+    // the SDK's query(), which cannot find the binary — and the throw travelled
+    // straight out of this handler as an uncaught exception. The whole server
+    // died: every conversation on it, the preview proxy, the fleet, gone,
+    // because one client picked an engine that was not there.
+    //
+    // A handler that throws is a bug to fix at the source, and this is the wall
+    // that keeps that bug local to one turn instead of fatal to the process.
+    try { dispatch(m); } catch (err) {
+      send({ t: 'chat.err', msg: `that action failed: ${String(err?.message ?? err).slice(0, 200)}` });
+      send({ t: 'chat.result', subtype: 'error' });
+      console.error('[ws]', m.t, err);
+    }
+  });
+
+  function dispatch(m) {
     switch (m.t) {
       case 'chat.send': {
         // The conversation id comes from the client and is validated as a shape,
@@ -876,7 +895,7 @@ wss.on('connection', (ws, req) => {
         resizePty(m.name || 'main', m.cols, m.rows);
         break;
     }
-  });
+  }
 });
 
 startPreviewProxy();

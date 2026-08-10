@@ -1,19 +1,27 @@
-// chrome.js — giving the conversation back its screen.
+// chrome.js — giving the conversation its screen back, without fighting the
+// scroller for it.
 //
-// On a 5.8" phone the chat was fighting a header, a History/New row, a
-// persona+engine row, an auto-approve row, the composer, an attach-ref row and an
-// eight-tab nav. The conversation — the thing you are actually here for — got
-// about a third of the display, and it got worse the day auto-approve shipped.
+// On a 5.8" phone the chat was framed by a header, a History/+New row, a
+// persona+engine row, the composer and an eight-tab nav; the conversation got
+// about a third of the display.
 //
-// Two moves, both chosen to add no gesture anyone has to discover:
-//   · the header hides on scroll-down and returns on scroll-up, which is the
-//     pattern every mobile browser has already taught everyone;
-//   · the set-once controls fold behind one chevron.
+// THE FIRST ATTEMPT TUCKED ON SCROLL AND IT JITTERED, badly, and it deserved to.
+// Collapsing the chrome changes the scroller's height, which fires another scroll
+// event; near the bottom the browser also adjusts scrollTop to compensate, which
+// reads as "scrolled up" — so it shows, the height grows, that reads as "scrolled
+// down", and it hides again. A feedback loop by construction, worst exactly where
+// there is least room to absorb it.
 //
-// The nav bar deliberately stays. It is the only way between eight panels, and
-// hiding it behind a swipe would mean learning a gesture to go anywhere — worse
-// still because Term and Editor swallow swipes, so it would fail in exactly the
-// panels where you most need it.
+// The loop is not tunable away. To reclaim space you must change layout, and
+// changing layout is what generates the events. Thresholds and debounces make it
+// flicker less often, not correctly.
+//
+// So it is ONE DELIBERATE CONTROL now. A tap collapses every row that is not the
+// conversation; another restores them. Deterministic, silent, and it can hide
+// more than an automatic version would dare, because the user asked for it.
+//
+// The COMPOSER and the NAV never collapse. You type mid-read, and the nav is the
+// only route between eight panels.
 
 /** The label a project wears in the picker. */
 export function projectLabel(p) {
@@ -32,9 +40,6 @@ export function projectLabel(p) {
  * AS LOADING FOREVER — even when the fetch had already succeeded. Nothing was
  * loading; nothing was selected. Its `.catch(() => {})` then swallowed real
  * failures whole, so a broken fetch and a slow one were indistinguishable.
- *
- * Three outcomes, three different sentences: some projects, no projects (with
- * what a project IS, since the answer is never obvious), or the error.
  */
 export function initProjectPicker({ select, fetchJson = () => fetch('/api/projects').then((r) => r.json()) }) {
   if (!select) return Promise.resolve();
@@ -53,35 +58,40 @@ export function initProjectPicker({ select, fetchJson = () => fetch('/api/projec
 }
 
 /**
- * Hide the header while reading, bring it back on the way up.
+ * Focus mode: one tap hides every row that is not the conversation.
  *
- * TRANSFORM, never display:none. Collapsing the box would reflow the scroller
- * mid-scroll, which jumps the content under the reader's thumb — the artifact
- * this is supposed to avoid.
+ * `rows` are collapsed by class; `header` additionally gives back its own height,
+ * because it lives outside the scrolling column and a transform alone would move
+ * the pixels while leaving the box — a blank strip where the header used to be
+ * instead of more conversation.
  *
- * `threshold` exists because a scroller with momentum reports tiny direction
- * flips; without it the header strobes.
+ * No scroll listener. That is the entire point of this rewrite.
  */
-export function initHeaderAutohide({ header, scroller, also = [], threshold = 24 }) {
-  if (!header || !scroller) return null;
-  // The header was the only thing tucking, so History/+New and the project row
-  // stayed put and the gain was one row out of five. `also` takes the rest of the
-  // chat's chrome. The COMPOSER and the NAV deliberately never tuck: you type
-  // mid-read, and the nav is the only route between eight panels.
-  const group = [header, ...also].filter(Boolean);
-  let last = 0, hidden = false;
-  const show = () => { if (hidden) { for (const el of group) el.classList.remove('tucked'); hidden = false; } };
-  const hide = () => { if (!hidden) { for (const el of group) el.classList.add('tucked'); hidden = true; } };
-  scroller.addEventListener('scroll', () => {
-    const y = scroller.scrollTop;
-    // Always visible at the top: a header you cannot get back by scrolling up to
-    // the beginning is a header someone will think they broke.
-    if (y <= 8) { show(); last = y; return; }
-    if (Math.abs(y - last) < threshold) return;
-    if (y > last) hide(); else show();
-    last = y;
-  }, { passive: true });
-  return { show, hide };
+export function initFocusMode({ button, header, rows = [], key = 'atlanFocus' }) {
+  if (!button) return null;
+  const group = rows.filter(Boolean);
+  let on = false;
+  const paint = () => {
+    if (header) {
+      header.classList.toggle('tucked', on);
+      // Measured at collapse time: the header's height changes with the session
+      // block, the wordmark and the mascot line, so a hardcoded offset would be
+      // wrong on half the states this app has.
+      header.style.marginTop = on ? `${-header.offsetHeight}px` : '';
+    }
+    for (const el of group) el.classList.toggle('tucked', on);
+    button.setAttribute('aria-pressed', on ? 'true' : 'false');
+    button.textContent = on ? '⤡' : '⤢';
+    button.title = on ? 'show the controls again' : 'focus mode — hide everything but the conversation';
+  };
+  try { on = localStorage.getItem(key) === '1'; } catch { /* private mode */ }
+  paint();
+  button.addEventListener('click', () => {
+    on = !on;
+    try { localStorage.setItem(key, on ? '1' : '0'); } catch { /* session only */ }
+    paint();
+  });
+  return { set: (v) => { on = !!v; paint(); } };
 }
 
 /** Fold the set-once controls; remember the choice. */

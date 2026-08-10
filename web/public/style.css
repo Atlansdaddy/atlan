@@ -612,8 +612,21 @@ a{color:var(--accent)}
    reflow the scroller mid-scroll and jump the text under the reader's thumb,
    which is the artifact this exists to avoid. The header keeps its space; it
    just moves out of the way. */
-header{transition:transform .18s ease}
+/* FOCUS MODE. The header rides up and gives its space back — transform alone
+   moved the pixels and left the box, which is a blank strip rather than more
+   conversation. The negative margin (measured at collapse time) is what the
+   column below grows into.
+
+   Driven by a TAP, never by scrolling. Collapsing this chrome resizes the
+   scroller, and doing that in a scroll handler is a feedback loop: the resize
+   fires another scroll event, near the bottom the browser adjusts scrollTop to
+   compensate, that reads as the opposite direction, and it flickers. Not
+   tunable — to reclaim space you must change layout, and changing layout is what
+   generates the events. */
+header{transition:transform .2s ease, margin-top .2s ease}
 header.tucked{transform:translateY(-100%)}
+.focusbtn{margin-left:auto;font-size:14px;line-height:1;padding:6px 10px}
+.focusbtn[aria-pressed="true"]{color:var(--accent);border-color:var(--accent)}
 
 /* The chevron. Deliberately quiet — it is a disclosure, not an action, and it
    sits between the conversation and the composer where a loud control would
@@ -673,13 +686,13 @@ nav{
 
    The composer and the nav never tuck: you type mid-read, and the nav is the only
    way between eight panels. */
-#s-chat .chatbar, #chatProjBar{
+#chatProjBar, #ctrlToggle{
   overflow:hidden;
   max-height:60px;
   opacity:1;
   transition:max-height .18s ease, opacity .14s ease, margin .18s ease;
 }
-#s-chat .chatbar.tucked, #chatProjBar.tucked{
+#chatProjBar.tucked, #ctrlToggle.tucked{
   max-height:0;
   opacity:0;
   margin-top:0;

@@ -80,6 +80,20 @@ export class ClaudeSession {
 
   _start() {
     if (this.q || this._closed) return;
+    try { this._open(); } catch (err) {
+      // query() throws SYNCHRONOUSLY when it cannot find the Claude CLI — which
+      // is the normal state on a phone that has never installed it. That throw
+      // travelled out of prompt(), out of the WebSocket handler, and killed the
+      // whole cockpit: every conversation, the preview proxy and the fleet, all
+      // for picking an engine that was not there. Say what is missing instead.
+      this.busy = false;
+      this.send({ t: 'chat.err', msg: `Claude Code is not available here — ${String(err?.message ?? err).slice(0, 160)}. Install it with: npm i -g @anthropic-ai/claude-code` });
+      this.send({ t: 'chat.result', subtype: 'error' });
+      throw err;
+    }
+  }
+
+  _open() {
     this.q = query({
       prompt: this._input(),
       options: {

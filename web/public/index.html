@@ -67,6 +67,11 @@
       <div class="chatbar">
         <button class="btn ghost" id="histBtn" title="past conversations">🗂 History</button>
         <button class="btn ghost" id="newChatBtn" title="start a new conversation">＋ New</button>
+        <!-- Focus mode. Deliberate, not automatic: hiding the chrome resizes the
+             scroller, and doing that ON SCROLL is a feedback loop that jitters
+             near the bottom. One tap, no guessing. It stays visible while active
+             so there is always a way back. -->
+        <button class="btn ghost focusbtn" id="focusBtn" aria-pressed="false" title="focus mode">⤢</button>
       </div>
       <div class="histpanel" id="histPanel" hidden></div>
       <div class="chatlog" id="chatlog" role="log" aria-live="polite" aria-label="conversation">
