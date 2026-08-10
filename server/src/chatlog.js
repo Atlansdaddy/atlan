@@ -104,6 +104,48 @@ export function appendChat(id, { role, text, engine = null, cwd = null, at = Dat
   }
 }
 
+/**
+ * Records outbound chat frames into a transcript. One recorder per connection.
+ *
+ * It lives here rather than inline in the socket handler for a reason that cost
+ * a real bug: written out inside wss.on('connection'), the only way to exercise
+ * it was to run a live engine, so nothing ever tested what happens when a turn
+ * FAILS. As a function it can be driven frame by frame.
+ *
+ * Two frame shapes, because the engines differ: Claude streams
+ * (textstart → delta* → terminal) while the agent CLIs and brains emit one whole
+ * chat.msg. A streamed turn is buffered and written ONCE, complete, at the end.
+ *
+ * A TURN ENDS ON chat.err TOO, not only on chat.result. Ending only on
+ * chat.result meant a turn that streamed real output and then failed — the local
+ * model's intermittent 500 is the everyday case — had every streamed token
+ * dropped from the transcript. It was still on screen, so it looked saved, and
+ * it was gone on refresh. A partial answer is still an answer; keeping it beats
+ * losing it silently. The buffer is cleared on either terminal frame, so an
+ * engine that sends both (spawn ENOENT emits 'error' AND 'close') writes once.
+ */
+export function makeTranscriptRecorder({ append = appendChat } = {}) {
+  let streamed = '';
+  let streamEngine = 'Claude';
+  return function record(convId, obj) {
+    if (!convId || !obj) return;
+    if (obj.t === 'chat.msg') {
+      append(convId, { role: obj.role, text: obj.text, engine: obj.engine });
+    } else if (obj.t === 'chat.textstart') {
+      // The engine label rides on textstart so a streamed agent-CLI turn is
+      // filed under the engine that produced it rather than all of them being
+      // recorded as Claude.
+      streamed = '';
+      streamEngine = obj.engine ?? 'Claude';
+    } else if (obj.t === 'chat.delta') {
+      streamed += obj.text ?? '';
+    } else if (obj.t === 'chat.result' || obj.t === 'chat.err') {
+      if (streamed.trim()) append(convId, { role: 'assistant', text: streamed, engine: streamEngine });
+      streamed = '';
+    }
+  };
+}
+
 /** Messages for one conversation, oldest first. Unparseable lines are skipped, not fatal. */
 export function readChat(id, { limit = MAX_MESSAGES } = {}) {
   const key = validId(id);

@@ -39,7 +39,7 @@ import {
 } from './auth.js';
 import { tailnetHost, tailnetOrigin } from './tailnet.js';
 import { listRoutines, upsertRoutine, deleteRoutine, setPaused, fireRoutine, startScheduler } from './routines.js';
-import { appendChat, listChats, readChat, deleteChat, validId, chatUsage, archiveChats, resolveTarget, listProjects } from './chatlog.js';
+import { appendChat, listChats, readChat, deleteChat, validId, chatUsage, archiveChats, resolveTarget, listProjects, makeTranscriptRecorder } from './chatlog.js';
 import { DEFAULT_ENGINE, defaultModel, engineRuntime, usesSdk } from './enginePolicy.js';
 import { draftPrompt, normaliseDraft, previewCompiled } from './personaDraft.js';
 import { checkPeerMessage, recordPeerMessage, clearBacklog } from './peerlimit.js';
@@ -649,22 +649,12 @@ wss.on('connection', (ws, req) => {
   // while the others send a whole chat.msg, so both shapes are handled and a
   // streamed turn is written ONCE, complete, at the end.
   let convId = null;
-  let streamed = '';
-  let streamEngine = 'Claude';
+  // The branching lives in chatlog.js so it can be tested directly. It used to
+  // be written out here, inside a socket handler, where the only way to exercise
+  // it was to run a real engine — which is how it kept a bug that loses a turn.
+  const record = makeTranscriptRecorder();
   const send = (obj) => {
-    try {
-      if (convId) {
-        if (obj.t === 'chat.msg') appendChat(convId, { role: obj.role, text: obj.text, engine: obj.engine });
-        // The engine label rides on textstart so a streamed agent-CLI turn is
-        // filed under the engine that produced it rather than all of them being
-        // recorded as Claude.
-        else if (obj.t === 'chat.textstart') { streamed = ''; streamEngine = obj.engine ?? 'Claude'; } else if (obj.t === 'chat.delta') streamed += obj.text ?? '';
-        else if (obj.t === 'chat.result') {
-          if (streamed.trim()) appendChat(convId, { role: 'assistant', text: streamed, engine: streamEngine });
-          streamed = '';
-        }
-      }
-    } catch { /* a transcript must never be able to take a live turn down */ }
+    try { record(convId, obj); } catch { /* a transcript must never be able to take a live turn down */ }
     rawSend(obj);
   };
   const connId = Symbol('ws');
