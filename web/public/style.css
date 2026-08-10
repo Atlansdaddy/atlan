@@ -494,6 +494,22 @@ details .doctor-list{margin-bottom:8px}
   background:var(--surface2);color:var(--ink);border:1px solid var(--line);
   border-radius:9px;cursor:pointer}
 .doc-actions .mini:active{background:var(--line)}
+/* The sign-in card above the terminal. Deliberately loud: it appears only when
+   there is a link and a code waiting, and missing it means the flow times out. */
+.authcard{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:8px;
+  padding:12px;border:1px solid var(--ok);border-radius:11px;background:var(--surface)}
+.authcard[hidden]{display:none}
+.authcard-title{flex-basis:100%;font-size:12.5px;font-weight:700}
+.authcard .mini{min-height:44px;padding:0 14px;font-size:12px;font-weight:600;
+  background:var(--surface2);color:var(--ink);border:1px solid var(--line);
+  border-radius:9px;cursor:pointer;display:inline-flex;align-items:center;text-decoration:none}
+.authcard .authcard-open{background:var(--ok);color:#04120a;border-color:var(--ok)}
+/* Selectable text, on purpose: if a clipboard write is refused, this is the
+   fallback — and it is the thing the terminal canvas could never be. */
+.authcard-code{font-family:var(--mono);font-size:15px;font-weight:700;letter-spacing:.08em;
+  padding:8px 12px;border:1px dashed var(--line);border-radius:8px;background:var(--surface2);
+  user-select:all;-webkit-user-select:all}
+.authcard .authcard-x{background:transparent;color:var(--muted);border-color:transparent}
 /* Sign-in rows reuse .keyrow so the two credential surfaces read as siblings. */
 .keyrow .kstate{font-family:var(--mono);font-size:9.5px;color:var(--muted);flex:1;min-width:0}
 .keyrow .kstate.ok{color:var(--ok)}

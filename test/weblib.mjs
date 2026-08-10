@@ -18,6 +18,7 @@ import {
 } from '../web/public/lib/text.js';
 import { isNight, greetingFor, hueFor, MOOD_HUE } from '../web/public/lib/ambient.js';
 import { termHintHtml } from '../web/public/lib/term.js';
+import { plain, extractAuthUrl, extractAuthCode, findAuthPrompt } from '../web/public/lib/authcode.js';
 import {
   engineOptionLabel, engineOptionValue, ladderOptionLabel, ladderOptionTitle, rungLineText,
 } from '../web/public/lib/enginepicker.js';
@@ -230,6 +231,51 @@ test('urlBase64ToUint8Array returns a real Uint8Array of the right length', () =
   const out = urlBase64ToUint8Array('aGVsbG8'); // "hello"
   assert.ok(out instanceof Uint8Array);
   assert.equal(out.length, 5);
+});
+
+// ── authcode: getting a device code off a phone screen ─────────────────────
+//
+// The flow that stalls without this: an engine prints a link and a code, and on
+// a phone neither can be selected — xterm.js selection is unusable with a thumb
+// and tmux eats a bare `c`. The code is on screen and unreachable.
+const ESC = String.fromCharCode(27);
+
+test('a device code survives the ANSI colour around it', () => {
+  const line = `${ESC}[1mTo sign in, open ${ESC}[0mhttps://github.com/login/device and enter code: A1B2-C3D4`;
+  assert.equal(extractAuthUrl(line), 'https://github.com/login/device');
+  assert.equal(extractAuthCode(line), 'A1B2-C3D4');
+});
+test('a code boxed in a banner is not glued to the border', () => {
+  // Every CLI draws a box, and the border characters land against the content.
+  assert.equal(extractAuthCode('│  code: WDJB-MJHT  │'), 'WDJB-MJHT');
+});
+test('a URL keeps its query string but drops trailing punctuation', () => {
+  assert.equal(
+    extractAuthUrl('Visit https://claude.ai/oauth/authorize?code=true&x=1 to finish.'),
+    'https://claude.ai/oauth/authorize?code=true&x=1',
+  );
+});
+test('the LAST url wins, because a retry reprints the live one', () => {
+  const t = 'open https://old.example/a\nthat expired, open https://new.example/b';
+  assert.equal(extractAuthUrl(t), 'https://new.example/b');
+});
+test('ordinary banter is never offered as a code', () => {
+  // Offering the wrong string as "your code" is worse than offering none: it
+  // sends someone to paste a value that is rejected with no hint why.
+  assert.equal(extractAuthCode('WARN ERROR DEBUG TRACE READY'), null);
+  assert.equal(extractAuthCode('Welcome to Claude Code!'), null);
+  assert.equal(findAuthPrompt('just a normal shell prompt $'), null);
+});
+test('plain() strips escapes without eating the text', () => {
+  assert.equal(plain(`${ESC}[31mred${ESC}[0m`), 'red');
+  assert.equal(plain('no escapes here'), 'no escapes here');
+});
+test('findAuthPrompt returns whichever half it found', () => {
+  const onlyUrl = findAuthPrompt('go to https://example.com/device');
+  assert.equal(onlyUrl.url, 'https://example.com/device');
+  assert.equal(onlyUrl.code, null);
+  const onlyCode = findAuthPrompt('your code is ABCD-EFGH');
+  assert.equal(onlyCode.code, 'ABCD-EFGH');
 });
 
 // ── term: the caption under the terminal ───────────────────────────────────

@@ -32,6 +32,8 @@
  * @param {Array}    engines  agentStatus() rows: {id,label,installed,ready,login}
  * @param {Function} onLogin  (engine) => void, invoked with the row
  */
+import { findAuthPrompt } from './authcode.js';
+
 export function renderSignIn(list, engines, onLogin) {
   if (!list) return;
   list.textContent = '';
@@ -84,14 +86,13 @@ export function initSignIn({ list, run }) {
 
 /**
  * @param {object}   o
- * @param {Element}  o.panel      the Doctor list — where the action event lands
- * @param {Function} o.openTerm   switches to the Term tab and opens the PTY
- * @param {Function} o.termReady  () => Promise that settles when the shell speaks
- * @param {Function} o.write      (text) => void, echoes into the terminal
- * @param {Function} o.send       (frame) => void, the WebSocket sender
- * @param {Function} o.session    () => the tmux session the terminal is on now
+ * @param {Element}  o.panel     the Doctor list — where the action event lands
+ * @param {Element}  o.card      where the "open this link / copy this code" card goes
+ * @param {object}   o.term      the lib/term.js session (whole object, not five callbacks)
+ * @param {Function} o.openTerm  switches to the Term tab and attaches the login session
+ * @param {Function} o.send      (frame) => void, the WebSocket sender
  */
-export function initEngineLogin({ panel, openTerm, termReady, write, send, session }) {
+export function initEngineLogin({ panel, card, term, openTerm, send }) {
   async function run(command, label) {
     if (!command) return;
     openTerm();
@@ -100,16 +101,95 @@ export function initEngineLogin({ panel, openTerm, termReady, write, send, sessi
     // sent before the shell starts are silently dropped, which is how a button
     // that did everything right would look broken.
     await Promise.race([
-      Promise.resolve(termReady?.()),
+      Promise.resolve(term?.ready?.()),
       new Promise((r) => setTimeout(r, 4000)),
     ]);
-    write?.(`\r\n\x1b[36m— ${label ?? 'sign in'} — finish it below; Atlan never sees the credential —\x1b[0m\r\n`);
+    term?.write?.(`\r\n\x1b[36m— ${label ?? 'sign in'} — finish it below; Atlan never sees the credential —\x1b[0m\r\n`);
     // Addressed to whatever session openTerm() attached, which is deliberately
     // NOT the operator's `main` shell. Read rather than assumed, so this cannot
     // start typing into `main` if the default ever changes.
-    send({ t: 'pty.input', name: session?.() ?? 'login', data: command + '\r' });
+    send({ t: 'pty.input', name: term?.session?.() ?? 'login', data: command + '\r' });
+    watchForPrompt();
   }
+
+  /**
+   * Watch the terminal for the link and code the flow is about to print.
+   *
+   * This exists because the flow DEAD-ENDS on a phone without it. The engine
+   * prints both and expects you to move them into a browser; xterm.js selection
+   * is unusable with a thumb, tmux swallows a bare `c`, and a canvas has no
+   * clipboard. The values are on screen and unreachable.
+   *
+   * Bounded to a few minutes, because a listener left on the terminal forever
+   * would keep re-showing a stale card over unrelated work later.
+   */
+  function watchForPrompt() {
+    if (!card || !term?.onOutput) return;
+    let buf = '';
+    let shown = '';
+    const stop = term.onOutput((text) => {
+      buf = (buf + text).slice(-8000); // a rolling window: a code can straddle two frames
+      const p = findAuthPrompt(buf);
+      const key = `${p?.url ?? ''}|${p?.code ?? ''}`;
+      if (p && key !== shown) { shown = key; showAuthCard(card, p); }
+    });
+    setTimeout(stop, 240000);
+  }
+
   // The Doctor check rows dispatch this; the sign-in list calls run() directly.
   panel?.addEventListener('atlan:run-in-term', (ev) => run(ev.detail?.command, ev.detail?.label));
   return { run };
+}
+
+/**
+ * The card: open the link, copy the code. Both as targets you can hit.
+ *
+ * The code is shown as TEXT as well as a button, because clipboard writes are
+ * refused in plenty of mobile contexts and a button that silently does nothing
+ * is worse than no button. If the copy fails, the value is still readable and
+ * selectable as ordinary DOM text — which the terminal canvas never was.
+ */
+export function showAuthCard(card, { url, code }) {
+  card.textContent = '';
+  card.hidden = false;
+
+  const title = document.createElement('div');
+  title.className = 'authcard-title';
+  title.textContent = 'Finish signing in';
+  card.append(title);
+
+  if (url) {
+    const a = document.createElement('a');
+    a.className = 'mini authcard-open';
+    a.href = url;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    a.textContent = 'Open the sign-in page';
+    card.append(a);
+  }
+  if (code) {
+    const val = document.createElement('code');
+    val.className = 'authcard-code';
+    val.textContent = code; // selectable text, not a canvas — the fallback that always works
+    const b = document.createElement('button');
+    b.className = 'mini';
+    b.textContent = 'Copy code';
+    b.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(code);
+        b.textContent = 'Copied';
+      } catch {
+        // Say so rather than pretending. The code above is still readable.
+        b.textContent = 'Copy blocked — select it above';
+      }
+      setTimeout(() => { b.textContent = 'Copy code'; }, 2500);
+    });
+    card.append(val, b);
+  }
+
+  const dismiss = document.createElement('button');
+  dismiss.className = 'mini authcard-x';
+  dismiss.textContent = 'Dismiss';
+  dismiss.addEventListener('click', () => { card.hidden = true; });
+  card.append(dismiss);
 }

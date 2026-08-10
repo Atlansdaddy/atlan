@@ -233,6 +233,10 @@
     </section>
 
     <section class="screen" id="s-term">
+      <!-- Filled when a sign-in prints a link and a code. The terminal is a
+           canvas: on a phone neither value can be selected, so they are lifted
+           out and offered as things you can actually tap. -->
+      <div id="authCard" class="authcard" hidden></div>
       <div id="term"></div>
       <div class="hint" id="termHint">This is tmux session <code>atlan-main</code> — run <code>tmux attach -t atlan-main</code> from any other terminal on this host to take over on the CLI, any time. What you do there shows here, and vice versa. (Windows hosts get a plain shell — no tmux mirroring.)</div>
     </section>

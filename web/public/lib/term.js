@@ -43,6 +43,7 @@ export function createTerm({ mount, send, cwd, onAttach }) {
   let current = null;        // tmux session this terminal is attached to
   let resolveReady = null;
   let readyPromise = null;
+  const outListeners = new Set();
 
   function fit() {
     if (!term || !fitAddon) return;
@@ -97,7 +98,16 @@ export function createTerm({ mount, send, cwd, onAttach }) {
       if (!frame || (frame.name ?? 'main') !== current) return; // another session's output
       term?.write(frame.data);
       if (resolveReady) { resolveReady(); resolveReady = null; }
+      for (const fn of outListeners) { try { fn(frame.data); } catch { /* a reader must never break the terminal */ } }
     },
+    /**
+     * Read what the shell prints. Returns an unsubscribe.
+     *
+     * Exists so the login flow can catch the URL and code a device-code prompt
+     * emits — on a phone those are otherwise unreachable, since a canvas has no
+     * selection worth using and tmux eats a bare `c`.
+     */
+    onOutput(fn) { outListeners.add(fn); return () => outListeners.delete(fn); },
     exit(frame, msg) {
       if (frame && (frame.name ?? 'main') !== current) return;
       term?.writeln(msg);

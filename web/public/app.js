@@ -1353,17 +1353,11 @@ import { convId, newConversation, restoreChat, openHistory } from './lib/chathis
   }
   $('doctorBtn').addEventListener('click', () => { loadDoctor(); loadPreflight(); });
   const engineLogin = initEngineLogin({
-    panel: $('doctorList'),
+    panel: $('doctorList'), card: $('authCard'), term: termSession, send,
     // Its OWN tmux session, never `main`. `main` is the operator's shell — the
-    // one they can attach to from Termux — and typing a command into it while
-    // something is running injects into that instead.
+    // one they attach to from Termux — and typing into it while something is
+    // running injects the command into that instead.
     openTerm: () => { document.querySelector('nav button[data-s="s-term"]')?.click(); termSession.open('login'); },
-    // Only await when a shell has yet to speak; an already-open PTY would never
-    // settle this and the caller would wait out its timeout for nothing.
-    termReady: () => termSession.ready(),
-    write: (t) => termSession.write(t),
-    session: () => termSession.session(),
-    send,
   });
   const loadSignIn = initSignIn({ list: $('signinList'), run: engineLogin.run });
   initDoctorReport({ button: $('doctorCopy'), getChecks: () => lastChecks, panel: $('doctorList') });
