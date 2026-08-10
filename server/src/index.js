@@ -795,7 +795,17 @@ wss.on('connection', (ws, req) => {
           } else if (m.model) {
             claude.setModel(m.model); // warm-session model switch — no respawn, keeps context
           }
-          claude.prompt(text);
+          // A session that could not START must not be kept. _start() already
+          // told the client what is missing; holding the wedged object means the
+          // next turn — and switching engines away and back — retries the same
+          // dead spawn instead of building a fresh one. Dropped here so the only
+          // cost of picking an unavailable engine is that one turn.
+          try {
+            claude.prompt(text);
+          } catch {
+            claude?.dispose?.().catch(() => {});
+            claude = null;
+          }
         } else if (engineId === 'local') {
           // THE ON-DEVICE MODEL, WITH HANDS — bounded, not autonomous.
           //
