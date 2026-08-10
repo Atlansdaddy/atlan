@@ -89,6 +89,36 @@ function paint(list, checks, groups) {
       how.className = 'how';
       how.textContent = c.detail;
       body.append(what, how);
+
+      // ONE BUTTON PER THING YOU CAN ACTUALLY DO.
+      // A row used to end at prose — "run: codex login --device-auth (Term tab)"
+      // — which is an instruction to go somewhere else and type it yourself. The
+      // command is already known here, so the row runs it.
+      //
+      // The button never handles a credential. Every one of these is a
+      // device-code or browser flow that only the account holder can complete;
+      // all this does is put them at the prompt instead of making them find it.
+      if (Array.isArray(c.actions) && c.actions.length) {
+        const bar = document.createElement('div');
+        bar.className = 'doc-actions';
+        for (const a of c.actions) {
+          const b = document.createElement('button');
+          b.className = 'mini';
+          b.textContent = a.label;
+          b.title = a.run; // the exact line, so the button hides nothing
+          b.addEventListener('click', (ev) => {
+            ev.preventDefault();
+            ev.stopPropagation(); // the row sits inside <details> — don't toggle it
+            list.dispatchEvent(new CustomEvent('atlan:run-in-term', {
+              bubbles: true,
+              detail: { command: a.run, label: a.label },
+            }));
+          });
+          bar.append(b);
+        }
+        body.append(bar);
+      }
+
       div.append(sig, body);
       wrap.append(div);
     }

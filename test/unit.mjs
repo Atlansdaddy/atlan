@@ -14,6 +14,7 @@ import { _testInternals as AUTH } from '../server/src/auth.js';
 import { runBuild } from '../server/src/build.js';
 import { appendChat, readChat, listChats, deleteChat, validId, MAX_TEXT, chatUsage, archiveChats, resolveTarget, listProjects, _testInternals as CHATLOG } from '../server/src/chatlog.js';
 import { agentStatus, agentBinaries } from '../server/src/agents.js';
+import { usesSdk } from '../server/src/enginePolicy.js';
 import { _testInternals as PREVIEW } from '../server/src/preview.js';
 import { draftPrompt, normaliseDraft, previewCompiled } from '../server/src/personaDraft.js';
 import {
@@ -349,15 +350,40 @@ test('chatUsage REPORTS and never acts', () => {
   if (u.suggestArchive) assert.ok(u.reason, 'a suggestion must name its reason');
   else assert.strictEqual(u.reason, null);
 });
-test('every agent engine the Doctor can AUTH-check, it can also BIN-check', () => {
+test("every EXEC'd agent engine the Doctor can AUTH-check, it can also BIN-check", () => {
   // Two lists that must name the same engines: agentStatus() answers "is there a
   // credential", agentBinaries() answers "will it run". An engine present in one
   // and missing from the other is exactly the silent half-configured state the
   // Doctor pane exists to surface, so it must not be possible to add one alone.
-  const statusIds = agentStatus().map((a) => a.id).sort();
+  //
+  // The SDK engine is the one legitimate asymmetry, and it is spelled out rather
+  // than tolerated: Claude runs IN-PROCESS, so it has no exec'd binary to appear
+  // in agentBinaries() — but it still needs a credential row, because the pane
+  // answering "which engines can answer me" was the one place that did not list
+  // the default engine. usesSdk() decides which side an engine falls on, so this
+  // cannot drift from the runtime table.
+  const cliStatusIds = agentStatus().filter((a) => !usesSdk(a.id)).map((a) => a.id).sort();
   const binIds = agentBinaries().map((b) => b.id).sort();
-  assert.deepStrictEqual(binIds, statusIds);
+  assert.deepStrictEqual(binIds, cliStatusIds);
   for (const b of agentBinaries()) assert.ok(b.cmd && typeof b.cmd === 'string', `${b.id} resolves no command`);
+
+  // …and the SDK engine must actually BE there. Without this, the exception
+  // above would quietly permit dropping Claude off the pane — the bug it exists
+  // to prevent.
+  const sdkRows = agentStatus().filter((a) => usesSdk(a.id));
+  assert.ok(sdkRows.length, 'the SDK engine must still get a credential row');
+  for (const r of sdkRows) assert.ok('installed' in r, `${r.id} must report whether its binary exists`);
+});
+test('an engine you can sign in to offers a COMMAND, not an instruction', () => {
+  // These rows used to end at prose — "run: codex login --device-auth (Term
+  // tab)" — which is something a person reads and retypes, and which a button
+  // cannot execute. Every engine now carries the literal line the button runs.
+  for (const a of agentStatus()) {
+    if (!a.login) continue;
+    assert.ok(!/\brun:\s/.test(a.login), `${a.id} login is prose, not a command: ${a.login}`);
+    assert.ok(!/Term tab/.test(a.login), `${a.id} login still tells you where to go: ${a.login}`);
+    assert.ok(/^[\w./-]+(\s|$)/.test(a.login), `${a.id} login must start with a binary: ${a.login}`);
+  }
 });
 test('listChats titles a conversation by its first USER message', () => {
   // Titling by the first message full stop made every row read the same, because

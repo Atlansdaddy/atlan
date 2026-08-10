@@ -1,6 +1,6 @@
-import { exec, execFile } from 'node:child_process';
+import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
-import { agentBinaries, agentStatus } from './agents.js';
+import { agentStatus } from './agents.js';
 import { chatUsage } from './chatlog.js';
 import { existsSync, statSync } from 'node:fs';
 import { arch, homedir } from 'node:os';
@@ -8,10 +8,6 @@ import { join } from 'node:path';
 import { PORT, sandboxEnabled, LOCAL_LLM_BASE, ANDROID_SDK } from './config.js';
 
 const sh = promisify(exec);
-// execFile, not exec: a resolved CLI path can contain spaces (Termux prefixes,
-// npm global bins under a home dir), and putting it through a shell would either
-// mis-split it or invite quoting bugs into the one place that reports health.
-const pexecFile = promisify(execFile);
 
 // EVERY proot-boundary assumption lives here and nowhere else.
 // When a Termux/Android update breaks something, this file names it.
@@ -104,35 +100,33 @@ export async function runDoctor() {
       };
     }),
     check('cli-connections', 'Agent CLI connections', async () => {
-      const auth = new Map(agentStatus().map((a) => [a.id, a]));
       // CLAUDE IS ON THIS PANE TOO, even though it is not an agentTurn CLI.
       // Its binary and its credential already had their own two rows elsewhere,
       // which meant the one place you go to ask "which engines can actually
       // answer me" was the one place that did not list the default engine.
-      const claudeAuthed = existsSync(join(homedir(), '.claude/.credentials.json')) || !!process.env.ANTHROPIC_API_KEY;
-      const engines = [
-        { id: 'claude', cmd: 'claude', authed: claudeAuthed, needs: 'run: claude login (Term tab)' },
-        ...agentBinaries().map((b) => ({ ...b, authed: !!auth.get(b.id)?.ready, needs: auth.get(b.id)?.needs })),
-      ];
+      // agentStatus() now lists claude too, and resolves every binary through
+      // the proot container when that is where it lives. This used to ask the
+      // Termux PATH directly and therefore reported four working CLIs as
+      // missing on the one device the project is built for.
+      const engines = agentStatus().map((a) => ({
+        id: a.id, authed: !!a.ready, needs: a.needs, login: a.login, installed: !!a.installed,
+      }));
       const rows = [];
+      const actions = [];
       let ready = 0, half = 0;
-      for (const { id, cmd } of engines) {
-        let installed = true;
-        let ver = '';
-        try {
-          const { stdout, stderr } = await pexecFile(cmd, ['--version'], { timeout: 8000 });
-          ver = String(stdout || stderr).trim().split('\n')[0].slice(0, 40);
-        } catch (err) {
-          // ENOENT is the only trustworthy "not installed". A CLI that runs and
-          // exits non-zero on --version is still very much installed.
-          if (err?.code === 'ENOENT') installed = false;
-          else ver = String(err?.stdout || err?.stderr || '').trim().split('\n')[0].slice(0, 40);
-        }
-        const { authed, needs } = engines.find((e) => e.id === id);
+      for (const { id, authed, needs, login, installed } of engines) {
+        const ver = '';
         if (installed && authed) ready++;
         else if (installed !== authed) half++;
         rows.push(`${id}: ${installed ? `bin ok${ver ? ` (${ver})` : ''}` : 'BIN MISSING'}`
           + ` · ${authed ? 'auth ok' : `NO AUTH — ${needs ?? 'not configured'}`}`);
+        // ONE BUTTON PER ENGINE THAT CAN BE SIGNED IN. Every one of these is a
+        // device-code or browser flow only the account holder can finish, so the
+        // button's job is to put them at the prompt — it cannot and must not
+        // authenticate on their behalf. No credential passes through here.
+        if (installed && !authed && login) {
+          actions.push({ id, label: `Log in to ${id}`, run: login });
+        }
       }
       // The on-phone local model is an engine you can pick in chat, so it belongs
       // in the same answer — but it is a SERVER, not a binary, so it is asked the
@@ -147,6 +141,7 @@ export async function runDoctor() {
         ok: half === 0,
         warn: half > 0,
         detail: `${ready}/${rows.length} usable — ${rows.join('  |  ')}`,
+        actions,
       };
     }),
     check('tmux', 'tmux', async () => {
@@ -387,7 +382,13 @@ async function check(id, label, fn) {
   const meta = { group, groupLabel: DOCTOR_GROUPS[group].label, groupBlurb: DOCTOR_GROUPS[group].blurb };
   try {
     const r = await fn();
-    return { id, label, ...meta, ok: !!r.ok, warn: !!r.warn, detail: r.detail ?? '' };
+    // `actions` are the things a row can DO — a login command a button runs.
+    // Omitted entirely when there are none, so every other row is byte-identical
+    // to what it returned before and nothing downstream has to learn a new shape.
+    return {
+      id, label, ...meta, ok: !!r.ok, warn: !!r.warn, detail: r.detail ?? '',
+      ...(r.actions?.length ? { actions: r.actions } : {}),
+    };
   } catch (err) {
     return { id, label, ...meta, ok: false, warn: false, detail: String(err?.message ?? err).slice(0, 100) };
   }

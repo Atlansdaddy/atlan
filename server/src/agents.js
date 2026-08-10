@@ -8,6 +8,7 @@ import { confineMode, declaredTier, APP_ROOT } from './config.js';
 import { confinedSpawn, unconfinedSpawn } from './lib/sandbox.js';
 import { childEnv, credentialTargets, credentialPreflight, homeReadable, VENDOR_STORES } from './lib/credblind.js';
 import { confineSpawn } from './sandbox/confine.js';
+import { prootWhich, prootExists, prootCommandLine } from './proot.js';
 
 // ── live chat-path agent CLIs ─────────────────────────────────────────────
 // Every child spawned here is REGISTERED, because every child spawned here runs
@@ -77,8 +78,13 @@ export function agentStatus() {
       // explicit -m ("model is not supported when using Codex with a ChatGPT
       // account", 400 — verified 2026-07-25). The CLI picks its own model.
       group: 'agent',
-      ready: existsSync(`${home}/.codex/auth.json`) || !!process.env.CODEX_API_KEY,
-      needs: 'run: codex login --device-auth (Term tab)',
+      ready: existsSync(`${home}/.codex/auth.json`) || !!process.env.CODEX_API_KEY
+        || prootExists('/root/.codex/auth.json'),
+      needs: 'not signed in yet',
+      // What the Log in button runs. Prose in `needs` told you to go type
+      // something; this is the thing itself.
+      login: loginCommand('codex'),
+      installed: !!resolveCli('codex').path,
     },
     {
       id: 'antigravity',
@@ -90,7 +96,9 @@ export function agentStatus() {
         'gemini-3.1-pro-high', 'gemini-3.1-pro-low', 'claude-sonnet-4-6', 'claude-opus-4-6-thinking', 'gpt-oss-120b-medium'],
       group: 'agent',
       ready: !!agyBin() && (agyAuthed() || !!(process.env.ANTIGRAVITY_API_KEY || getStoredKey('ANTIGRAVITY_API_KEY'))),
-      needs: agyBin() ? 'run: agy (Term tab) → Sign in with Google' : 'install: curl -fsSL https://antigravity.google/cli/install.sh | bash',
+      needs: agyBin() ? 'not signed in yet — first run signs you in with Google' : 'install: curl -fsSL https://antigravity.google/cli/install.sh | bash',
+      login: agyBin() ? loginCommand('antigravity') : null,
+      installed: !!agyBin(),
     },
     {
       id: 'grok',
@@ -99,7 +107,9 @@ export function agentStatus() {
       models: ['default', 'grok-4.5'], // from `grok models` — expands with the plan
       group: 'agent',
       ready: !!grokBin() && (grokAuthed() || !!(process.env.XAI_API_KEY || getStoredKey('XAI_API_KEY'))),
-      needs: grokBin() ? 'run: grok login (Term tab)' : 'install: npm i -g @xai-official/grok',
+      needs: grokBin() ? 'not signed in yet' : 'install: npm i -g @vibe-kit/grok-cli',
+      login: grokBin() ? loginCommand('grok') : null,
+      installed: !!grokBin(),
     },
     {
       id: 'copilot',
@@ -110,7 +120,23 @@ export function agentStatus() {
       // now, tiers added once `copilot` /model is inspected on an authed box.
       group: 'agent',
       ready: !!copilotBin() && (copilotAuthed() || !!(process.env.GH_COPILOT_TOKEN || process.env.GITHUB_TOKEN)),
-      needs: copilotBin() ? 'run: copilot login (Term tab)' : 'install: npm i -g @github/copilot',
+      needs: copilotBin() ? 'not signed in yet' : 'install: npm i -g @github/copilot',
+      login: copilotBin() ? loginCommand('copilot') : null,
+      installed: !!copilotBin(),
+    },
+    // Claude is not an agentTurn CLI — it runs in-process through the SDK — but
+    // it belongs on this list. The Doctor's "which engines can answer me" pane
+    // was the one place that did not offer a way to sign in to the default
+    // engine, and on a phone it is the one that lives in the container.
+    {
+      id: 'claude',
+      label: 'Claude Code — agent, permission-carded',
+      model: 'claude',
+      group: 'agent',
+      ready: !!claudeBin() && claudeAuthed(),
+      needs: claudeBin() ? 'not signed in yet' : 'install: npm i -g @anthropic-ai/claude-code',
+      login: claudeBin() ? loginCommand('claude') : null,
+      installed: !!claudeBin(),
     },
   ];
 }
@@ -122,10 +148,11 @@ export function agentStatus() {
 // full-auto belt (files + shell + urls), `--model` picks the model.
 export function copilotBin() {
   if (existsSync('/usr/bin/copilot')) return '/usr/bin/copilot';
-  return existsSync('/usr/local/bin/copilot') ? '/usr/local/bin/copilot' : null;
+  if (existsSync('/usr/local/bin/copilot')) return '/usr/local/bin/copilot';
+  return prootWhich('copilot'); // phone: it only runs inside the container
 }
 function copilotAuthed() {
-  return existsSync(`${homedir()}/.copilot`);
+  return existsSync(`${homedir()}/.copilot`) || prootExists('/root/.copilot');
 }
 
 // Grok Build (xAI's official CLI, open to SuperGrok / X Premium+ since
@@ -136,10 +163,11 @@ function copilotAuthed() {
 // in this cwd, `--always-approve` = full-auto, --no-auto-update for automation.
 export function grokBin() {
   if (existsSync('/usr/bin/grok')) return '/usr/bin/grok';
-  return existsSync('/usr/local/bin/grok') ? '/usr/local/bin/grok' : null;
+  if (existsSync('/usr/local/bin/grok')) return '/usr/local/bin/grok';
+  return prootWhich('grok');
 }
 function grokAuthed() {
-  return existsSync(`${homedir()}/.grok/auth.json`);
+  return existsSync(`${homedir()}/.grok/auth.json`) || prootExists('/root/.grok/auth.json');
 }
 
 // Antigravity CLI (agy) — Gemini CLI's successor (Google retired the gemini
@@ -151,10 +179,71 @@ function grokAuthed() {
 export function agyBin() {
   const home = homedir();
   if (existsSync(`${home}/.local/bin/agy`)) return `${home}/.local/bin/agy`;
-  return existsSync('/usr/local/bin/agy') ? '/usr/local/bin/agy' : null;
+  if (existsSync('/usr/local/bin/agy')) return '/usr/local/bin/agy';
+  return prootWhich('agy');
 }
 function agyAuthed() {
-  return existsSync(`${homedir()}/.gemini/antigravity-cli`);
+  return existsSync(`${homedir()}/.gemini/antigravity-cli`) || prootExists('/root/.gemini/antigravity-cli');
+}
+
+// Claude Code is not an agentTurn CLI — it runs in-process through the SDK — but
+// the Doctor lists it beside the others, and on a phone it lives in the same
+// container. Without this the one engine the cockpit defaults to was the one it
+// reported as missing.
+export function claudeBin() {
+  for (const p of ['/usr/bin/claude', '/usr/local/bin/claude', `${homedir()}/.local/bin/claude`]) {
+    if (existsSync(p)) return p;
+  }
+  return prootWhich('claude');
+}
+function claudeAuthed() {
+  return existsSync(`${homedir()}/.claude/.credentials.json`)
+    || !!process.env.ANTHROPIC_API_KEY
+    || prootExists('/root/.claude/.credentials.json');
+}
+
+/**
+ * The command that logs an engine in, exactly as an operator would type it.
+ *
+ * This is the whole point of the login button: `needs` used to be prose —
+ * "run: codex login --device-auth (Term tab)" — which is a instruction to a
+ * human, not something a button can execute. Every one of these is a device-code
+ * or browser flow that only the account holder can complete, so the button's job
+ * is to put them AT the prompt, not to authenticate for them. No credential
+ * passes through the cockpit either way.
+ *
+ * Wrapped for the container when that is where the binary lives, because the
+ * command has to be one the operator could paste themselves and have work.
+ */
+export function loginCommand(engine) {
+  const base = LOGIN_LINE[engine];
+  if (!base) return null;
+  return resolveCli(CLI_BIN[engine]).viaProot ? prootCommandLine(base) : base;
+}
+
+const LOGIN_LINE = {
+  claude: 'claude /login',
+  codex: 'codex login --device-auth',
+  grok: 'grok login',
+  copilot: 'copilot login',
+  antigravity: 'agy', // no login subcommand — first interactive run signs in
+};
+const CLI_BIN = { claude: 'claude', codex: 'codex', grok: 'grok', copilot: 'copilot', antigravity: 'agy' };
+
+/**
+ * Where a CLI lives, and whether reaching it means entering the container.
+ *
+ * `viaProot` is reported rather than inferred from the path, because inferring
+ * it does not survive contact with a desktop: prootWhich returns /usr/bin/claude,
+ * and on ordinary Linux that path exists natively too. Only the resolver knows
+ * which question it answered.
+ */
+export function resolveCli(name) {
+  for (const p of [`/usr/bin/${name}`, `/usr/local/bin/${name}`, `${homedir()}/.local/bin/${name}`]) {
+    if (existsSync(p)) return { path: p, viaProot: false };
+  }
+  const inside = prootWhich(name);
+  return inside ? { path: inside, viaProot: true } : { path: null, viaProot: false };
 }
 
 // ── how an exec-mode CLI is actually launched ─────────────────────────────

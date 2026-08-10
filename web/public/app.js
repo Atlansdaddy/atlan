@@ -25,6 +25,8 @@ import { appendConsoleLine } from './lib/previewconsole.js';
 import { renderRichMessage, rungChip } from './lib/richmsg.js';
 import { initDoctorReport } from './lib/doctorreport.js';
 import { renderDoctor } from './lib/doctorview.js';
+import { initEngineLogin } from './lib/enginelogin.js';
+import { createTerm } from './lib/term.js';
 import { msgClass, whoLabel, sessionLine, autoPermLine } from './lib/msgstyle.js';
 import { normalizeProfile, initAutoApprove } from './lib/autoapprove.js';
 import { permCard } from './lib/permcard.js';
@@ -245,7 +247,7 @@ import { convId, newConversation, restoreChat, openHistory } from './lib/chathis
       $('connDot').classList.add('on');
       $('sessMeta').textContent = 'connected';
       while (pendingOut.length) ws.send(pendingOut.shift());
-      if (termOpened) ws.send(JSON.stringify({ t: 'pty.open', name: 'main', cols: term.cols, rows: term.rows }));
+      termSession.reopen((o) => ws.send(JSON.stringify(o)));
     };
     ws.onclose = (ev) => {
       wsReady = false;
@@ -337,8 +339,8 @@ import { convId, newConversation, restoreChat, openHistory } from './lib/chathis
         $('buildBtn').disabled = false;
         addBuildLine(m.msg, 'bl-hi');
         break;
-      case 'pty.data': term?.write(m.data); break;
-      case 'pty.exit': term?.writeln('\r\n[terminal session ended — reopen the tab to restart]'); break;
+      case 'pty.data': termSession.data(m.data); break; // first byte also settles ready()
+      case 'pty.exit': termSession.exit('\r\n[terminal session ended — reopen the tab to restart]'); break;
       case 'fleet.run': upsertRun(m.run); break;
       case 'fleet.event': {
         const r = fleetRuns.get(m.id);
@@ -686,28 +688,9 @@ import { convId, newConversation, restoreChat, openHistory } from './lib/chathis
     sessionId = null; // new cwd = new session store
   });
 
-  // ── terminal ──
-  let term = null, termOpened = false;
-  function initTerm() {
-    if (termOpened) { fit(); return; }
-    termOpened = true;
-    term = new Terminal({ fontSize: 13, fontFamily: 'ui-monospace, monospace', theme: { background: '#000814' }, cursorBlink: true });
-    const fitAddon = new FitAddon.FitAddon();
-    term.loadAddon(fitAddon);
-    term.open($('term'));
-    window._fit = fitAddon;
-    fit();
-    term.onData((data) => send({ t: 'pty.input', name: 'main', data }));
-    send({ t: 'pty.open', name: 'main', cols: term.cols, rows: term.rows, cwd: $('projSel').value });
-    window.addEventListener('resize', fit);
-  }
-  function fit() {
-    if (!term) return;
-    try {
-      window._fit.fit();
-      send({ t: 'pty.resize', name: 'main', cols: term.cols, rows: term.rows });
-    } catch { /* hidden tab */ }
-  }
+  // ── terminal ── (lib/term.js owns the session; this is just the handle)
+  const termSession = createTerm({ mount: () => $('term'), send, cwd: () => $('projSel').value });
+  const initTerm = () => termSession.open();
 
   // ── code editor (CodeMirror, language-agnostic) ──
   let cmEditor = null, edCurrentPath = null, edClean = '';
@@ -1366,6 +1349,15 @@ import { convId, newConversation, restoreChat, openHistory } from './lib/chathis
     }).catch(() => { list.innerHTML = '<div class="hint">doctor endpoint unreachable</div>'; });
   }
   $('doctorBtn').addEventListener('click', () => { loadDoctor(); loadPreflight(); });
+  initEngineLogin({
+    panel: $('doctorList'),
+    openTerm: () => { document.querySelector('nav button[data-s="s-term"]')?.click(); initTerm(); },
+    // Only await when a shell has yet to speak; an already-open PTY would never
+    // settle this and the caller would wait out its timeout for nothing.
+    termReady: () => termSession.ready(),
+    write: (t) => termSession.write(t),
+    send,
+  });
   initDoctorReport({ button: $('doctorCopy'), getChecks: () => lastChecks, panel: $('doctorList') });
 
   // ── preflight (security gate) ──
