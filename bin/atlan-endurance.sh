@@ -171,8 +171,17 @@ if [ -n "${REPORT_FILE:-}" ]; then
         printf "  cost reported    $%.4f\n", cost + 0
       }
       print  ""
-      if (frozen + 0 == 0 && down + 0 == 0)
+      # DID IT ACTUALLY FINISH? Checked FIRST, because everything below assumes a
+      # completed window. A run stopped at 4.55h of 8 reported "survived the
+      # window awake" — true of the hours it saw, and worthless as an answer to
+      # "does this survive a night". The hours it never reached are the ones the
+      # question was about.
+      short = (HOURS > 0 && ell < HOURS * 3600 * 0.95)
+      if (short)
+        printf "VERDICT: STOPPED EARLY at %.2f h of %.2f h — this measured %.0f%% of the window and answers nothing about the rest.\n", ell/3600, HOURS, 100*ell/(HOURS*3600)
+      else if (frozen + 0 == 0 && down + 0 == 0)
         print "VERDICT: survived the window awake. The claim holds for THIS configuration."
+      else if (short) { }
       else if (frozen + 0 > 0)
         print "VERDICT: the OS froze the process. Unattended overnight work does NOT hold here."
       else

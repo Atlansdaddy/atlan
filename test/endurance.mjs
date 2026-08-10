@@ -31,7 +31,11 @@ let pass = 0;
 const t = (name, fn) => { fn(); pass++; console.log(`  ok  ${name}`); };
 
 const cfg = (o = {}) => JSON.stringify({
-  kind: 'config', at: 1000, hours: 8, interval: 3, load: 0, synthetic_load: false,
+  // hours: 0 means "no planned window", which switches off the stopped-early
+  // check. These fixtures span SECONDS; declaring hours: 8 made every one of them
+  // a run that halted at 0.02% of its window — true, and not what they are here
+  // to test. The stopped-early verdict gets its own test, with a real window.
+  kind: 'config', at: 1000, hours: 0, interval: 3, load: 0, synthetic_load: false,
   wake_lock: false, charging: 'DISCHARGING', device: 'SM-S928U',
   kernel: '6.1.145-android14', note: 'fixture', ...o,
 });
@@ -255,6 +259,38 @@ t('--local --dry-run states zero cost and refuses the fleet numbers', () => {
   assert.doesNotMatch(out, /night ceiling/, 'the token ceiling belongs to the paid plan');
   assert.doesNotMatch(out, /budget per run/, 'a local turn has no token budget');
   assert.match(out, /does NOT measure the agent fleet/);
+});
+
+
+// ── the run that did not finish ──────────────────────────────────────────────
+t('a run that stopped early says so, and does NOT say it survived', () => {
+  // This happened for real. An 8-hour run was killed at 4.55h — by `pkill -f
+  // llama-server`, which matches the WHOLE command line and hit the endurance
+  // script because its own --note said "cockpit + llama-server 1B". The report
+  // then announced "VERDICT: survived the window awake", which was true of the
+  // hours it saw and worthless as an answer to "does this survive a night". The
+  // hours it never reached are the ones the question was about.
+  const out = report('stoppedearly', [
+    cfg({ hours: 8, local_model: true }),
+    sample({ at: 1003, elapsed: 3, gap: 3 }),
+    sample({ at: 1063, elapsed: 16368, gap: 3 }), // 4.55h of 8
+    '{"kind":"end","at":1063}',
+  ]);
+  assert.match(out, /STOPPED EARLY/);
+  assert.match(out, /4\.5\d h of 8\.00 h/);
+  assert.doesNotMatch(out, /survived/, 'a partial run must never read as a pass');
+  assert.match(out, /answers nothing about the rest/);
+});
+
+t('a run that reaches its window still passes normally', () => {
+  const out = report('completed', [
+    cfg({ hours: 1 }),
+    sample({ at: 1003, elapsed: 3, gap: 3 }),
+    sample({ at: 4600, elapsed: 3600, gap: 3 }),
+    '{"kind":"end","at":4600}',
+  ]);
+  assert.match(out, /VERDICT: survived/);
+  assert.doesNotMatch(out, /STOPPED EARLY/);
 });
 
 console.log(`\n${pass} passed, 0 failed`);
