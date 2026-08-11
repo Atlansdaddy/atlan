@@ -16,9 +16,9 @@ _Free suites only. The E2E suite (real Claude runs) is opt-in — `RUN_PAID=1 no
 | Editor Guards | The two irreversible things the editor can do to you: opening another file over unsaved work, and saving the current buffer onto a DIFFERENT existing file (the path box is also the navigate box, and writeFile has no existence check). Asserts the guards fire — and, just as hard, that they stay quiet on ordinary saves, because a dialog on every save is one people dismiss unread. | ✅ 14/14 |
 | Preview URL | Where the preview iframe points. Three hardcoded literals in app.js made the preview pane structurally impossible on a phone — an http frame inside an https page is blocked as mixed content, and the workaround baked one operator's tailscale port and hostname into shared code. Asserts the ports come from the server, the origin always derives from the url (postMessage is pinned both ways), and that https with no TLS front door refuses to guess and says which setting fixes it. | ✅ 7/7 |
 | Fleet Actions | The fleet buttons that spend money or stop work. Top-up disarms BEFORE the request, so a second tap cannot land in the gap and resume the same session on a second budget; it re-arms only when nothing was spent. Kill — per-run and fleet-wide — reports every way it can fail, because a kill that did not land must never look like one that did. | ✅ 13/13 |
-| Function | Every HTTP endpoint contract + shape, plus data-store durability (corrupt/truncated JSON fails soft). (Spawns 1 tiny killed run.) | ✅ 37/37 |
+| Function | Every HTTP endpoint contract + shape, plus data-store durability (corrupt/truncated JSON fails soft). (Spawns 1 tiny killed run.) | ✅ 38/38 |
 | Connection | Live WebSocket + PTY: authed connect, 4001 on bad token, malformed-frame survival, multi-client broadcast, tmux round-trip, reconnection. (Spawns 2 tiny killed runs.) | ✅ 11/11 |
-| Proot ladder | The confinement ladder measured THROUGH a ptrace supervisor — the context Atlan actually runs in on a phone. Exists because the default tier was once raised to T1 on a bare-kernel measurement that was true and was not this environment: under proot the same binary loses two T1 rungs to SIGSYS, so a T1 default would have refused every agent run on the primary platform. Pins the rule that a tier measured without the supervisor is not a measurement of this product. | ✅ 8/8 |
+| Proot ladder | The confinement ladder measured THROUGH a ptrace supervisor — the context Atlan actually runs in on a phone. Exists because the default tier was once raised to T1 on a bare-kernel measurement that was true and was not this environment: under proot the same binary loses two T1 rungs to SIGSYS, so a T1 default would have refused every agent run on the primary platform. Pins the rule that a tier measured without the supervisor is not a measurement of this product. | ✅ 10/10 |
 | Confinement tier | The homebuilt confinement layer, attacked rather than described: the 15-rung behavioural ladder run on THIS device, the full (declared, established) refusal matrix, the credential grant list, and per-control escapes — relative and symlink path escapes, TOCTOU grant swaps, static binaries, direct syscalls, unlisted syscalls, inherited descriptors, AF_UNIX and loopback egress. Compiles the real launcher and runs real processes under it; skips (counted, printed) on a device with no toolchain. | ✅ 114/114 |
 | Lint | ESLint as a gate rather than a suggestion. Exists because the linter's first run found a bug 846 tests never reached: agentExec.js re-exported killTree with `export { x } from`, which creates no LOCAL binding, so the run-timeout handler threw ReferenceError instead of killing the process tree — child left alive, uncaught exception in a timer callback. no-undef catches that whole class, a name referenced and never bound, and only keeps catching it if a violation fails the build. Runs the whole ruleset, not a chosen subset, because picking the important rules is how a config drifts from what CI enforces. | ✅ 2/2 |
 | Endurance report | The tool that answers the one README claim carrying no receipt — "send agents off to work on budgets while you sleep." Its failure mode is silent: a report printing SURVIVED about a night the OS froze turns an open question into a false answer. Asserts the freeze threshold is read from the LOG's own config rather than the reporting flags (a 3s-interval run judged by the 60s default loses a 400s freeze), that Doze and a dead cockpit get different verdicts because they need different fixes, that every verdict carries the configuration it applies to so a plugged-in whitelisted run cannot be quoted as the pessimistic one, and that a missing sensor reads "unavailable" rather than a fabricated zero. | ✅ 18/18 |
@@ -41,7 +41,7 @@ _Free suites only. The E2E suite (real Claude runs) is opt-in — `RUN_PAID=1 no
 | Tour/Onboarding | Drives all tour steps live — every step spotlights a real visible element; handbook opens/searches/relaunches. | ✅ 10/10 |
 | UI · Fleet | Every Fleet control driven at 412x900: top-up cannot be double-tapped into a double-spend, a kill that fails is reported, the header burn gauge moves while a run burns, Hierarchy job links come with a command selected, and Builder rows stay wide enough to type into. First of the five per-surface specs to reach zero — the rest join as their surfaces are fixed (docs/UI-AUDIT.md). | ✅ 29/29 |
 
-**Total: 919 passed, 0 failed across 29 suites.**
+**Total: 922 passed, 0 failed across 29 suites.**
 
 ## Unit
 
@@ -325,6 +325,7 @@ FUNCTION SUITE
   ✓ GET /api/doctor → array of {id,label,ok,detail}
   ✓ every doctor row carries the QUESTION it answers
   ✓ the containment row is named for the question, not the implementation
+  ✓ the terminal engine has a doctor row — its old failure mode had no voice at all
   ✓ the CLI-connections row reports binary AND auth per engine
   ✓ the chat-store row reports usage and never claims to have acted
   ✓ GET /api/engines → agents + brains, grouped
@@ -360,7 +361,7 @@ FUNCTION SUITE
   ✓ GET /api/chats/projects returns the project list
   ✓ cleanup: the suite leaves no conversations behind
 
-37 passed, 0 failed
+38 passed, 0 failed
 ```
 
 ## Connection
@@ -402,8 +403,10 @@ PROOT LADDER SUITE
   ✓ but the supervised tier IS established under proot — the phone is not T0
   ✓ the egress boundary — the one real kernel wall on a phone — survives the supervisor
   ✓ PROOT_NO_SECCOMP does not rescue it (so it is the stacking, not the acceleration)
+  ✓ SDK shim script: each arg %q-quoted once, exec through the container, never a bare "$@"
+  ✓ claudeSdkExecutable: null without a container, a runnable shim with one
 
-8 passed, 0 failed
+10 passed, 0 failed
 ```
 
 ## Confinement tier

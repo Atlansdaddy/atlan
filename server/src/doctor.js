@@ -144,6 +144,21 @@ export async function runDoctor() {
         actions,
       };
     }),
+    check('pty', 'Terminal engine (node-pty)', async () => {
+      // The one native module the cockpit itself depends on. It used to be a
+      // static import, so this row could never render on the host that needed
+      // it — the process died before doctor existed. Now the load failure is a
+      // condition, and this is where it gets named (docs/8-10-feedback-and-fix.md).
+      const { ptyAvailable, ptyLoadFailure } = await import('./pty.js');
+      return ptyAvailable()
+        ? { ok: true, detail: 'native module loaded — the Term tab has a real pty' }
+        : {
+          ok: false,
+          detail: `failed to load: ${ptyLoadFailure()}`
+            + '\nnode-pty ships no Linux prebuild — it compiles from source at npm install.'
+            + '\nOn Android that requires the proot path (Termux + proot-distro ubuntu, docs/SETUP.md); native bionic Termux cannot build it.',
+        };
+    }),
     check('tmux', 'tmux (terminal persistence)', async () => {
       // Require the "tmux <version>" banner. A present-but-broken tmux prints
       // "tmux: error while loading shared libraries…" which startsWith('tmux')
@@ -388,7 +403,7 @@ const GROUP_OF = {
   confine: 'safety', 'bash-sandbox': 'safety', 'cli-confinement': 'safety',
   'cli-connections': 'engines', claude: 'engines', auth: 'engines', llama: 'engines', piper: 'engines',
   jdk: 'build', sdk: 'build', aapt2: 'build',
-  tailnet: 'health', disk: 'health', 'chat-store': 'health', tmux: 'health',
+  tailnet: 'health', disk: 'health', 'chat-store': 'health', tmux: 'health', pty: 'health',
   watchdog: 'health', 'sw-no-fetch': 'health',
 };
 

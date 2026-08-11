@@ -45,6 +45,20 @@ await test('the containment row is named for the question, not the implementatio
   assert.ok(!/atlan-confine|seccomp/i.test(row.label), 'the implementation name belongs in the detail, not the label');
   assert.match(row.detail, /established T[0-3S]/, 'the detail must state the tier it measured');
 });
+await test('the terminal engine has a doctor row — its old failure mode had no voice at all', async () => {
+  // node-pty was a static import: on the host where it failed, the process
+  // died before doctor existed, so the one platform that needed this row could
+  // never see it (docs/8-10-feedback-and-fix.md §3). The row existing AND the
+  // module reporting loadable are two halves of the same guard.
+  const { ptyAvailable, ptyLoadFailure } = await import('../server/src/pty.js');
+  assert.ok(ptyAvailable(), `node-pty must load on a gate host: ${ptyLoadFailure()}`);
+  const { body } = await j(await api('/api/doctor'));
+  const row = body.find((c) => c.id === 'pty');
+  assert.ok(row, 'the pty row must exist');
+  assert.equal(row.group, 'health');
+  assert.ok(row.ok, `pty row must be green where the module loads, got: ${row.detail}`);
+  assert.match(row.detail, /loaded/, 'the detail should say the native module loaded');
+});
 await test('the CLI-connections row reports binary AND auth per engine', async () => {
   // Installed-but-logged-out and never-installed used to look identical.
   const { body } = await j(await api('/api/doctor'));

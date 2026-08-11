@@ -1,8 +1,28 @@
-import pty from 'node-pty';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { getStoredKey } from './keys.js';
 import { PROJECTS_DIR } from './config.js';
+
+// node-pty is NATIVE, and its absence must be a CONDITION, not a crash. It
+// ships no Linux prebuild at all (darwin + win32 only), so on this platform
+// family it always compiles from source — which succeeds on a proot phone
+// with a toolchain and fails on native bionic Termux. As a static import that
+// failure killed the process during module-graph evaluation, before a single
+// line of server code ran: one optional tab took down chat, preview, fleet
+// and doctor together (docs/8-10-feedback-and-fix.md §3, a Pixel tester's
+// lost night). Third instance of the one-failure-path-owns-the-process class
+// (654aa13, c1cbb3a) — this ends it for the terminal.
+let pty = null;
+let ptyLoadError = null;
+try {
+  pty = (await import('node-pty')).default;
+} catch (err) {
+  ptyLoadError = String(err?.message ?? err).split('\n')[0];
+}
+
+/** The Term tab asks before promising a terminal; the Doctor names the why. */
+export function ptyAvailable() { return !!pty; }
+export function ptyLoadFailure() { return ptyLoadError; }
 
 /**
  * tmux, if this host has it — resolved from PATH once, never assumed.
@@ -68,6 +88,19 @@ const sessions = new Map();
 // caller ignores the return value, so a dead PTY degrades rather than taking
 // the socket down with it.
 export function openPty(name, ws, { cols = 80, rows = 24, cwd } = {}) {
+  // Same degradation contract as the spawn guard below: the caller ignores the
+  // return, the socket lives, and the user reads WHY in the tab itself instead
+  // of watching the whole cockpit crash-loop.
+  if (!pty) {
+    if (ws.readyState === 1) {
+      ws.send(JSON.stringify({
+        t: 'pty.data', name,
+        data: `\r\n[No terminal on this host — node-pty failed to load: ${ptyLoadError}]`
+          + '\r\n[On Android this means native Termux (bionic): the supported path is Termux + proot-distro ubuntu — docs/SETUP.md]\r\n',
+      }));
+    }
+    return null;
+  }
   let s = sessions.get(name);
   if (!s) {
     // win32 has no tmux. The default cwd is the projects root, which config

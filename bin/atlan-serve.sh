@@ -35,8 +35,28 @@ status() {
   echo "down"; return 1
 }
 
+# Bionic-vs-proot preflight (docs/8-10-feedback-and-fix.md §2). ATTEMPTED, not
+# inferred: `uname -o` says Android in native Termux and GNU/Linux inside
+# proot, but the thing that actually decides the night is whether node can
+# load its one native module — so ask node. Warn loudly and continue: since
+# pty.js took node-pty behind a guarded import the server survives without a
+# terminal, and a cockpit minus one tab beats a launcher that refuses to start.
+preflight() {
+  if node -e "require('node-pty')" >/dev/null 2>&1; then return 0; fi
+  echo "WARNING: node-pty failed to load — the Term tab will be unavailable." >&2
+  if [ "$(uname -o 2>/dev/null)" = "Android" ]; then
+    echo "  This is NATIVE Termux (bionic libc). Atlan's supported Android path is" >&2
+    echo "  Termux + proot-distro ubuntu — see docs/SETUP.md (Android section)." >&2
+    echo "  The engine CLIs (claude, codex, grok, copilot) need that path too." >&2
+  else
+    echo "  node-pty ships no Linux prebuild; npm install compiles it from source" >&2
+    echo "  and needs a working compiler toolchain (build-essential, python3)." >&2
+  fi
+}
+
 start() {
   if status >/dev/null 2>&1; then echo "already $(status)"; return 0; fi
+  preflight
   # Detach the supervisor so it outlives this shell and a dropped session.
   setsid nohup "$0" __supervise >/dev/null 2>&1 &
   disown 2>/dev/null || true

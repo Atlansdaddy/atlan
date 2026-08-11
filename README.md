@@ -25,7 +25,7 @@ Atlan is a Node server you drive from a browser. Where the **server** can run de
 | Platform | On-device (local) server | How you actually run it |
 |---|---|---|
 | **PC — Linux / macOS / Windows** | ✅ easiest | Just Node. `git clone && npm install && node server`. The most portable target. |
-| **Android (capable phone)** | ✅ | Termux (from **F-Droid**) → `proot-distro install ubuntu` → Node → clone → run. A power-user setup, not a tap-to-install app. Aggressive-OEM phones (Samsung/Xiaomi battery/phantom killers) and low-RAM devices may fight it. |
+| **Android (capable phone)** | ✅ | Termux (from **F-Droid**) → `proot-distro install ubuntu` → Node → clone → run. **Inside the proot, not native Termux** — bionic libc can't run the engine CLIs and can't build `node-pty`, so skipping the proot step is a dead end (the launcher and Doctor now say so instead of crash-looping). A power-user setup, not a tap-to-install app. Aggressive-OEM phones (Samsung/Xiaomi battery/phantom killers) and low-RAM devices may fight it. |
 | **iPhone / iPad** | ❌ impossible | iOS forbids a shell or background server outright. **Cloud-client mode only** (below). |
 | **Any phone, incl. iPhone** | ✅ as a *client* | **Cloud-client mode:** run the server once on a PC / home node / cloud VM, connect the phone as a plain PWA browser client. No Termux on the phone. |
 
