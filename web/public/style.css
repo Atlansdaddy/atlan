@@ -529,6 +529,14 @@ details .doctor-list{margin-bottom:8px}
 .authcard-back .mini{flex-shrink:0}
 .authcard-back input{flex:1;min-width:0;min-height:44px;font-family:var(--mono);font-size:13px;
   background:var(--surface2);color:var(--ink);border:1px solid var(--line);border-radius:9px;padding:0 10px}
+/* Key rows inside a collapsible group sit flush, like the Doctor's checks —
+   the group is the card, so rows stop being twenty little cards of their own. */
+.keygroup .keyrow{border:0;border-top:1px solid var(--line);border-radius:0;background:transparent;padding:7px 12px}
+
+/* Doctor evidence clamps at two lines; the text itself is the expand control. */
+.check .how.clamp{display:-webkit-box;-webkit-line-clamp:2;line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;cursor:pointer}
+.check .how.clamp.open{-webkit-line-clamp:unset;line-clamp:unset;display:block}
+
 /* Sign-in rows reuse .keyrow so the two credential surfaces read as siblings. */
 .keyrow .kstate{font-family:var(--mono);font-size:9.5px;color:var(--muted);flex:1;min-width:0}
 .keyrow .kstate.ok{color:var(--ok)}

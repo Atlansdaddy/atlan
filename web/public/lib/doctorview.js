@@ -88,6 +88,19 @@ function paint(list, checks, groups) {
       const how = document.createElement('div');
       how.className = 'how';
       how.textContent = c.detail;
+      // Long evidence stays available but stops carpeting the tab: past two
+      // lines it clamps, and the text itself is the expand control. A reader
+      // chasing a failure gets the whole trail; everyone else gets a list
+      // they can actually scan.
+      if ((c.detail ?? '').length > 140) {
+        how.classList.add('clamp');
+        how.setAttribute('role', 'button');
+        how.setAttribute('tabindex', '0');
+        how.setAttribute('aria-expanded', 'false');
+        const flip = () => how.setAttribute('aria-expanded', String(how.classList.toggle('open')));
+        how.addEventListener('click', flip);
+        how.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); flip(); } });
+      }
       body.append(what, how);
 
       // ONE BUTTON PER THING YOU CAN ACTUALLY DO.

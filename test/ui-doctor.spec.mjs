@@ -135,6 +135,60 @@ await test('Doctor: every card renders REAL content, not an empty shell', async 
   assert.equal(s.blankDetail, 0, 'a doctor check rendered with no detail — the "how" is the whole point');
 });
 
+await test('engine keys: grouped LLM vs voice, badge on the tin, collapse remembered', async () => {
+  await tab('s-doctor');
+  await page.waitForSelector('#keysList .keygroup', { timeout: 10000 });
+  const s = await page.evaluate(() => {
+    const groups = [...document.querySelectorAll('#keysList details.keygroup')];
+    return {
+      count: groups.length,
+      names: groups.map((g) => g.querySelector('.docgroup-name').textContent),
+      open: groups.map((g) => g.open),
+      badges: groups.map((g) => g.querySelector('.docgroup-badge').textContent),
+      rowsPerGroup: groups.map((g) => g.querySelectorAll('.keyrow').length),
+    };
+  });
+  assert.equal(s.count, 2, `expected exactly LLM + voice key groups, got ${s.count}`);
+  assert.ok(/llm/i.test(s.names[0]) && /voice/i.test(s.names[1]), 'group order/names: ' + s.names.join(', '));
+  assert.ok(s.open[0] === true && s.open[1] === false, 'LLM opens by default, voice starts closed');
+  assert.ok(s.rowsPerGroup.every((n) => n >= 3), 'a key group rendered nearly empty: ' + s.rowsPerGroup.join('/'));
+  assert.ok(s.badges.every((b) => /\d+ of \d+ set/.test(b)), 'badges must say how many are set: ' + s.badges.join(', '));
+  // Collapse LLM, reload — the device must remember the choice.
+  await page.evaluate(() => { document.querySelector('#keysList details.keygroup').open = false; });
+  await page.reload({ waitUntil: 'networkidle' });
+  await tab('s-doctor');
+  await page.waitForSelector('#keysList .keygroup', { timeout: 10000 });
+  const stillClosed = await page.evaluate(() => !document.querySelector('#keysList details.keygroup').open);
+  assert.ok(stillClosed, 'a collapsed key group must stay collapsed across reload');
+  // Put the default back so later tests (and the next human) find LLM open.
+  await page.evaluate(() => { document.querySelector('#keysList details.keygroup').open = true; });
+});
+
+await test('doctor evidence: clamps to two lines, expands on tap, keyboard-reachable', async () => {
+  await tab('s-doctor');
+  await page.waitForSelector('#doctorList .check', { timeout: 10000 });
+  const m = await page.evaluate(() => {
+    // Synthetic long row driven through the real classes — deterministic on any
+    // host, whatever this machine's live checks happen to say.
+    const list = document.getElementById('doctorList');
+    const div = document.createElement('div');
+    div.className = 'check';
+    div.innerHTML = '<span class="sig"></span><div><div class="what">synthetic</div><div class="how clamp"></div></div>';
+    div.querySelector('.how').textContent = 'evidence '.repeat(80);
+    list.append(div);
+    const how = div.querySelector('.how');
+    const clamped = how.clientHeight;
+    how.classList.add('open');
+    const expanded = how.clientHeight;
+    div.remove();
+    // And the renderer must mark every real clamped row keyboard-reachable.
+    const real = [...document.querySelectorAll('#doctorList .how.clamp')];
+    return { clamped, expanded, realButtons: real.every((h) => h.getAttribute('role') === 'button' && h.getAttribute('tabindex') === '0') };
+  });
+  assert.ok(m.clamped < m.expanded, `clamp must actually shorten the row: ${m.clamped} vs ${m.expanded}`);
+  assert.ok(m.realButtons, 'a clamped evidence row is not reachable as a button');
+});
+
 await test('Doctor: "Run doctor again" really re-runs /api/doctor', async () => {
   // The audit found #doctorBtn is never clicked by any existing test, so a dead
   // listener would go unnoticed. Stub a DIFFERENT check set and prove the list

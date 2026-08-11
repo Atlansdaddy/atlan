@@ -26,6 +26,7 @@ import { renderRichMessage, rungChip } from './lib/richmsg.js';
 import { initDoctorReport } from './lib/doctorreport.js';
 import { renderDoctor } from './lib/doctorview.js';
 import { initEngineLogin, initSignIn } from './lib/enginelogin.js';
+import { initKeys } from './lib/keys.js';
 import { createTerm, termHintHtml } from './lib/term.js';
 import { msgClass, whoLabel, sessionLine, autoPermLine } from './lib/msgstyle.js';
 import { normalizeProfile, initAutoApprove } from './lib/autoapprove.js';
@@ -1215,74 +1216,12 @@ import { convId, newConversation, restoreChat, openHistory } from './lib/chathis
     }).catch((e) => { $('lmApply').disabled = false; $('lmNote').textContent = String(e); });
   });
 
-  // ── engine keys ──
-  const KEY_LABELS = {
-    GEMINI_API_KEY: 'Gemini', OPENAI_API_KEY: 'OpenAI', DEEPSEEK_API_KEY: 'DeepSeek',
-    XAI_API_KEY: 'xAI Grok', MISTRAL_API_KEY: 'Mistral', MOONSHOT_API_KEY: 'Kimi', ANTHROPIC_API_KEY: 'Anthropic (optional — OAuth already works)',
-    GROQ_API_KEY: 'Groq (fast Llama/Kimi/etc)', TOGETHER_API_KEY: 'Together AI', OPENROUTER_API_KEY: 'OpenRouter (many models, 1 key)', FIREWORKS_API_KEY: 'Fireworks AI', COHERE_API_KEY: 'Cohere',
-    ELEVENLABS_API_KEY: 'ElevenLabs (voice)', PIPER_MODEL: 'Piper voice model (.onnx path)', CARTESIA_API_KEY: 'Cartesia (voice)', DEEPGRAM_API_KEY: 'Deepgram (voice)',
-    GOOGLE_TTS_API_KEY: 'Google Cloud TTS (voice)', AZURE_SPEECH_KEY: 'Azure Speech key (voice)', AZURE_SPEECH_REGION: 'Azure Speech region (e.g. eastus)',
-    AWS_ACCESS_KEY_ID: 'AWS access key (Polly voice)', AWS_SECRET_ACCESS_KEY: 'AWS secret key (Polly voice)', AWS_REGION: 'AWS region (e.g. us-east-1)',
-  };
-  // "How do I get this?" — a one-tap tutorial link per provider. Honest: where
-  // to sign up + the one thing that trips people up. No key is ever required.
-  const KEY_HELP = {
-    GEMINI_API_KEY: ['aistudio.google.com/apikey', 'Free tier. Sign in → Get API key.'],
-    OPENAI_API_KEY: ['platform.openai.com/api-keys', 'Add billing, then create a secret key. Powers OpenAI chat + TTS.'],
-    DEEPSEEK_API_KEY: ['platform.deepseek.com/api_keys', 'Cheap. Top up a few dollars, create a key.'],
-    XAI_API_KEY: ['console.x.ai', 'Create a key under API Keys.'],
-    MISTRAL_API_KEY: ['console.mistral.ai/api-keys', 'La Plateforme → API Keys.'],
-    MOONSHOT_API_KEY: ['platform.moonshot.ai/console/api-keys', 'Kimi. Create a key; balance required.'],
-    ANTHROPIC_API_KEY: ['console.anthropic.com/settings/keys', 'Optional — your Claude subscription OAuth already works.'],
-    GROQ_API_KEY: ['console.groq.com/keys', 'Free + very fast. Create an API key.'],
-    TOGETHER_API_KEY: ['api.together.ai/settings/api-keys', 'Many open models on one key.'],
-    OPENROUTER_API_KEY: ['openrouter.ai/keys', 'One key, hundreds of models. Great for trying things.'],
-    FIREWORKS_API_KEY: ['fireworks.ai/account/api-keys', 'Fast open-model hosting.'],
-    COHERE_API_KEY: ['dashboard.cohere.com/api-keys', 'Command models; free trial keys available.'],
-    ELEVENLABS_API_KEY: ['elevenlabs.io/app/settings/api-keys', 'Best voices. Profile → API Keys. Free tier included.'],
-    PIPER_MODEL: ['github.com/rhasspy/piper', 'Free, offline. `pip install piper-tts`, download a .onnx voice, paste its path here.'],
-    CARTESIA_API_KEY: ['play.cartesia.ai/keys', 'Real-time emotive voices. Set CARTESIA_VOICE for a specific voice id.'],
-    DEEPGRAM_API_KEY: ['console.deepgram.com', 'Voice-agent grade, very low latency. Free credits to start.'],
-    GOOGLE_TTS_API_KEY: ['console.cloud.google.com/apis/credentials', 'Enable "Cloud Text-to-Speech API", then create an API key.'],
-    AZURE_SPEECH_KEY: ['portal.azure.com', 'Create a Speech resource → Keys and Endpoint. Also set the region below.'],
-    AZURE_SPEECH_REGION: ['portal.azure.com', 'The region of your Speech resource, e.g. eastus.'],
-    AWS_ACCESS_KEY_ID: ['console.aws.amazon.com/iam', 'IAM user with AmazonPollyReadOnly. Cheapest voices. Also add the secret + region.'],
-    AWS_SECRET_ACCESS_KEY: ['console.aws.amazon.com/iam', 'The secret shown once when you create the access key.'],
-    AWS_REGION: ['docs.aws.amazon.com/general/latest/gr/pol.html', 'A region where Polly runs, e.g. us-east-1.'],
-  };
-  function loadKeys() {
-    fetch('/api/keys').then((r) => r.json()).then((list) => {
-      const box = $('keysList');
-      box.innerHTML = '';
-      for (const k of list) {
-        const row = document.createElement('div');
-        row.className = 'keyrow';
-        const help = KEY_HELP[k.env];
-        row.innerHTML = `<span class="kname"></span><input type="password" placeholder="${k.set ? 'saved ' + escapeHtml(k.hint) + ' — paste to replace' : 'paste key'}" autocomplete="off">
-          <span class="kset">${k.set ? '● ' + (k.source === 'env' ? 'env' : 'set') : ''}</span><button class="btn">Save</button>`;
-        row.querySelector('.kname').textContent = KEY_LABELS[k.env] ?? k.env;
-        if (help) {
-          const a = document.createElement('a');
-          a.className = 'khelp'; a.href = 'https://' + help[0]; a.target = '_blank'; a.rel = 'noopener';
-          a.textContent = 'how to get ↗'; a.title = help[1]; a.setAttribute('aria-label', `How to get ${KEY_LABELS[k.env] ?? k.env}: ${help[1]}`);
-          row.append(a);
-        }
-        const input = row.querySelector('input');
-        row.querySelector('button').addEventListener('click', () => {
-          fetch('/api/keys', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ env: k.env, value: input.value.trim() }),
-          }).then((r) => r.json()).then((j) => {
-            if (j.error) return addMsg('err', j.error);
-            input.value = '';
-            loadKeys(); loadEngines(); loadVoicePicker(); // refresh availability everywhere
-          }).catch((e) => { console.warn('[atlan]', e); });
-        });
-        box.append(row);
-      }
-    }).catch(() => {});
-  }
+  // ── engine keys — grouped LLM/Voice, lives in lib/keys.js (ceiling ratchet) ──
+  const loadKeys = initKeys({
+    box: $('keysList'),
+    notify: (m) => addMsg('err', m),
+    onSaved: () => { loadEngines(); loadVoicePicker(); },
+  });
 
   // Voice provider picker (Settings) — lists the roster with honest ready flags;
   // choosing one saves it and takes effect immediately.

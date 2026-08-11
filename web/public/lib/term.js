@@ -81,12 +81,18 @@ export function createTerm({ mount, send, cwd, onAttach }) {
       fitAddon = new FitAddon.FitAddon();
       term.loadAddon(fitAddon);
       term.open(mount());
+      // First fit sizes the terminal so attach()'s pty.open carries the right
+      // cols/rows — no resize frame goes out yet, there is no session to name.
       fit();
       // The name rides on every keystroke, so switching sessions cannot leave
       // input going to the previous one.
       term.onData((data) => send({ t: 'pty.input', name: current, data }));
       window.addEventListener('resize', fit);
       attach(name ?? 'main');
+      // Second fit, now that a session is attached: the explicit pty.resize —
+      // ADDRESSED to the session — that tmux needs to redraw its TUIs at the
+      // phone's real width instead of a stale spawn width.
+      fit();
       return;
     }
     fit();
