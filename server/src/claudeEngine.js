@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { PROJECTS_DIR } from './config.js';
 import { defaultModel, resumeCommand } from './enginePolicy.js';
 import { PROFILES_FOR_TEST } from './fleet.js';
+import { claudeSdkExecutable } from './proot.js';
 
 // Atlan's identity — APPENDED to the Claude Code preset (never a bare string,
 // which would strip the default tools + permission model = the hands). We only
@@ -94,11 +95,16 @@ export class ClaudeSession {
   }
 
   _open() {
+    // On the phone the SDK has no android-arm64 binary of its own; the shim
+    // reaches the container's claude. Everywhere else this is null and the
+    // SDK resolves exactly as before.
+    const shim = claudeSdkExecutable();
     this.q = query({
       prompt: this._input(),
       options: {
         cwd: this.cwd,
         model: this.model,
+        ...(shim ? { pathToClaudeCodeExecutable: shim } : {}),
         // Append Atlan's identity to the Claude Code preset — keeps every default
         // tool + the permission card, adds self-awareness on top.
         systemPrompt: { type: 'preset', preset: 'claude_code', append: ATLAN_IDENTITY },

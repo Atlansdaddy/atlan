@@ -1,5 +1,6 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { randomUUID } from 'node:crypto';
+import { claudeSdkExecutable } from './proot.js';
 import { appendFileSync, mkdirSync, readFileSync, existsSync } from 'node:fs';
 import { atomicWrite, readJsonState } from './fsutil.js';
 import { join, resolve } from 'node:path';
@@ -497,6 +498,9 @@ async function exec(run, prof) {
         cwd: run.cwd,
         model: run.model,
         maxTurns: MAX_TURNS,
+        // Phone: the SDK has no android-arm64 CLI; the shim reaches the
+        // container's claude. Null (and a no-op) on every desktop.
+        ...(claudeSdkExecutable() ? { pathToClaudeCodeExecutable: claudeSdkExecutable() } : {}),
         // CRITICAL: no inherited settings. Accumulated always-allow rules in
         // settings.local.json would let tools walk past the profile without
         // ever reaching canUseTool — proven live by a scout running `ls` on

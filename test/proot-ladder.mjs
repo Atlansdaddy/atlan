@@ -15,8 +15,10 @@
 // numbers from the wrong context.
 import assert from 'node:assert';
 import { spawnSync } from 'node:child_process';
+import { statSync, readFileSync } from 'node:fs';
 import { ensureBinary } from '../server/src/sandbox/build.js';
 import { REQUIRES, tierFromRungs, dominates } from '../server/src/sandbox/tiers.js';
+import { claudeShimScript, claudeSdkExecutable, clearProotCache } from '../server/src/proot.js';
 
 let pass = 0, fail = 0, skip = 0;
 const test = (name, fn) => {
@@ -123,6 +125,29 @@ test('PROOT_NO_SECCOMP does not rescue it (so it is the stacking, not the accele
   const missing = REQUIRES.T1.filter((id) => !green(v).has(id));
   assert.ok(missing.length > 0,
     'disabling proot seccomp restored T1 — then the fix is to detect and adapt, and this test should become that assertion');
+});
+
+// ── the agent SDK's road into the container ──────────────────────────────────
+// The SDK ships no android-arm64 CLI; chat/fleet/hierarchy reach the container
+// claude through a generated shim. proot-distro login flattens its command via
+// `su -c "$*"` — ONE join, ONE parse — so the contract pinned here is "quote
+// each argument exactly once and never forward a bare $@ into that join".
+
+test('SDK shim script: each arg %q-quoted once, exec through the container, never a bare "$@"', () => {
+  const s = claudeShimScript('/usr/bin/bash', 'ubuntu');
+  assert.ok(s.startsWith('#!/usr/bin/bash'), 'shebang must be the bash it was built for');
+  assert.match(s, /printf -v esc "%q"/, 'every argument must be %q-quoted for the single shell parse inside');
+  assert.match(s, /exec proot-distro login ubuntu -- claude \$args/, 'must exec the container claude with the quoted argv');
+  assert.ok(!s.includes('claude "$@"'), 'a bare "$@" would be shredded by the $* join in proot-distro login');
+});
+
+test('claudeSdkExecutable: null without a container, a runnable shim with one', () => {
+  clearProotCache();
+  const p = claudeSdkExecutable();
+  if (p === null) return; // desktop: the SDK's own resolution stays in charge
+  const st = statSync(p);
+  assert.ok(st.mode & 0o100, 'shim must be executable');
+  assert.match(readFileSync(p, 'utf8'), /proot-distro login/, 'shim must route through the container');
 });
 
 console.log(`\n${pass} passed, ${fail} failed${skip ? `, ${skip} skipped` : ''}`);

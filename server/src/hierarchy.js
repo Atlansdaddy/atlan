@@ -1,5 +1,6 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { randomUUID } from 'node:crypto';
+import { claudeSdkExecutable } from './proot.js';
 import { mkdirSync } from 'node:fs';
 import { atomicWrite, readJsonState } from './fsutil.js';
 import { join } from 'node:path';
@@ -224,6 +225,8 @@ async function frontierExecute(prompt, model) {
       maxTurns: 1,
       systemPrompt: { type: 'preset', preset: 'claude_code', excludeDynamicSections: true },
       disallowedTools: ['Bash', 'Edit', 'Write', 'Read', 'Grep', 'Glob', 'LS', 'WebFetch', 'WebSearch', 'Task', 'TodoWrite', 'NotebookEdit'],
+      // Phone: reach the container's claude; null and a no-op on desktops.
+      ...(claudeSdkExecutable() ? { pathToClaudeCodeExecutable: claudeSdkExecutable() } : {}),
     },
   });
   let text = '', tokens = 0;
