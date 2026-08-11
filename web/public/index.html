@@ -468,9 +468,10 @@
       <div class="eyebrow" style="margin-top:6px" id="lsHead" hidden>Local brain — the on-device model server</div>
       <div class="projbar" id="lsBar" hidden>
         <span id="lsDot" class="lsdot" aria-hidden="true"></span>
-        <span id="lsState" class="hint" style="flex:1;min-width:0">checking…</span>
+        <select id="lsModel" aria-label="local model" style="flex:1;min-width:0"></select>
         <button class="btn hot" id="lsToggle">Start</button>
       </div>
+      <div id="lsState" class="hint" hidden></div>
       <div class="hint" id="lsNote" hidden></div>
       <div class="eyebrow" style="margin-top:6px" id="lmHead" hidden>Local brain — which model llama-server serves</div>
       <div class="projbar" id="lmBar" hidden>

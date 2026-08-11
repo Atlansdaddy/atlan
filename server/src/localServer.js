@@ -39,24 +39,38 @@ export function resolveBin() {
 }
 
 /**
- * The model to serve: env override, else the biggest real instruct model in the
- * models dir. Vocab-only test files (ggml-vocab-*) and the active.gguf symlink
- * are not models and are skipped — picking one loads a tokenizer that answers
- * nothing.
+ * The real, servable models in the models dir, largest first. Vocab-only test
+ * files (ggml-vocab-*) and the active.gguf symlink are not models — loading one
+ * serves a tokenizer that answers nothing — so they are skipped.
  */
-export function resolveModel() {
-  if (process.env.ATLAN_LLAMA_MODEL && existsSync(process.env.ATLAN_LLAMA_MODEL)) return process.env.ATLAN_LLAMA_MODEL;
-  let best = null;
+export function listModels() {
+  const out = [];
   try {
     for (const f of readdirSync(MODELS_DIR)) {
       if (!f.endsWith('.gguf') || f === 'active.gguf' || f.startsWith('ggml-vocab')) continue;
       const p = join(MODELS_DIR, f);
       const size = statSync(p).size;
       if (size < 50_000_000) continue; // a real model is tens+ of MB, not a vocab
-      if (!best || size > best.size) best = { path: p, size };
+      out.push({ name: f, gb: +(size / 1e9).toFixed(2), size });
     }
   } catch { /* no models dir */ }
-  return best?.path ?? null;
+  return out.sort((a, b) => b.size - a.size);
+}
+
+/**
+ * The model file to serve. A caller-chosen name wins (validated against the real
+ * list, so the request can't point the server at an arbitrary path); then the
+ * env override; then the biggest model — the strongest default on a device
+ * where bigger is usually what you installed last.
+ */
+export function resolveModel(preferred) {
+  const models = listModels();
+  if (preferred) {
+    const hit = models.find((m) => m.name === preferred);
+    if (hit) return join(MODELS_DIR, hit.name);
+  }
+  if (process.env.ATLAN_LLAMA_MODEL && existsSync(process.env.ATLAN_LLAMA_MODEL)) return process.env.ATLAN_LLAMA_MODEL;
+  return models[0] ? join(MODELS_DIR, models[0].name) : null;
 }
 
 /** True when a start button would have both a binary and a model to work with. */
@@ -90,26 +104,32 @@ export async function status() {
     available: !!bin && !!model,
     running,
     model: loaded ?? (model ? model.split('/').pop() : null),
+    models: listModels().map((m) => ({ name: m.name, gb: m.gb })),
     base: LOCAL_LLM_BASE,
     managed: !!pidAlive(),
   };
 }
 
 /**
- * Start llama-server if it is not already up. --jinja is NOT optional here: it
- * is what turns the tool-calling chat template on, and without it the local
- * model is chat-only (localAgent throws the "restart with --jinja" error). No
- * -t: llama-server auto-sizes threads to the device, which measured faster than
- * pinning a count on this big.LITTLE SoC.
+ * Start llama-server if it is not already up. --jinja is on so the tool path
+ * works. `-t 6` is MEASURED, not guessed: on the S9's 4big+4little SoC a
+ * benchmark sweep put Qwen-Coder-1.5B at 7.5 tok/s on -t6 vs 5.9 auto (+27%)
+ * and 5.9 on -t8 — the little cores drag, so filling all eight is slower than
+ * six. Overridable via ATLAN_LLAMA_ARGS for a different device.
  */
-export async function start() {
+export async function start(preferred) {
   const s = await status();
-  if (s.running) return { ...s, alreadyRunning: true };
+  // If a DIFFERENT model is requested while one is up, swap: stop, then start
+  // the chosen one. Same model (or none named) → leave the running one alone.
+  if (s.running) {
+    if (!preferred || s.model === preferred) return { ...s, alreadyRunning: true };
+    await stop();
+  }
   const bin = resolveBin();
-  const model = resolveModel();
+  const model = resolveModel(preferred);
   if (!bin) throw new Error('no llama-server binary found (set ATLAN_LLAMA_BIN)');
   if (!model) throw new Error(`no model in ${MODELS_DIR} (set ATLAN_LLAMA_MODEL)`);
-  const extra = (process.env.ATLAN_LLAMA_ARGS ?? '--jinja -c 4096 -ngl 0').split(/\s+/).filter(Boolean);
+  const extra = (process.env.ATLAN_LLAMA_ARGS ?? '--jinja -c 4096 -ngl 0 -t 6').split(/\s+/).filter(Boolean);
   if (!extra.includes('--jinja')) extra.unshift('--jinja'); // tools depend on it
   const args = [...extra, '-m', model, '--host', HOST, '--port', PORT];
   const log = openSync(LOG_FILE, 'a');

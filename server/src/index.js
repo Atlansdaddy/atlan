@@ -152,8 +152,9 @@ app.post('/api/local/models', async (req, res) => {
 app.get('/api/local/server', async (_req, res) => res.json(await localServerStatus()));
 app.post('/api/local/server', async (req, res) => {
   const action = String(req.body?.action ?? '');
+  const model = req.body?.model ? String(req.body.model) : undefined;
   try {
-    if (action === 'start') return res.json(await startLocalServer());
+    if (action === 'start') return res.json(await startLocalServer(model));
     if (action === 'stop') return res.json(await stopLocalServer());
     return res.status(400).json({ error: 'action must be start or stop' });
   } catch (e) { res.status(400).json({ error: e.message }); }

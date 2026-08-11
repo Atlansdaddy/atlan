@@ -28,6 +28,7 @@ import { renderDoctor } from './lib/doctorview.js';
 import { initEngineLogin, initSignIn } from './lib/enginelogin.js';
 import { initKeys } from './lib/keys.js';
 import { initGates, gateDefault } from './lib/gates.js';
+import { initLocalServer } from './lib/localserver.js';
 import { createTerm, termHintHtml } from './lib/term.js';
 import { msgClass, whoLabel, sessionLine, autoPermLine } from './lib/msgstyle.js';
 import { normalizeProfile, initAutoApprove } from './lib/autoapprove.js';
@@ -1186,44 +1187,8 @@ import { convId, newConversation, restoreChat, openHistory } from './lib/chathis
     });
   }
 
-  // ── one-button llama-server (the phone runs it by hand; this is the toggle) ──
-  // The card shows only where a binary + model are present, so it is never a
-  // dead control. Start blocks while the model loads; stop frees the RAM the
-  // on-device build needs.
-  let lsBusy = false;
-  function paintLocalServer(j) {
-    if (!j || !j.available) { $('lsHead').hidden = $('lsBar').hidden = $('lsNote').hidden = true; return; }
-    $('lsHead').hidden = $('lsBar').hidden = false;
-    $('lsDot').classList.toggle('on', !!j.running);
-    $('lsState').textContent = j.running
-      ? `running · ${j.model ?? 'model'}`
-      : (j.model ? `stopped · ${j.model} ready` : 'stopped');
-    const btn = $('lsToggle');
-    btn.textContent = lsBusy ? '…' : (j.running ? 'Stop' : 'Start');
-    btn.disabled = lsBusy;
-    btn.dataset.running = j.running ? '1' : '';
-  }
-  function loadLocalServer() {
-    fetch('/api/local/server').then((r) => r.json()).then(paintLocalServer).catch(() => {});
-  }
-  $('lsToggle')?.addEventListener('click', () => {
-    if (lsBusy) return;
-    const running = $('lsToggle').dataset.running === '1';
-    lsBusy = true; paintLocalServer({ available: true, running, model: $('lsState').textContent });
-    $('lsNote').hidden = false;
-    $('lsNote').textContent = running ? 'Stopping…' : 'Starting — the model takes a moment to load…';
-    fetch('/api/local/server', {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ action: running ? 'stop' : 'start' }),
-    }).then((r) => r.json()).then((j) => {
-      lsBusy = false;
-      if (j.error) { $('lsNote').textContent = j.error; loadLocalServer(); return; }
-      $('lsNote').textContent = j.running
-        ? 'Local brain is up — pick it as the engine in Chat. Stop it before a build to free RAM.'
-        : 'Local brain stopped — RAM is free for a build.';
-      paintLocalServer(j);
-    }).catch((e) => { lsBusy = false; $('lsNote').textContent = String(e); loadLocalServer(); });
-  });
+  // ── one-button llama-server toggle + model picker, in lib/localserver.js ──
+  const loadLocalServer = initLocalServer({ $, notify: (m) => addMsg('err', m) });
 
   // ── local model picker (home node only — the card stays hidden where the
   // node doesn't manage llama-server, so it's never a broken button) ──
