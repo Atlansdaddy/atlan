@@ -49,7 +49,12 @@ export function createTerm({ mount, send, cwd, onAttach }) {
     if (!term || !fitAddon) return;
     try {
       fitAddon.fit();
-      send({ t: 'pty.resize', name: current, cols: term.cols, rows: term.rows });
+      // Before the first attach there is no session to resize — and the server
+      // maps a null name to `main`, so sending anyway resized the WRONG pty:
+      // main got this terminal's geometry while the session actually attached
+      // kept its spawn size, and every line wrapped at the stale width. That
+      // wrap is what shredded the sign-in TUIs' box borders into stray │s.
+      if (current) send({ t: 'pty.resize', name: current, cols: term.cols, rows: term.rows });
     } catch { /* tab is hidden — no geometry to measure */ }
   }
 

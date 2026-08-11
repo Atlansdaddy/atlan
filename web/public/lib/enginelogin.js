@@ -245,8 +245,16 @@ export function showAuthCard(card, { url, code }, sendBack) {
       if (!v) return;
       sendBack(v);
       input.value = '';
+      // Both halves lock while the terminal chews on the code: a second tap
+      // mid-flight would type a duplicate into the same prompt and burn it.
+      input.disabled = true;
+      go.disabled = true;
       go.textContent = 'Sent';
-      setTimeout(() => { go.textContent = 'Send to terminal'; }, 2000);
+      setTimeout(() => {
+        input.disabled = false;
+        go.disabled = false;
+        go.textContent = 'Send to terminal';
+      }, 2000);
     };
     go.addEventListener('click', submit);
     input.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
