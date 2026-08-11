@@ -772,6 +772,30 @@ await test('412px: no audited surface scrolls horizontally or pushes a control o
   assert.equal(bad.length, 0, bad.join(' | '));
 });
 
+await test('360px: the chat send button stays on-screen (S9 width, where the 412 sweep misses it)', async () => {
+  // The composer lives on s-chat, which the SCREENS sweep above does NOT cover,
+  // and that sweep runs at 412px — wider than a Galaxy S9's 360dp. The send
+  // button rode off the right edge there the moment inputs went to 16px, and
+  // nothing caught it. This does, at the width it actually broke.
+  try {
+    await page.setViewportSize({ width: 360, height: 800 });
+    await tab('s-chat');
+    await page.waitForSelector('#sendBtn', { timeout: 10000 });
+    const s = await page.evaluate(() => {
+      const vw = document.documentElement.clientWidth;
+      const send = document.getElementById('sendBtn').getBoundingClientRect();
+      const comp = document.querySelector('.composer');
+      return { vw, sendRight: Math.round(send.right), sendW: Math.round(send.width),
+        compSw: comp.scrollWidth, compCw: comp.clientWidth };
+    });
+    assert.ok(s.sendRight <= s.vw + 1, `send button runs off-screen: right=${s.sendRight} > vw=${s.vw}`);
+    assert.ok(s.sendW >= 40, `send button collapsed to ${s.sendW}px — it must stay a real tap target`);
+    assert.ok(s.compSw <= s.compCw + 1, `the composer scrolls sideways (${s.compSw} > ${s.compCw})`);
+  } finally {
+    await page.setViewportSize({ width: 412, height: 900 });
+  }
+});
+
 await test('no uncaught page errors across the whole run', async () => {
   assert.equal(consoleErrors.length, 0, 'page errors: ' + consoleErrors.join('; '));
 });

@@ -2,7 +2,13 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- interactive-widget=resizes-content is the load-bearing part on a phone: by
+     default (resizes-visual) the on-screen keyboard OVERLAYS the page, so
+     100dvh stays full-device-height and the composer is hidden behind the
+     keys. resizes-content shrinks the LAYOUT viewport when the keyboard opens,
+     so 100dvh — and the whole .phone column — resizes to the visible area and
+     the composer/send button ride up above the keyboard. -->
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
 <meta name="theme-color" content="#020c18">
 <meta name="description" content="Atlan — a personal AI build cockpit. Talk to any coding agent, review the code in an editor, preview it, and build from your phone. One interface, your own subscriptions, on your hardware.">
 <meta property="og:title" content="Atlan">

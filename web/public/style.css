@@ -158,7 +158,11 @@ header{display:flex;align-items:center;gap:10px;padding:12px 14px 10px;border-bo
   border:1px solid var(--line);border-radius:10px;padding:9px 10px}
 .projbar>.btn{min-height:var(--tap)}
 .composer{display:flex;gap:8px;align-items:center;flex-shrink:0}
-.composer input{flex:1;font:inherit;font-size:14px;background:var(--surface);color:var(--ink);
+/* min-width:0 is load-bearing: a flex item defaults to min-width:auto, so the
+   input refuses to shrink below its intrinsic ~20-char width and shoves the
+   send button off the right edge. It only started overflowing when the phone
+   zoom-fix raised every input to 16px — the intrinsic width grew with it. */
+.composer input{flex:1;min-width:0;font:inherit;font-size:14px;background:var(--surface);color:var(--ink);
   border:1px solid var(--line);border-radius:12px;padding:11px 13px}
 .composer input::placeholder{color:var(--muted)}
 .send{width:44px;height:44px;border-radius:12px;flex-shrink:0;font-size:16px;display:grid;place-items:center}
