@@ -22,7 +22,7 @@ _Free suites only. The E2E suite (real Claude runs) is opt-in — `RUN_PAID=1 no
 | Confinement tier | The homebuilt confinement layer, attacked rather than described: the 15-rung behavioural ladder run on THIS device, the full (declared, established) refusal matrix, the credential grant list, and per-control escapes — relative and symlink path escapes, TOCTOU grant swaps, static binaries, direct syscalls, unlisted syscalls, inherited descriptors, AF_UNIX and loopback egress. Compiles the real launcher and runs real processes under it; skips (counted, printed) on a device with no toolchain. | ✅ 114/114 |
 | Lint | ESLint as a gate rather than a suggestion. Exists because the linter's first run found a bug 846 tests never reached: agentExec.js re-exported killTree with `export { x } from`, which creates no LOCAL binding, so the run-timeout handler threw ReferenceError instead of killing the process tree — child left alive, uncaught exception in a timer callback. no-undef catches that whole class, a name referenced and never bound, and only keeps catching it if a violation fails the build. Runs the whole ruleset, not a chosen subset, because picking the important rules is how a config drifts from what CI enforces. | ✅ 2/2 |
 | Endurance report | The tool that answers the one README claim carrying no receipt — "send agents off to work on budgets while you sleep." Its failure mode is silent: a report printing SURVIVED about a night the OS froze turns an open question into a false answer. Asserts the freeze threshold is read from the LOG's own config rather than the reporting flags (a 3s-interval run judged by the 60s default loses a 400s freeze), that Doze and a dead cockpit get different verdicts because they need different fixes, that every verdict carries the configuration it applies to so a plugged-in whitelisted run cannot be quoted as the pessimistic one, and that a missing sensor reads "unavailable" rather than a fabricated zero. | ✅ 18/18 |
-| Local agent | The third agent runner, and the first whose model runs on the user's own device — a 1B on a phone, given four tools. The interesting question is not whether it works but what happens when the model is WRONG, because GBNF constrains the SHAPE of a tool call and never its truth. Most of the file is a model asking for things it must not get. Six of these came from an independent adversarial review and each was REPRODUCED first: a symlink inside the project read another project's file and wrote outside cwd (resolve() is lexical, so it read as "under cwd", and guardPath re-checked the real path only against PROJECTS_DIR — two guards, neither watching this boundary); a 5MB file allocated 5MB of heap to return 60KB because the cap was on the string, not the read; a FIFO would have hung the request forever; and a stalled model server had no deadline at all. | ✅ 33/33 |
+| Local agent | The third agent runner, and the first whose model runs on the user's own device — a 1B on a phone, given four tools. The interesting question is not whether it works but what happens when the model is WRONG, because GBNF constrains the SHAPE of a tool call and never its truth. Most of the file is a model asking for things it must not get. Six of these came from an independent adversarial review and each was REPRODUCED first: a symlink inside the project read another project's file and wrote outside cwd (resolve() is lexical, so it read as "under cwd", and guardPath re-checked the real path only against PROJECTS_DIR — two guards, neither watching this boundary); a 5MB file allocated 5MB of heap to return 60KB because the cap was on the string, not the read; a FIFO would have hung the request forever; and a stalled model server had no deadline at all. | ✅ 36/36 |
 | Transcript | What a conversation keeps when a turn does NOT go well. Every streaming engine buffers its output in memory until the turn ends, and "ends" used to mean chat.result alone — so a turn that streamed a real answer and then failed wrote nothing at all. The answer was on screen, which is precisely why it looked saved, and it was gone on reopen. The local model's intermittent 500 makes that the everyday case rather than an edge one. Driven frame by frame with an injected sink, so it needs no engine, no network and no llama-server. | ✅ 10/10 |
 | Security/Penetration | Auth bypass, SSRF (preview + harness), secret exfiltration, path traversal, stored-XSS, oversized-body DoS, profile privilege-escalation. | ✅ 47/47 |
 | Walls | Every wall SECURITY.md claims, exercised by BEHAVIOUR rather than by grepping the source. A mutation pass found that the daily token cap, the concurrency cap, the budget clamp, the in-flight reservation, scout's canUseTool, the preview proxy's WS-upgrade gate, atomicWrite's 0600 and temp+rename, the failed-login throttle, session revocation, the session store's freedom from replayable tokens and scrubbedEnv's explicit DROP list could all be neutered with the whole gate still green — because the assertions read the source text instead of making the thing happen. Boots its OWN cockpit (it changes the password and SIGKILLs the process), and covers the orphaned-child, corrupt-store, silent-exit and scheduler classes the same way. | ✅ 51/51 |
@@ -41,7 +41,7 @@ _Free suites only. The E2E suite (real Claude runs) is opt-in — `RUN_PAID=1 no
 | Tour/Onboarding | Drives all tour steps live — every step spotlights a real visible element; handbook opens/searches/relaunches. | ✅ 10/10 |
 | UI · Fleet | Every Fleet control driven at 412x900: top-up cannot be double-tapped into a double-spend, a kill that fails is reported, the header burn gauge moves while a run burns, Hierarchy job links come with a command selected, and Builder rows stay wide enough to type into. First of the five per-surface specs to reach zero — the rest join as their surfaces are fixed (docs/UI-AUDIT.md). | ✅ 29/29 |
 
-**Total: 931 passed, 0 failed across 29 suites.**
+**Total: 934 passed, 0 failed across 29 suites.**
 
 ## Unit
 
@@ -603,7 +603,10 @@ LOCAL AGENT
   ✓ toolCallFromContent: extracts a known-tool call from a markdown JSON block
   ✓ toolCallFromContent: ignores JSON that is not a known tool call
   ✓ content-only tool call still writes the file (Qwen-Coder path, end to end)
-  ✓ exactly four tools are offered, and each says WHEN to use it
+  ✓ the coding toolset covers the CLI-agent core, each saying WHEN to use it
+  ✓ run_command runs in the project and reports exit + output; scout refuses it
+  ✓ edit_file replaces a unique string; refuses an ambiguous or missing one
+  ✓ search finds a pattern and returns file:line hits
   ✓ write then preview: the file lands and the preview is told
   ✓ read_file returns real bytes the model can act on
   ✓ list_files marks directories so the model can tell them apart
@@ -632,7 +635,7 @@ LOCAL AGENT
   ✓ an approve hook that THROWS is treated as a refusal
   ✓ each tool call in a batch is gated separately
 
-33 passed, 0 failed
+36 passed, 0 failed
 ```
 
 ## Transcript

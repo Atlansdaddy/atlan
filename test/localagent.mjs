@@ -120,16 +120,56 @@ await test('content-only tool call still writes the file (Qwen-Coder path, end t
 });
 
 // ── the toolset itself ───────────────────────────────────────────────────────
-await test('exactly four tools are offered, and each says WHEN to use it', () => {
-  // A small model choosing between four sharp tools beats one choosing between
-  // twenty. The count is a design decision, so it is asserted.
-  assert.equal(TOOLS.length, 4, 'the toolset is deliberately small');
+await test('the coding toolset covers the CLI-agent core, each saying WHEN to use it', () => {
+  // Was four tools, sized for a 1B. The unified loop now drives GPT/Claude/
+  // Gemini too, which are wasted without run/edit/search — so the set is the
+  // sharp coding core, not a cap.
   assert.deepEqual(TOOLS.map((t) => t.function.name).sort(),
-    ['list_files', 'open_preview', 'read_file', 'write_file']);
+    ['edit_file', 'list_files', 'open_preview', 'read_file', 'run_command', 'search', 'write_file']);
   for (const t of TOOLS) {
-    assert.match(t.function.description, /use this/i, `${t.function.name} must tell a small model WHEN to use it`);
+    assert.match(t.function.description, /use this|use it|do things|prefer this|to find|to show/i, `${t.function.name} must say WHEN to use it`);
     assert.ok(t.function.parameters.required.length, `${t.function.name} must require its arguments`);
   }
+});
+
+await test('run_command runs in the project and reports exit + output; scout refuses it', async () => {
+  const r = await localAgentRun({
+    prompt: 'run it', cwd: proj,
+    fetchImpl: scripted([call('run_command', { command: 'echo hello-from-shell' }), say('ran it')]),
+  });
+  assert.match(r.tools[0].result, /exit 0/);
+  assert.match(r.tools[0].result, /hello-from-shell/);
+  // scout is read-only — a shell command must be refused, not run.
+  const s = await localAgentRun({
+    prompt: 'run it', cwd: proj, profile: 'scout',
+    fetchImpl: scripted([call('run_command', { command: 'echo nope' }), say('done')]),
+  });
+  assert.ok(!s.tools[0].ok, 'scout must refuse run_command');
+  assert.match(s.tools[0].result, /scout/i);
+});
+
+await test('edit_file replaces a unique string; refuses an ambiguous or missing one', async () => {
+  writeFileSync(join(proj, 'edit.txt'), 'alpha\nBETA\nalpha\n');
+  const dup = await localAgentRun({
+    prompt: 'edit', cwd: proj,
+    fetchImpl: scripted([call('edit_file', { path: 'edit.txt', old_string: 'alpha', new_string: 'X' }), say('done')]),
+  });
+  assert.match(dup.tools[0].result, /appears 2 times/, 'a non-unique old_string must be refused, not guessed');
+  const ok = await localAgentRun({
+    prompt: 'edit', cwd: proj,
+    fetchImpl: scripted([call('edit_file', { path: 'edit.txt', old_string: 'BETA', new_string: 'GAMMA' }), say('done')]),
+  });
+  assert.match(ok.tools[0].result, /edited/);
+  assert.match(readFileSync(join(proj, 'edit.txt'), 'utf8'), /GAMMA/);
+});
+
+await test('search finds a pattern and returns file:line hits', async () => {
+  writeFileSync(join(proj, 'findme.txt'), 'line one\nthe NEEDLE is here\nline three\n');
+  const r = await localAgentRun({
+    prompt: 'find it', cwd: proj,
+    fetchImpl: scripted([call('search', { pattern: 'NEEDLE' }), say('found')]),
+  });
+  assert.match(r.tools[0].result, /findme\.txt:2:.*NEEDLE/, 'search must return the file and line of a hit');
 });
 
 // ── the happy path, end to end ───────────────────────────────────────────────

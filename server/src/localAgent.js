@@ -27,7 +27,8 @@
 // inherits a boundary that has been shot at, instead of getting a fresh one
 // nobody has tested.
 import { readFileSync, writeFileSync, readdirSync, statSync, mkdirSync, existsSync, realpathSync } from 'node:fs';
-import { dirname, relative, resolve } from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { dirname, relative, resolve, join } from 'node:path';
 import { LOCAL_LLM_BASE } from './config.js';
 import { guardPath, isUnder } from './guards.js';
 import { PROFILES_FOR_TEST as PROFILES } from './fleet.js';
@@ -93,6 +94,49 @@ export const TOOLS = [
         type: 'object',
         properties: { path: { type: 'string', description: 'the HTML file to show, relative to the project root' } },
         required: ['path'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'run_command',
+      description: 'Run a shell command in the project — build, test, run scripts, git, install deps, anything a file edit cannot do. Use this to actually DO things and to check your work. Output (stdout+stderr) and the exit code come back.',
+      parameters: {
+        type: 'object',
+        properties: { command: { type: 'string', description: 'the shell command, e.g. "npm test" or "git status"' } },
+        required: ['command'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'edit_file',
+      description: 'Change PART of an existing file: replace old_string with new_string. old_string must appear EXACTLY ONCE (include enough surrounding context to be unique). Prefer this over write_file for a small change to a big file.',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'file to edit, relative to the project root' },
+          old_string: { type: 'string', description: 'the exact text to replace (must be unique in the file)' },
+          new_string: { type: 'string', description: 'the text to replace it with' },
+        },
+        required: ['path', 'old_string', 'new_string'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'search',
+      description: 'Search the project for a text pattern (like grep). Use this to FIND where something lives before you read or change it.',
+      parameters: {
+        type: 'object',
+        properties: {
+          pattern: { type: 'string', description: 'the text to search for' },
+          path: { type: 'string', description: 'optional subdirectory to search under, relative to the project root' },
+        },
+        required: ['pattern'],
       },
     },
   },
@@ -223,11 +267,64 @@ export function runTool(name, args, { cwd, profile, onPreview }) {
   if (!prof) throw new Error(`unknown profile: ${profile}`);
 
   // The profile decides FIRST, using the same predicate the fleet uses. A tool
-  // the profile forbids is refused here, not negotiated.
-  const toolFor = { write_file: 'Write', read_file: 'Read', list_files: 'LS', open_preview: 'Read' }[name];
+  // the profile forbids is refused here, not negotiated. run_command maps to
+  // Bash (scout refuses it, builder/verifier allow), edit_file to Edit, search
+  // to Grep — so the walls that grade the CLI agents grade these too.
+  const toolFor = { write_file: 'Write', read_file: 'Read', list_files: 'LS', open_preview: 'Read', run_command: 'Bash', edit_file: 'Edit', search: 'Grep' }[name];
   if (!toolFor) throw new Error(`unknown tool: ${name}`);
   const verdict = prof.check(toolFor, { file_path: args?.path ? resolve(cwd, String(args.path)) : undefined }, cwd);
   if (!verdict.ok) throw new Error(`refused by the ${profile} profile — ${verdict.why}`);
+
+  if (name === 'run_command') {
+    const command = String(args?.command ?? '').trim();
+    if (!command) throw new Error('empty command');
+    // Real shell in the project dir — the same unconfined-on-phone posture the
+    // Claude/Codex Bash path already has, gated by the SAME profile + card. A
+    // deadline and an output cap so a hung or chatty command cannot wedge or
+    // flood the request.
+    const r = spawnSync('bash', ['-lc', command], { cwd, encoding: 'utf8', timeout: 120_000, maxBuffer: 4 * 1024 * 1024 });
+    if (r.error && r.error.code === 'ETIMEDOUT') return 'ERROR: command timed out after 120s';
+    const out = ((r.stdout ?? '') + (r.stderr ?? '')).slice(0, MAX_READ_BYTES);
+    return `exit ${r.status ?? 'null'}\n${out || '(no output)'}`;
+  }
+  if (name === 'edit_file') {
+    const abs = safePath(cwd, args?.path, { mustExist: true });
+    statRegular(abs, MAX_READ_BYTES);
+    const before = readFileSync(abs, 'utf8');
+    const oldS = String(args?.old_string ?? '');
+    if (!oldS) throw new Error('old_string is required — say exactly what to replace');
+    const n = before.split(oldS).length - 1;
+    if (n === 0) return 'ERROR: old_string not found — read the file and copy the exact text (with surrounding context)';
+    if (n > 1) return `ERROR: old_string appears ${n} times — add surrounding context so it is unique`;
+    const after = before.replace(oldS, String(args?.new_string ?? ''));
+    if (Buffer.byteLength(after) > MAX_WRITE_BYTES) throw new Error(`edit would make the file ${Buffer.byteLength(after)} bytes (max ${MAX_WRITE_BYTES})`);
+    writeFileSync(abs, after);
+    return `edited ${relative(cwd, abs)} (1 replacement)`;
+  }
+  if (name === 'search') {
+    const pattern = String(args?.pattern ?? '');
+    if (!pattern) throw new Error('empty pattern');
+    const root = safePath(cwd, args?.path || '.', { mustExist: true });
+    const hits = [];
+    const walk = (dir, depth) => {
+      if (depth > 8 || hits.length >= 100) return;
+      let ents; try { ents = readdirSync(dir, { withFileTypes: true }); } catch { return; }
+      for (const e of ents) {
+        if (e.name.startsWith('.') || e.name === 'node_modules') continue;
+        const p = join(dir, e.name);
+        if (e.isDirectory()) { walk(p, depth + 1); continue; }
+        if (!e.isFile()) continue;
+        let st; try { st = statSync(p); } catch { continue; }
+        if (st.size > 512 * 1024) continue; // skip big/binary blobs
+        let body; try { body = readFileSync(p, 'utf8'); } catch { continue; }
+        body.split('\n').forEach((line, i) => {
+          if (hits.length < 100 && line.includes(pattern)) hits.push(`${relative(cwd, p)}:${i + 1}: ${line.trim().slice(0, 160)}`);
+        });
+      }
+    };
+    walk(root, 0);
+    return hits.length ? hits.join('\n') : `no matches for "${pattern}"`;
+  }
 
   if (name === 'write_file') {
     const content = String(args?.content ?? '');
@@ -266,10 +363,13 @@ export function runTool(name, args, { cwd, profile, onPreview }) {
 
 const SYSTEM = `You are Atlan's on-device agent. You are running on the user's own phone.
 
-You have four tools and you SHOULD use them — do not describe a file, write it.
+You have tools and you SHOULD use them — do not describe an action, take it.
+- write_file / edit_file to create or change files (edit_file for a small change to a big file)
+- read_file / list_files / search to see what is there before you change it
+- run_command to actually DO things: build, test, run, git, install — and to CHECK your work
+- open_preview to show a web page you wrote
 When the user asks for a web page: write_file the complete HTML, then open_preview it.
-Paths are relative to the project root. Write whole files, never fragments.
-When you have finished the task, reply with one short sentence saying what you did.`;
+Paths are relative to the project root. When you have finished, reply with one short sentence saying what you did.`;
 
 /**
  * Run one request through the local model with tools.
