@@ -68,8 +68,12 @@ export function initKeys({ box, notify, onSaved }) {
     const row = document.createElement('div');
     row.className = 'keyrow';
     const help = KEY_HELP[k.env];
+    // A Test button appears only where the provider HAS a verifier and a key is
+    // set — a button that can only say "no key" or "no test" is noise.
+    const canTest = k.testable && k.set;
     row.innerHTML = `<span class="kname"></span><input type="password" placeholder="${k.set ? 'saved ' + escapeHtml(k.hint) + ' — paste to replace' : 'paste key'}" autocomplete="off">
-      <span class="kset">${k.set ? '● ' + (k.source === 'env' ? 'env' : 'set') : ''}</span><button class="btn">Save</button>`;
+      <span class="kset">${k.set ? '● ' + (k.source === 'env' ? 'env' : 'set') : ''}</span>${canTest ? '<button class="btn ghost ktest">Test</button>' : ''}<button class="btn">Save</button>
+      <span class="ktestres hint" hidden></span>`;
     row.querySelector('.kname').textContent = KEY_LABELS[k.env] ?? k.env;
     if (help) {
       const a = document.createElement('a');
@@ -78,7 +82,7 @@ export function initKeys({ box, notify, onSaved }) {
       row.append(a);
     }
     const input = row.querySelector('input');
-    row.querySelector('button').addEventListener('click', () => {
+    row.querySelector('button:not(.ktest)').addEventListener('click', () => {
       fetch('/api/keys', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -89,6 +93,22 @@ export function initKeys({ box, notify, onSaved }) {
         load(); onSaved(); // refresh availability everywhere
       }).catch((e) => { console.warn('[atlan]', e); });
     });
+    const testBtn = row.querySelector('.ktest');
+    if (testBtn) {
+      const res = row.querySelector('.ktestres');
+      testBtn.addEventListener('click', () => {
+        testBtn.disabled = true; testBtn.textContent = '…';
+        res.hidden = false; res.textContent = 'testing…'; res.className = 'ktestres hint';
+        fetch('/api/keys/test', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ env: k.env }),
+        }).then((r) => r.json()).then((j) => {
+          testBtn.disabled = false; testBtn.textContent = 'Test';
+          res.textContent = (j.ok === true ? '✓ ' : j.ok === false ? '✗ ' : '— ') + (j.detail ?? '');
+          res.className = 'ktestres hint ' + (j.ok === true ? 'ok' : j.ok === false ? 'bad' : '');
+        }).catch(() => { testBtn.disabled = false; testBtn.textContent = 'Test'; res.textContent = '✗ test failed'; res.className = 'ktestres hint bad'; });
+      });
+    }
     return row;
   }
 

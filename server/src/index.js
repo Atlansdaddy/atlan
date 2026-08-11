@@ -12,6 +12,7 @@ import { startPreviewProxy, setPreviewTarget, getPreviewTarget } from './preview
 import { engineRoster, brainChat } from './brains.js';
 import { runBuild, APK_DIR } from './build.js';
 import { keyStatus, setStoredKey } from './keys.js';
+import { testKey, testable } from './keytest.js';
 import { runPreflight } from './preflight.js';
 import { scanProject } from './preflight/scanProject.mjs';
 import { resolveInProjects } from './guards.js';
@@ -468,7 +469,11 @@ app.post('/api/voice/tts', async (req, res) => {
   try { res.json(await synthesize(req.body ?? {})); } catch (err) { res.status(400).json({ error: err.message }); }
 });
 
-app.get('/api/keys', (_req, res) => res.json(keyStatus()));
+app.get('/api/keys', (_req, res) => res.json(keyStatus().map((k) => ({ ...k, testable: testable(k.env) }))));
+// Prove a key works with a free, key-scoped call. env only — the key stays server-side.
+app.post('/api/keys/test', async (req, res) => {
+  res.json(await testKey(String(req.body?.env ?? '')));
+});
 app.post('/api/keys', (req, res) => {
   try {
     setStoredKey(String(req.body?.env), req.body?.value ?? '');

@@ -568,6 +568,11 @@ details .doctor-list{margin-bottom:8px}
 .keyrow input{flex:1;min-width:0;font-family:var(--mono);font-size:11px;background:var(--surface2);color:var(--ink);
   border:1px solid var(--line);border-radius:8px;padding:7px 9px}
 .keyrow .kset{font-family:var(--mono);font-size:9.5px;color:var(--ok);flex-shrink:0}
+/* Key-test verdict: its own line under the row, green valid / red rejected. */
+.keyrow .ktestres{flex-basis:100%;font-size:11px;margin-top:2px}
+.keyrow .ktestres.ok{color:var(--ok)}
+.keyrow .ktestres.bad{color:var(--err,#ff6723)}
+.keyrow .ktest{flex-shrink:0}
 .keyrow .btn{padding:6px 10px;font-size:11px;flex-shrink:0}
 /* 'how to get' is the only route to each provider's key page from Doctor —
    a core first-run flow — and it rendered as a 65x11px link 8px from the

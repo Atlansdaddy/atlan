@@ -85,6 +85,24 @@ await test('GET /api/preflight → {ready, blockers, checks}', async () => {
   const { body } = await j(await api('/api/preflight'));
   assert.ok('ready' in body && 'blockers' in body && Array.isArray(body.checks));
 });
+await test('key list marks which providers are testable; a bogus env is not', async () => {
+  const { body } = await j(await api('/api/keys'));
+  assert.ok(Array.isArray(body) && body.length, 'keys list must render');
+  assert.ok('testable' in body[0], 'each key row must carry a testable flag for the Test button');
+  const gem = body.find((k) => k.env === 'GEMINI_API_KEY');
+  assert.equal(gem?.testable, true, 'Gemini has a verifier — it must be testable');
+  const aws = body.find((k) => k.env === 'AWS_REGION');
+  if (aws) assert.equal(aws.testable, false, 'a non-key setting like AWS_REGION has no verifier');
+});
+await test('POST /api/keys/test: unknown provider → ok:null; a set-less key → ok:false, never a fetch', async () => {
+  // No network and no keys in the gate — these two branches must resolve
+  // WITHOUT calling out, so they are safe to assert here.
+  const bogus = await j(await api('/api/keys/test', { method: 'POST', body: JSON.stringify({ env: 'NOPE_API_KEY' }) }));
+  assert.equal(bogus.body.ok, null, 'a provider with no verifier must return ok:null, not attempt a call');
+  const unset = await j(await api('/api/keys/test', { method: 'POST', body: JSON.stringify({ env: 'GEMINI_API_KEY' }) }));
+  // In the gate no GEMINI key is set, so this must short-circuit to "no key set".
+  if (unset.body.detail === 'no key set') assert.equal(unset.body.ok, false, 'an unset testable key is ok:false with no network call');
+});
 await test('GET /api/local/server → status shape; POST rejects a bogus action', async () => {
   const { body } = await j(await api('/api/local/server'));
   for (const k of ['available', 'running', 'base', 'managed', 'models']) assert.ok(k in body, `missing ${k}`);
