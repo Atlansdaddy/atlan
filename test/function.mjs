@@ -85,6 +85,15 @@ await test('GET /api/preflight → {ready, blockers, checks}', async () => {
   const { body } = await j(await api('/api/preflight'));
   assert.ok('ready' in body && 'blockers' in body && Array.isArray(body.checks));
 });
+await test('GET /api/local/server → status shape; POST rejects a bogus action', async () => {
+  const { body } = await j(await api('/api/local/server'));
+  for (const k of ['available', 'running', 'base', 'managed']) assert.ok(k in body, `missing ${k}`);
+  assert.equal(typeof body.running, 'boolean', 'running must be a boolean');
+  // start/stop are NOT exercised (they spawn/kill a real process); prove the
+  // action is validated so the client cannot post arbitrary strings.
+  const bad = await api('/api/local/server', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'delete-everything' }) });
+  assert.equal(bad.status, 400, 'an unknown action must 400');
+});
 await test('GET /api/fleet → {runs, history, today, profiles, pushSubs}', async () => {
   const { body } = await j(await api('/api/fleet'));
   for (const k of ['runs', 'history', 'today', 'profiles', 'pushSubs']) assert.ok(k in body, `missing ${k}`);

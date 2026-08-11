@@ -17,6 +17,7 @@ import { scanProject } from './preflight/scanProject.mjs';
 import { resolveInProjects } from './guards.js';
 import { agentStatus, agentTurn, killAgentTurns } from './agents.js';
 import { localModels, activateLocalModel } from './localmodels.js';
+import { status as localServerStatus, start as startLocalServer, stop as stopLocalServer } from './localServer.js';
 import { localAgentRun } from './localAgent.js';
 import { randomUUID } from 'node:crypto';
 import { handleInlineAiEdit } from './editorAi.js';
@@ -143,6 +144,19 @@ app.get('/api/engines', async (_req, res) => {
 app.get('/api/local/models', (_req, res) => res.json(localModels()));
 app.post('/api/local/models', async (req, res) => {
   try { res.json(await activateLocalModel(String(req.body?.name ?? ''))); } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// One-button llama-server, for hosts that run it by hand (the phone). start/stop
+// only — the binary, model and args are detected/config, never client input, so
+// the request cannot steer what gets spawned.
+app.get('/api/local/server', async (_req, res) => res.json(await localServerStatus()));
+app.post('/api/local/server', async (req, res) => {
+  const action = String(req.body?.action ?? '');
+  try {
+    if (action === 'start') return res.json(await startLocalServer());
+    if (action === 'stop') return res.json(await stopLocalServer());
+    return res.status(400).json({ error: 'action must be start or stop' });
+  } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
 app.use('/apk', express.static(APK_DIR));

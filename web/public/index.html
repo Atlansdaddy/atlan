@@ -465,6 +465,13 @@
         <select id="voiceProviderSel" aria-label="voice provider"></select>
       </div>
       <div class="hint" id="voiceProviderNote">The browser voice always works, free. Add a key above to unlock a nicer one.</div>
+      <div class="eyebrow" style="margin-top:6px" id="lsHead" hidden>Local brain — the on-device model server</div>
+      <div class="projbar" id="lsBar" hidden>
+        <span id="lsDot" class="lsdot" aria-hidden="true"></span>
+        <span id="lsState" class="hint" style="flex:1;min-width:0">checking…</span>
+        <button class="btn hot" id="lsToggle">Start</button>
+      </div>
+      <div class="hint" id="lsNote" hidden></div>
       <div class="eyebrow" style="margin-top:6px" id="lmHead" hidden>Local brain — which model llama-server serves</div>
       <div class="projbar" id="lmBar" hidden>
         <select id="lmSel" aria-label="local model"></select>

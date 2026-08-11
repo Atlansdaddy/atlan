@@ -447,6 +447,10 @@ body.night .bubbles{opacity:.5}
    sheet already gives every other text input. */
 .authoverlay .authcard input{width:100%;min-height:var(--tap);padding:0 10px}
 
+/* llama-server toggle status dot: red = down, green = up. */
+.lsdot{width:10px;height:10px;border-radius:50%;background:var(--err,#ff6723);flex-shrink:0;box-shadow:0 0 0 3px color-mix(in srgb,var(--err,#ff6723) 22%,transparent)}
+.lsdot.on{background:var(--ok);box-shadow:0 0 0 3px color-mix(in srgb,var(--ok) 22%,transparent)}
+
 /* fleet sub-nav + builder */
 .subnav{display:flex;gap:6px;margin-bottom:2px}
 .subnav button{flex:1;background:transparent;border:1px solid var(--line);color:var(--dim);border-radius:9px;
