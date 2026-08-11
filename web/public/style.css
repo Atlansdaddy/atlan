@@ -533,7 +533,11 @@ details .doctor-list{margin-bottom:8px}
    the group is the card, so rows stop being twenty little cards of their own. */
 .keygroup .keyrow{border:0;border-top:1px solid var(--line);border-radius:0;background:transparent;padding:7px 12px}
 
-/* Doctor evidence clamps at two lines; the text itself is the expand control. */
+/* Doctor evidence clamps at two lines; the text itself is the expand control.
+   pre-line lets a server detail render as the list it is (one ladder rung per
+   line) instead of a joined wall — textContent stays the only writer, so a
+   newline is the whole vocabulary. */
+.check .how{white-space:pre-line}
 .check .how.clamp{display:-webkit-box;-webkit-line-clamp:2;line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;cursor:pointer}
 .check .how.clamp.open{-webkit-line-clamp:unset;line-clamp:unset;display:block}
 

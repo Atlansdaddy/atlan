@@ -96,8 +96,8 @@ export function initKeys({ box, notify, onSaved }) {
     fetch('/api/keys').then((r) => r.json()).then((list) => {
       box.innerHTML = '';
       const buckets = [
-        { id: 'llm', name: 'LLM engines', blurb: 'Metered chat models. Everything works without any — they unlock more models.', rows: list.filter((k) => !VOICE_ENVS.has(k.env)) },
-        { id: 'voice', name: 'Voice', blurb: 'Speech in and out. The free browser voice always works; these unlock nicer ones.', rows: list.filter((k) => VOICE_ENVS.has(k.env)) },
+        { id: 'llm', name: 'LLM API keys', blurb: 'Metered chat models. Everything works without any — they unlock more models.', rows: list.filter((k) => !VOICE_ENVS.has(k.env)) },
+        { id: 'voice', name: 'Voice API keys', blurb: 'Speech in and out. The free browser voice always works; these unlock nicer ones.', rows: list.filter((k) => VOICE_ENVS.has(k.env)) },
       ];
       for (const b of buckets) {
         if (!b.rows.length) continue;

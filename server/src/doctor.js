@@ -265,24 +265,31 @@ export async function runDoctor() {
       const v = probe();
       const declared = declaredTier();
       const failed = v.rungs.filter((r) => !r.ok);
-      const ladder = ladderLines(v).join(' · ');
       const noFs = v.rungs.some((r) => r.id === 'landlock-canary' && !r.ok);
       // A supervisor is not a weaker kernel, it is a kernel we are no longer
       // talking to directly, and the rungs it costs are known by name. Saying so
       // is the difference between "your device is worse" and "here is what is
       // between us and the kernel, and here is exactly what that removes".
       const supervised = v.rungs.some((r) => r.id === 'ptrace-arbitration' && !r.ok);
-      const detail = `established ${v.tier} (${LABEL[v.tier]}) · runs declare ${declared}`
-        + (v.arch ? ` · ${v.arch}` : '')
-        + (v.landlockAbi > 0 ? ` · landlock abi ${v.landlockAbi}` : '')
-        + ` — ${ladder}`
-        + (supervised ? ` — ${SUPERVISOR_ON_THIS_DEVICE.replace(/\*\*/g, '')}` : '')
-        + (noFs ? ` — ${NO_FS_ON_THIS_DEVICE.replace(/\*\*/g, '')}` : '');
+      // ONE RUNG PER LINE. This was every rung joined with ' · ' plus both
+      // caveat paragraphs, one 1200-char sentence — accurate and unreadable,
+      // which for a safety report is a failure mode of its own. Each ladder
+      // line already numbers itself ("rung N"), so the order reads as the
+      // ordered list it is; the client renders the newlines and clamps long
+      // evidence behind a tap.
+      const lines = [
+        `established ${v.tier} (${LABEL[v.tier]}) · runs declare ${declared}`
+          + (v.arch ? ` · ${v.arch}` : '')
+          + (v.landlockAbi > 0 ? ` · landlock abi ${v.landlockAbi}` : ''),
+        ...ladderLines(v),
+      ];
+      if (supervised) lines.push(`• ${SUPERVISOR_ON_THIS_DEVICE.replace(/\*\*/g, '')}`);
+      if (noFs) lines.push(`• ${NO_FS_ON_THIS_DEVICE.replace(/\*\*/g, '')}`);
       // ok tracks whether the run CAN START — which is CONTAINMENT, not
       // magnitude. The hardcoded ['T0','T1','T2','T3'] this replaced would have
       // scored TS at indexOf -1, i.e. below T0, and reported the primary
       // platform as red for declaring the tier it actually holds.
-      return { ok: dominates(v.tier, declared), warn: failed.length > 0, detail: detail.slice(0, 1200) };
+      return { ok: dominates(v.tier, declared), warn: failed.length > 0, detail: lines.join('\n').slice(0, 2000) };
     }),
     check('piper', 'Piper voice (local TTS)', async () => {
       // Optional "sounds good" local voice. Browser voice always works without
