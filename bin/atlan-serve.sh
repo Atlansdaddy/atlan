@@ -58,13 +58,32 @@ start() {
   if status >/dev/null 2>&1; then echo "already $(status)"; return 0; fi
   preflight
   # Detach the supervisor so it outlives this shell and a dropped session.
-  setsid nohup "$0" __supervise >/dev/null 2>&1 &
+  #
+  # Launch it through `bash "$0"`, NEVER `"$0"` directly. Re-execing the file
+  # relies on three things that are all absent on some fresh installs, and when
+  # any is missing the supervisor silently never runs and `start` reports
+  # "started — down" forever (a real field failure, Richard's phone):
+  #   • the execute bit (a checkout over SMB/zip/Windows drops it),
+  #   • the `#!/bin/bash` shebang resolving (native Termux has no /bin/bash
+  #     unless termux-exec is installed),
+  #   • `setsid` existing (util-linux is not always present).
+  # `bash "$0"` uses the interpreter already running this function — found on
+  # PATH — so none of the three matter. setsid is used only if present.
+  BASH_BIN="${BASH:-bash}"
+  if command -v setsid >/dev/null 2>&1; then
+    setsid nohup "$BASH_BIN" "$0" __supervise >/dev/null 2>&1 &
+  else
+    nohup "$BASH_BIN" "$0" __supervise >/dev/null 2>&1 &
+  fi
   disown 2>/dev/null || true
   for i in $(seq 1 20); do
     curl -s -m1 -o /dev/null "http://127.0.0.1:${ATLAN_PORT:-4589}/" 2>/dev/null && break
     sleep 0.5
   done
-  echo "started — $(status); http://127.0.0.1:${ATLAN_PORT:-4589}/"
+  local s; s="$(status)"
+  echo "started — $s; http://127.0.0.1:${ATLAN_PORT:-4589}/"
+  # A failed start is not silent anymore: point at the log that has the reason.
+  [ "$s" = "down" ] && echo "  ↳ still down — the server exited on boot; see: bin/atlan-serve.sh log"
 }
 
 # The detached loop. Named entrypoint so `start` can re-exec this same script.
