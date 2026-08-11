@@ -127,8 +127,15 @@ header{display:flex;align-items:center;gap:10px;padding:12px 14px 10px;border-bo
 .sessline:active{color:var(--accent)}
 .perm{align-self:stretch;background:var(--surface);border:1px solid var(--hot);border-radius:12px;padding:11px 13px}
 .perm .plabel{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--hot2);font-weight:700;margin-bottom:6px}
-.perm code{font-family:var(--mono);font-size:11px;display:block;margin-bottom:10px;color:var(--ink);word-break:break-all;background:none;padding:0}
+/* The tool input gets a bounded box of its own: long Bash commands and Write
+   payloads used to pour straight into the card as a wall, and the Allow/Deny
+   row landed wherever the wall ended. Scroll inside the box; the buttons stay
+   put where a thumb expects them. */
+.perm code{font-family:var(--mono);font-size:11px;display:block;margin-bottom:10px;color:var(--ink);word-break:break-all;
+  background:var(--surface2);border:1px solid var(--line);border-radius:8px;padding:8px 10px;
+  max-height:132px;overflow-y:auto}
 .perm .row{display:flex;gap:8px}
+.perm .row .btn{flex:1;min-height:46px;font-size:13px}
 .perm.answered{opacity:.45;border-color:var(--line)}
 
 .btn{font:inherit;font-size:12.5px;font-weight:600;border-radius:9px;padding:8px 14px;

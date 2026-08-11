@@ -27,6 +27,7 @@ import { initDoctorReport } from './lib/doctorreport.js';
 import { renderDoctor } from './lib/doctorview.js';
 import { initEngineLogin, initSignIn } from './lib/enginelogin.js';
 import { initKeys } from './lib/keys.js';
+import { initGates, gateDefault } from './lib/gates.js';
 import { createTerm, termHintHtml } from './lib/term.js';
 import { msgClass, whoLabel, sessionLine, autoPermLine } from './lib/msgstyle.js';
 import { normalizeProfile, initAutoApprove } from './lib/autoapprove.js';
@@ -111,7 +112,7 @@ import { convId, newConversation, restoreChat, openHistory } from './lib/chathis
     if (b.dataset.s === 's-editor') initEditor();
     if (b.dataset.s === 's-fleet') loadFleet();
     if (b.dataset.s === 's-scan') loadScan();
-    if (b.dataset.s === 's-doctor') { loadDoctor(); loadSignIn(); loadKeys(); loadPreflight(); loadLocalModels(); }
+    if (b.dataset.s === 's-doctor') { loadDoctor(); loadSignIn(); loadGates(); loadKeys(); loadPreflight(); loadLocalModels(); }
   }));
 
   // Show a screen that has no nav button of its own (Git). The nav keeps the
@@ -873,6 +874,10 @@ import { convId, newConversation, restoreChat, openHistory } from './lib/chathis
           o.value = p.id; o.textContent = p.label;
           $('fleetProfile').append(o);
         }
+        // The provider's configured default (Doctor → Permission gates) seeds
+        // the form once; the operator can still pick anything per spawn.
+        const g = gateDefault(serverPrefs, 'claude');
+        if (g) $('fleetProfile').value = g;
       }
       fleetRuns.clear();
       // Live runs + durable history = the inbox; history survives restarts.
@@ -1216,6 +1221,17 @@ import { convId, newConversation, restoreChat, openHistory } from './lib/chathis
     }).catch((e) => { $('lmApply').disabled = false; $('lmNote').textContent = String(e); });
   });
 
+  // ── permission gates — one default per provider, lives in lib/gates.js ──
+  // serverPrefs mirrors /api/prefs so the consumers (chat arm control, spawn
+  // forms) can derive defaults synchronously; every gates load/save refreshes it.
+  let serverPrefs = {};
+  const loadGates = initGates({
+    box: $('gatesList'),
+    notify: (m) => addMsg('err', m),
+    onChange: (prefs) => { serverPrefs = prefs; autoApprove?.refresh(); },
+  });
+  loadGates(); // at boot too, not just on the Doctor tab — chat needs the default
+
   // ── engine keys — grouped LLM/Voice, lives in lib/keys.js (ceiling ratchet) ──
   const loadKeys = initKeys({
     box: $('keysList'),
@@ -1457,7 +1473,7 @@ import { convId, newConversation, restoreChat, openHistory } from './lib/chathis
     $('routAt').value = r?.cadence?.at ?? '07:00';
     $('routPrompt').value = r?.prompt ?? '';
     $('routPersona').value = r?.personaId ?? '';
-    $('routProfile').value = r?.profile ?? 'scout';
+    $('routProfile').value = r?.profile ?? gateDefault(serverPrefs, 'claude') ?? 'scout';
     $('routModel').value = r?.model ?? 'claude-haiku-4-5-20251001';
     $('routBudget').value = String(r?.budget ?? 50000);
     $('routKind').dispatchEvent(new Event('change'));
@@ -1902,7 +1918,12 @@ import { convId, newConversation, restoreChat, openHistory } from './lib/chathis
   $('newChatBtn').addEventListener('click', () => { newConversation(); replay(); autoApprove?.refresh(); });
   initPreviewMax({ section: $('s-preview'), button: $('previewMax') }); initComposerHint({ select: $('modelSel'), input: $('chatInput') });
   // Remembered PER CONVERSATION, so arming one chat to build never arms the next.
-  autoApprove = initAutoApprove({ select: $('autoSel'), conv: convId });
+  autoApprove = initAutoApprove({
+    select: $('autoSel'), conv: convId,
+    // The Doctor's per-provider default, for conversations that never chose.
+    // An explicit per-conversation OFF still wins — see autoapprove.js.
+    fallback: () => gateDefault(serverPrefs, 'claude'),
+  });
   // Give the conversation its screen back: header tucks while reading, set-once
   // controls fold. The nav bar stays — it is the only route between eight panels.
   initFocusMode({ button: $('focusBtn'), header: document.querySelector('header'), rows: [$('chatProjBar'), $('ctrlToggle')] });

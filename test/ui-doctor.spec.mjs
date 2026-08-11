@@ -164,6 +164,49 @@ await test('engine keys: grouped LLM vs voice, badge on the tin, collapse rememb
   await page.evaluate(() => { document.querySelector('#keysList details.keygroup').open = true; });
 });
 
+await test('permission gates: one row per provider, saved server-side, ask is claude-only', async () => {
+  await tab('s-doctor');
+  await page.waitForSelector('#gatesList .gaterow', { timeout: 10000 });
+  const s = await page.evaluate(() => {
+    const rows = [...document.querySelectorAll('#gatesList .gaterow')];
+    return {
+      providers: rows.map((r) => r.querySelector('.kname').textContent),
+      askRows: rows.filter((r) => [...r.querySelector('select').options].some((o) => o.value === 'ask'))
+        .map((r) => r.querySelector('.kname').textContent),
+    };
+  });
+  assert.deepEqual(s.providers, ['claude', 'codex', 'grok', 'copilot', 'antigravity'], 'provider roster: ' + s.providers.join(','));
+  assert.deepEqual(s.askRows, ['claude'], '"ask every time" only exists where a per-tool card exists to back it');
+  // Save a default through the real API, reload, and see it come back.
+  const before = await page.evaluate(() => fetch('/api/prefs').then((r) => r.json()).then((p) => p['gate.codex'] ?? ''));
+  await page.evaluate(() => {
+    const row = [...document.querySelectorAll('#gatesList .gaterow')].find((r) => r.querySelector('.kname').textContent === 'codex');
+    const sel = row.querySelector('select');
+    sel.value = 'verifier';
+    sel.dispatchEvent(new Event('change'));
+  });
+  await page.waitForTimeout(500);
+  await page.reload({ waitUntil: 'networkidle' });
+  await tab('s-doctor');
+  await page.waitForSelector('#gatesList .gaterow', { timeout: 10000 });
+  const kept = await page.evaluate(() => {
+    const row = [...document.querySelectorAll('#gatesList .gaterow')].find((r) => r.querySelector('.kname').textContent === 'codex');
+    return row.querySelector('select').value;
+  });
+  assert.equal(kept, 'verifier', 'a gate default must survive a reload — it lives server-side, not in this tab');
+  // A garbage value must be refused by the server, not stored.
+  const bad = await page.evaluate(() => fetch('/api/prefs', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ key: 'gate.codex', value: 'yolo-unrestricted' }),
+  }).then((r) => r.status));
+  assert.equal(bad, 400, 'an off-roster gate value must 400, never persist');
+  // Leave the store the way this test found it.
+  await page.evaluate((v) => fetch('/api/prefs', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ key: 'gate.codex', value: v }),
+  }), before);
+});
+
 await test('doctor evidence: clamps to two lines, expands on tap, keyboard-reachable', async () => {
   await tab('s-doctor');
   await page.waitForSelector('#doctorList .check', { timeout: 10000 });

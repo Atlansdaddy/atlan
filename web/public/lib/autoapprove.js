@@ -50,8 +50,16 @@ export function armedLabel(profile) {
  * was already here. `conv` is a FUNCTION, not a value: the conversation id
  * changes when + New is tapped, and capturing it once would carry one chat's
  * armed state into the next.
+ *
+ * `fallback` is the per-provider default from the Doctor's gate panel. It
+ * applies ONLY to a conversation with no stored choice: localStorage null
+ * means "never chose", '' means "explicitly off", and an explicit off must
+ * keep beating any default — a gate the user shut that reopens itself on the
+ * next visit is exactly the self-arming gate the comment above the markup
+ * forbids. The default itself is still a choice someone made out loud, in the
+ * gates panel, so honoring it on unchosen conversations keeps the principle.
  */
-export function initAutoApprove({ select, conv }) {
+export function initAutoApprove({ select, conv, fallback }) {
   if (!select) return;
   const wrap = select.parentElement;
   const paint = () => {
@@ -62,8 +70,14 @@ export function initAutoApprove({ select, conv }) {
   const read = () => {
     try { return localStorage.getItem(autoKey(conv())); } catch { return null; }
   };
-  select.value = normalizeProfile(read()) ?? '';
-  paint();
+  const restore = () => {
+    const stored = read();
+    select.value = stored === null
+      ? (normalizeProfile(fallback?.()) ?? '')
+      : (normalizeProfile(stored) ?? '');
+    paint();
+  };
+  restore();
   select.addEventListener('change', () => {
     const p = normalizeProfile(select.value);
     select.value = p ?? '';
@@ -72,5 +86,5 @@ export function initAutoApprove({ select, conv }) {
     try { localStorage.setItem(autoKey(conv()), p ?? ''); } catch { /* session-only */ }
     paint();
   });
-  return { refresh: () => { select.value = normalizeProfile(read()) ?? ''; paint(); } };
+  return { refresh: restore };
 }

@@ -439,6 +439,9 @@
       <div class="eyebrow" style="margin-top:6px">Sign in — one button per engine</div>
       <div class="hint">Subscription engines sign in here rather than with a key. Each button opens a terminal and starts that engine's own login; you finish it in the browser, and Atlan never sees the credential.</div>
       <div id="signinList" class="doctor-list"></div>
+      <div class="eyebrow" style="margin-top:6px">Permission gates — one default per provider</div>
+      <div class="hint">What each provider's agents may do without asking. Claude's chat can ask per tool; every other run holds its profile as the only gate. A conversation or spawn form can still override its own run.</div>
+      <div id="gatesList" class="doctor-list"></div>
       <div class="eyebrow" style="margin-top:6px">LLM API keys — encrypted at rest, never shown back</div>
       <div class="hint">For the metered API engines instead. Each row links out to where you get the key. Everything works without any of these — they just unlock more models &amp; voices.</div>
       <div id="keysList" class="doctor-list"></div>
