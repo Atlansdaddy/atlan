@@ -92,6 +92,16 @@ function getKey(keyEnv) {
   return process.env[keyEnv] || getStoredKey(keyEnv);
 }
 
+// The OpenAI-compatible connection for a provider, so the tool-agent loop can
+// drive ANY of them, not just the local server. base already ends in the right
+// path; apiKey is null for the keyless local server. This is what makes a
+// "chat" brain a coding assistant with hands — same adapter, plus tools.
+export function providerConn(id) {
+  const p = PROVIDERS[id];
+  if (!p) return null;
+  return { base: p.base, apiKey: getKey(p.keyEnv), model: p.defaultModel, label: p.label, keyEnv: p.keyEnv };
+}
+
 // Single source of truth for the natively-multimodal describe model.
 // attachments.js imports this instead of hardcoding its own copy — the copy it
 // used to keep (gemini-2.5-flash) was retired and missed by the stale-model

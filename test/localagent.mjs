@@ -57,6 +57,42 @@ console.log('LOCAL AGENT');
 // server. The fallback parser has to turn THIS into a real write.
 const QWEN_MARKDOWN = '```json\n{\n  "name": "write_file",\n  "arguments": {\n    "path": "www/index.html",\n    "content": "<html><head><title>Test App</title></head><body><h1>Welcome</h1></body></html>"\n  }\n}\n```';
 
+await test('an API provider is driven with a Bearer header + prior history (chat model = coding agent)', async () => {
+  // The whole point of unifying local + API behind one loop: a "chat" model
+  // gets hands. Prove the request carries the key and the conversation.
+  let seen = null;
+  const capturing = async (url, opts) => {
+    seen = { url, headers: opts.headers, body: JSON.parse(opts.body) };
+    return { ok: true, json: async () => ({ choices: [{ message: { role: 'assistant', content: 'noted.' } }] }), text: async () => '' };
+  };
+  const r = await localAgentRun({
+    prompt: 'what did I just say?',
+    cwd: proj,
+    base: 'https://api.example.com/v1',
+    apiKey: 'sk-test-123',
+    model: 'gpt-whatever',
+    history: [{ role: 'user', content: 'remember the number 7' }, { role: 'assistant', content: 'got it, 7' }],
+    fetchImpl: capturing,
+  });
+  assert.equal(seen.url, 'https://api.example.com/v1/chat/completions', 'must hit the provider base, not the local one');
+  assert.equal(seen.headers.authorization, 'Bearer sk-test-123', 'the API key must ride as a Bearer header');
+  assert.equal(seen.body.model, 'gpt-whatever');
+  // system + 2 history turns + the new user message
+  assert.equal(seen.body.messages.length, 4, 'prior turns must be threaded in as context');
+  assert.equal(seen.body.messages[1].content, 'remember the number 7', 'history is preserved in order');
+  assert.match(r.text, /noted/);
+});
+
+await test('the keyless local path sends NO auth header', async () => {
+  let seen = null;
+  const capturing = async (url, opts) => {
+    seen = opts.headers;
+    return { ok: true, json: async () => ({ choices: [{ message: { role: 'assistant', content: 'ok' } }] }), text: async () => '' };
+  };
+  await localAgentRun({ prompt: 'hi', cwd: proj, fetchImpl: capturing });
+  assert.ok(!('authorization' in seen), 'the local server is keyless — never send a Bearer');
+});
+
 await test('toolCallFromContent: extracts a known-tool call from a markdown JSON block', () => {
   const fc = toolCallFromContent(QWEN_MARKDOWN);
   assert.ok(fc, 'a fenced {name,arguments} for a known tool must be recovered');

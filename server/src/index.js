@@ -9,7 +9,7 @@ import { ClaudeSession } from './claudeEngine.js';
 import { openPty, writePty, resizePty } from './pty.js';
 import { runDoctor } from './doctor.js';
 import { startPreviewProxy, setPreviewTarget, getPreviewTarget } from './preview.js';
-import { engineRoster, brainChat } from './brains.js';
+import { engineRoster, brainChat, providerConn } from './brains.js';
 import { runBuild, APK_DIR } from './build.js';
 import { keyStatus, setStoredKey } from './keys.js';
 import { testKey, testable } from './keytest.js';
@@ -816,54 +816,49 @@ wss.on('connection', (ws, req) => {
             claude?.dispose?.().catch(() => {});
             claude = null;
           }
-        } else if (engineId === 'local') {
-          // THE ON-DEVICE MODEL, WITH HANDS — bounded, not autonomous.
-          //
-          // It used to land in brainChat, which is chat-only by construction, so
-          // "make a hello world in the preview tab" got a description of one. Now
-          // it runs the four-tool loop, and the SAME gate the Claude path uses
-          // decides each call: with no auto-approve profile armed, every tool
-          // raises a permission card and waits; with one armed, that profile
-          // decides and each decision still leaves a visible line. Bounded either
-          // way, and never silent.
+        } else {
+          // EVERY OpenAI-compatible model — the local server AND every API brain
+          // (Gemini, OpenAI, DeepSeek, …) — runs the SAME four-tool loop. They
+          // all speak one /chat/completions shape, so a "chat" model is a coding
+          // assistant with hands and the same permission gate, not a chat-only
+          // brain. Claude Code (above) and the fleet CLIs are the heavier agents;
+          // this makes the API models nearly as capable without needing one.
+          const conn = providerConn(engineId);
+          if (!conn) { send({ t: 'chat.err', msg: `unknown engine: ${engineId}` }); break; }
+          // No key is not an error — it is an optional engine that is not set up.
+          // Say so plainly and let the user pick another; never a hard failure.
+          if (conn.keyEnv && !conn.apiKey) {
+            send({ t: 'chat.msg', role: 'err', text: `${conn.label} has no API key yet — add one in Doctor → LLM API keys, or just pick another engine.` });
+            send({ t: 'chat.result', subtype: 'error' });
+            break;
+          }
           const prof = VALID_CHAT_PROFILES.has(m.profile) ? m.profile : null;
           const cwd = m.cwd || PROJECTS_DIR;
+          const hist = brainHistory.get(engineId) ?? []; // user/assistant turns only
           send({ t: 'chat.turnstart' });
           localAgentRun({
-            prompt: text, cwd, profile: prof ?? 'builder', onEvent: send,
+            prompt: text, cwd, profile: prof ?? 'builder',
+            base: conn.base, apiKey: conn.apiKey, model: m.model || conn.model, history: hist,
+            onEvent: send,
             onPreview: (abs) => { setPreviewTarget(`file://${abs}`); send({ t: 'preview.file', path: abs }); },
-            // No profile armed => ask, every time. Armed => the profile already
-            // decides inside runTool, so asking again would be theatre.
             approve: prof ? undefined : async ({ name, args }) => {
               const id = randomUUID();
               send({ t: 'perm.req', id, tool: name, input: JSON.stringify(args).slice(0, 300) });
               return new Promise((res) => localPerms.set(id, res));
             },
           }).then((r) => {
-            send({ t: 'chat.msg', role: 'assistant', text: r.text, engine: 'local' });
-            send({ t: 'chat.result', subtype: 'success', brain: 'llama-server (local)', tokens: null });
+            send({ t: 'chat.msg', role: 'assistant', text: r.text, engine: engineId });
+            send({ t: 'chat.result', subtype: 'success', brain: conn.label, tokens: null });
+            hist.push({ role: 'user', content: text }, { role: 'assistant', content: r.text });
+            while (hist.length > 20) hist.splice(0, 2); // last 10 exchanges
+            brainHistory.set(engineId, hist);
           }).catch((err) => {
-            // The one failure everyone hits first gets its own sentence rather
-            // than an HTTP status: tools need --jinja, and the cockpit cannot fix
-            // that from here.
             const why = /--jinja/.test(err.message)
-              ? 'The local model server is running without --jinja, so it cannot use tools. Restart llama-server with --jinja to let it write files.'
+              ? 'The local model server cannot use tools — restart it from Doctor → Local brain.'
               : err.message;
             send({ t: 'chat.msg', role: 'err', text: why });
-            send({ t: 'chat.result', subtype: 'error', brain: 'llama-server (local)', tokens: null });
+            send({ t: 'chat.result', subtype: 'error', brain: conn.label, tokens: null });
           });
-        } else {
-          // Brains keep their own short history per connection+provider so a
-          // conversation holds together; snapshots stay queued for Claude.
-          const h = brainHistory.get(m.engine) ?? [
-            { role: 'system', content: 'You are a helpful engineering brain inside Atlan, a phone cockpit. Be concise. You have no tools or file access — say so if asked to act.' },
-          ];
-          h.push({ role: 'user', content: text });
-          brainChat({ provider: m.engine, model: m.model, history: h, send }).then((reply) => {
-            if (reply) h.push({ role: 'assistant', content: reply });
-            while (h.length > 21) h.splice(1, 2); // keep system + last 10 exchanges
-            brainHistory.set(m.engine, h);
-          }).catch((err) => { console.error('[brain]', m.engine, err); });
         }
         break;
       }

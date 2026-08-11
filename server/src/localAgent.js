@@ -278,8 +278,8 @@ When you have finished the task, reply with one short sentence saying what you d
  * multi-step tool use and the runaway guards — without a model or a network.
  */
 export async function localAgentRun({
-  prompt, cwd, profile = 'builder', model = 'local',
-  base = `${LOCAL_LLM_BASE}/v1`, fetchImpl = fetch, onEvent = () => {}, onPreview,
+  prompt, cwd, profile = 'builder', model = 'local', history = [],
+  base = `${LOCAL_LLM_BASE}/v1`, apiKey = null, fetchImpl = fetch, onEvent = () => {}, onPreview,
   maxSteps = MAX_STEPS, signal, stepTimeoutMs = 180_000,
   // Asked BEFORE each tool runs. Returning false refuses it the same way the
   // profile does — as a tool result the model can recover from, not a thrown
@@ -292,14 +292,19 @@ export async function localAgentRun({
   if (!prompt?.trim()) throw new Error('empty prompt');
   if (!cwd) throw new Error('cwd is required — it IS the write boundary');
 
-  const messages = [{ role: 'system', content: SYSTEM }, { role: 'user', content: String(prompt) }];
+  // Prior turns (user/assistant only — the system prompt is ours) give the
+  // agent conversational memory, so an API model is a coding assistant WITH
+  // context, not amnesiac between turns.
+  const messages = [{ role: 'system', content: SYSTEM }, ...history, { role: 'user', content: String(prompt) }];
   const used = [];
   let calls = 0;
 
   for (let step = 0; step < maxSteps; step++) {
     const res = await fetchImpl(`${base}/chat/completions`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      // Bearer when driving an API provider (Gemini/OpenAI/…); absent for the
+      // keyless local server. Same one OpenAI-compatible shape either way.
+      headers: { 'content-type': 'application/json', ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}) },
       body: JSON.stringify({ model, messages, tools: TOOLS, tool_choice: 'auto', max_tokens: 900 }),
       // A stalled model server used to hang the request forever: `signal` was
       // optional and there was no internal deadline, so nothing ever gave up. On
