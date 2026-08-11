@@ -33,7 +33,7 @@ _Free suites only. The E2E suite (real Claude runs) is opt-in — `RUN_PAID=1 no
 | Code Editor | File read/write/tree scoped to the project, folders-first listing, noise-dir hiding, secrets + traversal + folder-as-file guards. | ✅ 16/16 |
 | Voice & Providers | TTS roster honesty (readiness tracks keys, roadmap items never claim ready), TTS input validation + clean degradation, SSML XML-escaping (no injection), Polly SigV4 signer, and the 12-provider AI-model spread. | ✅ 15/15 |
 | Escalation ladder | The chat escalation ladder: cheapest-rung-first with DETERMINISTIC escalation triggers (error, empty, truncated, stated incapacity) and no model grading itself. Includes the honest-limit test — a confidently wrong answer must NOT escalate, asserted so nobody later replaces the trigger with a self-critique wall — plus the rule that the hands-having agentic rung is never reachable silently from chat. | ✅ 30/30 |
-| Doc drift | Two ratchets in one file. (1) The docs' factual claims asserted against the CODE: tab count and names from index.html, engine roster from agents.js and fleet.js, template list from the UI, plus the status-convention requirements — a full sweep on 2026-08-02 found drift in BOTH directions across three docs, so the commit that changes a count now fails instead of the next reader. (2) The STRUCTURAL ratchet: web/public/app.js must not grow — new surfaces go to lib/ modules, and the ceiling only ever moves down. Both exist because prose and debt cannot be made to stop rotting by asking people to be careful. | ✅ 15/15 |
+| Doc drift | Two ratchets in one file. (1) The docs' factual claims asserted against the CODE: tab count and names from index.html, engine roster from agents.js and fleet.js, template list from the UI, plus the status-convention requirements — a full sweep on 2026-08-02 found drift in BOTH directions across three docs, so the commit that changes a count now fails instead of the next reader. (2) The STRUCTURAL ratchet: web/public/app.js must not grow — new surfaces go to lib/ modules, and the ceiling only ever moves down. Both exist because prose and debt cannot be made to stop rotting by asking people to be careful. | ✅ 16/16 |
 | Fleet engines | The fleet is configurable across engines, and the run record cannot lie about it: per-engine capability roster (which profiles each can actually enforce HERE, mid-run vs pre-flight budget, resumable or not), refusal BEFORE a run exists when an engine cannot honestly enforce a profile, ungated runs reachable only by explicit acknowledgement, budget/concurrency/daily caps ahead of the engine branch, and KILL ALL working on both handle shapes. | ✅ 47/47 |
 | Vision / multimodal | Chat-only brains can receive image BYTES (OpenAI-compat image_url parts) instead of a filesystem path they cannot open, and a text-only provider REFUSES the turn rather than silently sending it text-only — the failure mode that let this bug hide for a week. Data-URL construction, size/format/empty guards, last-user-turn targeting, no-mutation-of-caller-history, and per-file error reporting. | ✅ 27/27 |
 | Cross-engine orchestration | Profile→native-flag projection per CLI, refusal when an engine cannot enforce a profile, credential scrubbing from the child env, and Atlan-side containment (disposable git worktree + diff gate) proving the real project stays untouchable — including a simulated proot host where no kernel sandbox exists. Live engine calls are opt-in via RUN_LIVE=1. | ✅ 8/8 |
@@ -41,7 +41,7 @@ _Free suites only. The E2E suite (real Claude runs) is opt-in — `RUN_PAID=1 no
 | Tour/Onboarding | Drives all tour steps live — every step spotlights a real visible element; handbook opens/searches/relaunches. | ✅ 10/10 |
 | UI · Fleet | Every Fleet control driven at 412x900: top-up cannot be double-tapped into a double-spend, a kill that fails is reported, the header burn gauge moves while a run burns, Hierarchy job links come with a command selected, and Builder rows stay wide enough to type into. First of the five per-surface specs to reach zero — the rest join as their surfaces are fixed (docs/UI-AUDIT.md). | ✅ 29/29 |
 
-**Total: 926 passed, 0 failed across 29 suites.**
+**Total: 927 passed, 0 failed across 29 suites.**
 
 ## Unit
 
@@ -1145,6 +1145,7 @@ DOC DRIFT SUITE
   ✓ every visual template offered in the UI is NAMED in ARCHITECTURE.md
   ✓ the suite count in run-all.mjs matches what REVIEW-FOR-AI.md claims
   ✓ web/public/app.js has not grown (ceiling ratchet)
+  ✓ launcher scripts stay executable in the git index (SMB-edit guard)
   ✓ the lib/ extraction target exists and is non-trivial
   ✓ DOC-STATUS-CONVENTION.md exists and defines all four statuses
   ✓ the docs that make security claims carry a verification stamp
@@ -1152,7 +1153,7 @@ DOC DRIFT SUITE
   ✓ SECURITY.md quotes every tier statement VERBATIM from tiers.js
   ✓ the phone tier never claims a sandbox (the one regression that discredits everything else)
 
-15 passed, 0 failed
+16 passed, 0 failed
 ```
 
 ## Fleet engines

@@ -15,6 +15,7 @@
 
 import assert from 'node:assert';
 import { readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { FLEET_ENGINES } from '../server/src/fleet.js';
 import { STATEMENT, NO_FS_ON_THIS_DEVICE, SUPERVISOR_ON_THIS_DEVICE, TIERS } from '../server/src/sandbox/tiers.js';
 
@@ -121,6 +122,27 @@ test('web/public/app.js has not grown (ceiling ratchet)', () => {
   const lines = (read('../web/public/app.js').match(/\n/g) || []).length;
   assert.ok(lines <= CEILING,
     `app.js is ${lines} lines, ceiling ${CEILING} — new code goes in web/public/lib/ modules, not here`);
+});
+
+// The launcher scripts are run by ./path, so a stripped execute bit is not a
+// style nit — it is Permission-denied on start. It has shipped TWICE from
+// editing a script through the wsl.localhost SMB share (which drops +x) and
+// each time it blocked a fresh install before anyone saw a stack trace. The
+// tracked mode is the only place to catch it, so the commit that strips it
+// fails here instead of on a tester's phone.
+test('launcher scripts stay executable in the git index (SMB-edit guard)', () => {
+  const MUST_BE_EXEC = ['bin/atlan-serve.sh', 'bin/atlan-watchdog.sh', 'bin/termux-boot.sh'];
+  let staged;
+  try {
+    staged = execFileSync('git', ['ls-files', '--stage', ...MUST_BE_EXEC], { encoding: 'utf8', cwd: new URL('..', import.meta.url) });
+  } catch { return; } // not a git checkout (tarball/CI export) — nothing to assert
+  const bad = [];
+  for (const line of staged.trim().split('\n')) {
+    const [mode, , , path] = line.split(/\s+/);
+    if (mode && mode !== '100755') bad.push(`${path} is ${mode}, must be 100755`);
+  }
+  assert.equal(bad.length, 0,
+    `a launcher lost its +x — run \`git update-index --chmod=+x <file>\`: ${bad.join('; ')}`);
 });
 
 test('the lib/ extraction target exists and is non-trivial', () => {
