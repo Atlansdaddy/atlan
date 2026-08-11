@@ -66,8 +66,18 @@ await test('the CLI-connections row reports binary AND auth per engine', async (
   assert.ok(row, 'the connections row must exist');
   assert.equal(row.group, 'engines');
   assert.match(row.detail, /\d+\/\d+ usable/, 'it must count what is usable');
-  assert.match(row.detail, /bin (ok|MISSING)/, 'it must say whether the binary runs');
-  assert.match(row.detail, /auth (ok|—|NO AUTH)/, 'and whether it is authenticated');
+  // The bad states SHOUT — "BIN MISSING", "NO AUTH" — and that spelling is the
+  // row's deliberate voice, so the assertion matches what the row actually says.
+  // The old /bin (ok|MISSING)/ named a string no code emits: it could only pass
+  // on a machine where at least one CLI supplied "bin ok", which is every dev
+  // box and no clean CI runner — the gate ran red 52 times in a row on exactly
+  // this line before anyone read past the summary count.
+  const engines = row.detail.split('|').filter((r) => !r.includes('llama-server'));
+  assert.ok(engines.length >= 1, 'at least one engine must be listed');
+  for (const engine of engines) {
+    assert.match(engine, /bin ok|BIN MISSING/, `"${engine.trim()}" must say whether the binary runs`);
+    assert.match(engine, /auth ok|NO AUTH/, `"${engine.trim()}" must say whether it is authenticated`);
+  }
 });
 await test('the chat-store row reports usage and never claims to have acted', async () => {
   const { body } = await j(await api('/api/doctor'));

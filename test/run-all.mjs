@@ -30,7 +30,7 @@ const waitHealth = async (base, ms = 25000) => {
   return false;
 };
 
-let server = null, fleetDir = null;
+let server = null, fleetDir = null, fixtureDir = null;
 if (!process.env.ATLAN_BASE) {
   const port = await freePort();
   fleetDir = mkdtempSync(join(tmpdir(), 'atlan-test-fleet-'));
@@ -46,6 +46,22 @@ if (!process.env.ATLAN_BASE) {
   // listing did not contain it and anything referencing a file inside the repo
   // was "outside the projects root". Same value as before on the dev box.
   process.env.ATLAN_PROJECTS ||= dirname(REPO);
+  // The UI suite proves the Build tab TRACKS the project picker, which takes a
+  // second project to switch to. A clean CI runner has exactly one — this
+  // checkout — and the option that used to pad the count to two was the
+  // "loading projects…" placeholder, a bug wearing a fixture's clothes; the
+  // day the placeholder was fixed, the suite lost its phantom second project.
+  // So the boot supplies a REAL one: a throwaway sibling with a package.json,
+  // removed in teardown. On a dev box with many projects this is additive.
+  try {
+    fixtureDir = mkdtempSync(join(process.env.ATLAN_PROJECTS, 'atlan-test-project-'));
+    writeFileSync(join(fixtureDir, 'package.json'), '{ "name": "atlan-test-project", "private": true }\n');
+  } catch {
+    // Unwritable projects root — the UI suite will say so. If the dir was made
+    // but the write failed, remove it: a half-made fixture must not linger.
+    try { if (fixtureDir) rmSync(fixtureDir, { recursive: true, force: true }); } catch { /* */ }
+    fixtureDir = null;
+  }
   process.env.ATLAN_TIER_LOCAL_BASE ||= 'http://127.0.0.1:8091';
   process.env.ATLAN_TIER_CLOUDSM_BASE ||= 'http://127.0.0.1:8092';
   process.stderr.write(`▸ booting throwaway test server on :${port} (state ${fleetDir})\n`);
@@ -53,6 +69,7 @@ if (!process.env.ATLAN_BASE) {
   if (!(await waitHealth(process.env.ATLAN_BASE))) {
     try { server.kill(); } catch { /* */ }
     rmSync(fleetDir, { recursive: true, force: true });
+    try { if (fixtureDir) rmSync(fixtureDir, { recursive: true, force: true }); } catch { /* */ }
     console.error('FATAL: throwaway test server never became healthy — aborting WITHOUT writing RECEIPTS.md');
     process.exit(2);
   }
@@ -60,6 +77,7 @@ if (!process.env.ATLAN_BASE) {
 const teardown = () => {
   try { if (server) server.kill(); } catch { /* */ }
   try { if (fleetDir) rmSync(fleetDir, { recursive: true, force: true }); } catch { /* */ }
+  try { if (fixtureDir) rmSync(fixtureDir, { recursive: true, force: true }); } catch { /* */ }
 };
 
 // The E2E suite makes REAL Claude fleet runs (costs money). It's opt-in via

@@ -649,6 +649,12 @@ await test('Build tab: the trigger is armed and tracks the Chat project', async 
 await test('Build tab: a build that streams and finishes surfaces an installable APK', async () => {
   // Driven by injected build.* frames: the real click is unsafe, but every line
   // below is the exact frame runBuild() emits.
+  // Opens the Build tab ITSELF. It used to inherit whatever pane the previous
+  // test left on screen — the injected frames update a hidden pane happily,
+  // but boundingBox() on a hidden element is null, so a neighbour's failure
+  // surfaced here as "Cannot read properties of null" and read as an APK bug.
+  await page.click('nav button[data-s="s-build"]');
+  await page.waitForTimeout(200);
   await page.evaluate(() => window.__inject({ t: 'build.start', proj: '/root/atlan', stamp: 'spec-stamp' }));
   await page.waitForTimeout(150);
   assert.ok(!await page.locator('#buildBtn').isEnabled(), 'the Build button stayed live during a build — a second tap would race the first');
@@ -675,6 +681,8 @@ await test('Build tab: a build that streams and finishes surfaces an installable
 });
 
 await test('Build tab: a failed build re-arms the button and says why', async () => {
+  await page.click('nav button[data-s="s-build"]'); // its own tab, not a neighbour's leftovers
+  await page.waitForTimeout(200);
   await page.evaluate(() => window.__inject({ t: 'build.start', proj: '/root/atlan', stamp: 'spec-stamp-2' }));
   await page.waitForTimeout(150);
   assert.ok(!await page.locator('#buildBtn').isEnabled(), 'build.start did not disable the button');
