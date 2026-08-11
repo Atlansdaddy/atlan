@@ -72,7 +72,11 @@ await test('the CLI-connections row reports binary AND auth per engine', async (
   // on a machine where at least one CLI supplied "bin ok", which is every dev
   // box and no clean CI runner — the gate ran red 52 times in a row on exactly
   // this line before anyone read past the summary count.
-  const engines = row.detail.split('|').filter((r) => !r.includes('llama-server'));
+  // Split on the joiner EXACTLY as emitted ('  |  ', two spaces each side): an
+  // auth reason can carry a pipe of its own — agy's install hint is a
+  // "curl … | bash" — and splitting on every pipe cut that row in half, so the
+  // first honest CI run failed on the orphaned "bash" fragment.
+  const engines = row.detail.split('  |  ').filter((r) => !r.includes('llama-server'));
   assert.ok(engines.length >= 1, 'at least one engine must be listed');
   for (const engine of engines) {
     assert.match(engine, /bin ok|BIN MISSING/, `"${engine.trim()}" must say whether the binary runs`);
