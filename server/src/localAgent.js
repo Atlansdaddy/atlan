@@ -7,13 +7,16 @@
 // only ready engine is llama-server, that makes the cockpit an expensive way to
 // read text.
 //
-// WHY A 1B CAN DO THIS AT ALL. llama.cpp converts each tool's JSON Schema into a
-// GBNF grammar and constrains decoding to it, so a malformed tool call is not one
-// of the reachable outputs. The model does not need to be smart enough to emit
-// valid JSON; it needs to pick a tool and fill fields. That moves the failure mode
-// from SYNTACTIC (garbage nobody can parse) to SEMANTIC (wrong tool, wrong path)
-// — which is the class this repo already grades with deterministic checkers
-// rather than trusting a model to self-assess.
+// HOW A SMALL MODEL EMITS A USABLE CALL. The hope was that --jinja grammar-locks
+// decoding so a malformed call is unreachable. On-device that is NOT what happens:
+// with tool_choice 'auto' llama.cpp lets the model produce free text and then
+// PARSES it, and the parse is fragile — Llama-3.2's tool format hard-500s the
+// server ("does not match the expected native format"), and Qwen-Coder writes a
+// clean tool call but as a JSON block in ordinary content, not the structured
+// tool_calls field. So we do NOT rely on the template: toolCallFromContent()
+// reads the JSON the model actually wrote, for a known tool. The failure mode is
+// then SEMANTIC (wrong tool, wrong path) — graded by deterministic checkers —
+// instead of a raw 500 in the user's face.
 //
 // FOUR TOOLS, DELIBERATELY. A small model choosing between four sharp tools beats
 // one choosing between twenty; every extra tool is another way to pick wrong.
@@ -94,6 +97,47 @@ export const TOOLS = [
     },
   },
 ];
+
+const TOOL_NAMES = new Set(TOOLS.map((t) => t.function.name));
+
+/**
+ * Read a tool call the model wrote as ORDINARY CONTENT instead of a structured
+ * tool_calls entry.
+ *
+ * Small local models under llama.cpp routinely describe the call as a JSON
+ * object in prose — ```json {"name":"write_file","arguments":{…}} ``` — rather
+ * than emit the native tool-call tokens. Measured on-device: Qwen-Coder-1.5B
+ * does exactly this, with clean JSON and real file contents, on tool_choice
+ * 'auto'; forcing 'required' or using Llama-3.2 instead broke other ways. So we
+ * meet the model where it actually is: pull a well-formed {name, arguments} for
+ * a KNOWN tool out of content. Unknown names are ignored — random JSON in an
+ * answer is not a tool call.
+ *
+ * @returns {{name:string, args:object}|null}
+ */
+export function toolCallFromContent(content) {
+  const text = String(content ?? '');
+  const blocks = [];
+  const fence = /```(?:json|tool_call)?\s*([\s\S]*?)```/gi;
+  let m;
+  while ((m = fence.exec(text))) blocks.push(m[1]);
+  blocks.push(text); // also try the whole thing, for a bare object
+  for (const b of blocks) {
+    const s = b.indexOf('{');
+    const e = b.lastIndexOf('}');
+    if (s < 0 || e <= s) continue;
+    let obj;
+    try { obj = JSON.parse(b.slice(s, e + 1)); } catch { continue; }
+    // Accept the shapes small models actually produce: {name,arguments},
+    // {tool_call:{…}}, {function:{…}}.
+    const call = obj?.name ? obj : (obj?.tool_call ?? obj?.function ?? null);
+    if (!call || !TOOL_NAMES.has(call.name)) continue;
+    let args = call.arguments ?? call.parameters ?? {};
+    if (typeof args === 'string') { try { args = JSON.parse(args); } catch { args = {}; } }
+    return { name: call.name, args: args && typeof args === 'object' ? args : {} };
+  }
+  return null;
+}
 
 /**
  * Resolve a model-supplied path INSIDE cwd, or refuse.
@@ -268,13 +312,33 @@ export async function localAgentRun({
       // The one error worth naming: llama-server refuses `tools` unless started
       // with --jinja, and its message is easy to miss inside a 500.
       if (/--jinja/.test(body)) throw new Error('the local model server was started without --jinja, so it refuses tools. Restart llama-server with --jinja.');
+      // llama.cpp's --jinja tool parser HARD-500s when a model emits a tool call
+      // its chat template can't parse (json.exception / "does not match the
+      // expected native format"). Llama-3.2 trips this reliably; Qwen models do
+      // not. It is not our bug and not the user's prompt — so say which model
+      // stack is at fault and where to switch it, instead of leaking a raw 500.
+      if (/parse error|does not match the expected|json\.exception|native format/i.test(body)) {
+        throw new Error("this model's tool-call output couldn't be parsed by llama-server — a known llama.cpp limitation with some models (Llama-3.2 hits it, Qwen models don't). Switch the served model in Doctor → Local brain.");
+      }
       throw new Error(`local model HTTP ${res.status}: ${body.slice(0, 200)}`);
     }
     const json = await res.json();
     const msg = json?.choices?.[0]?.message ?? {};
     messages.push(msg);
 
-    const toolCalls = msg.tool_calls ?? [];
+    let toolCalls = msg.tool_calls ?? [];
+    // Fallback: the model may have written the call as content JSON rather than
+    // a structured tool_calls entry (small models do this constantly). Recover
+    // it, and REWRITE the assistant turn to carry the tool_call — otherwise the
+    // next request answers prose with a tool result, which the server rejects
+    // as a malformed conversation.
+    if (!toolCalls.length) {
+      const fc = toolCallFromContent(msg.content);
+      if (fc) {
+        toolCalls = [{ id: `content-${step}`, type: 'function', function: { name: fc.name, arguments: JSON.stringify(fc.args) } }];
+        messages[messages.length - 1] = { role: 'assistant', content: null, tool_calls: toolCalls };
+      }
+    }
     if (!toolCalls.length) {
       return { text: String(msg.content ?? '').trim(), tools: used, steps: step + 1 };
     }

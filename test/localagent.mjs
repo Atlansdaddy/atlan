@@ -15,7 +15,7 @@ import { mkdirSync, writeFileSync, readFileSync, existsSync, symlinkSync, readdi
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import { projectScratch } from './lib/paths.mjs';
-import { localAgentRun, runTool, TOOLS, MAX_TOOL_CALLS } from '../server/src/localAgent.js';
+import { localAgentRun, runTool, TOOLS, MAX_TOOL_CALLS, toolCallFromContent } from '../server/src/localAgent.js';
 
 let pass = 0, fail = 0;
 const test = async (name, fn) => {
@@ -45,8 +45,43 @@ const call = (name, args, id = 'c1') => ({
   tool_calls: [{ id, type: 'function', function: { name, arguments: JSON.stringify(args) } }],
 });
 const say = (content) => ({ role: 'assistant', content });
+// A turn where the model wrote the tool call as CONTENT, not a structured
+// tool_calls entry — the on-device reality for small models (see below).
+const sayContent = (content) => ({ role: 'assistant', content, tool_calls: [] });
 
 console.log('LOCAL AGENT');
+
+// ── the on-device reality: models describe tool calls in prose ───────────────
+// Verbatim shape Qwen-Coder-1.5B emitted on the S9 for "build an app": a fenced
+// JSON block in content, no structured tool_calls. Llama-3.2 instead 500s the
+// server. The fallback parser has to turn THIS into a real write.
+const QWEN_MARKDOWN = '```json\n{\n  "name": "write_file",\n  "arguments": {\n    "path": "www/index.html",\n    "content": "<html><head><title>Test App</title></head><body><h1>Welcome</h1></body></html>"\n  }\n}\n```';
+
+await test('toolCallFromContent: extracts a known-tool call from a markdown JSON block', () => {
+  const fc = toolCallFromContent(QWEN_MARKDOWN);
+  assert.ok(fc, 'a fenced {name,arguments} for a known tool must be recovered');
+  assert.equal(fc.name, 'write_file');
+  assert.equal(fc.args.path, 'www/index.html');
+  assert.match(fc.args.content, /<h1>Welcome<\/h1>/);
+});
+
+await test('toolCallFromContent: ignores JSON that is not a known tool call', () => {
+  assert.equal(toolCallFromContent('here is some data: {"name":"nonsense","arguments":{}}'), null);
+  assert.equal(toolCallFromContent('no json at all, just prose'), null);
+  assert.equal(toolCallFromContent('{"foo":1}'), null);
+});
+
+await test('content-only tool call still writes the file (Qwen-Coder path, end to end)', async () => {
+  const r = await localAgentRun({
+    prompt: 'build a simple app, write www/index.html',
+    cwd: proj,
+    fetchImpl: scripted([sayContent(QWEN_MARKDOWN), say('Done — wrote www/index.html.')]),
+  });
+  assert.match(readFileSync(join(proj, 'www/index.html'), 'utf8'), /<h1>Welcome<\/h1>/,
+    'the file the model described in content must actually land on disk');
+  assert.equal(r.tools[0].name, 'write_file');
+  assert.ok(r.tools[0].ok, 'the recovered call must execute, not just parse');
+});
 
 // ── the toolset itself ───────────────────────────────────────────────────────
 await test('exactly four tools are offered, and each says WHEN to use it', () => {
